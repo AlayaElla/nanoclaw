@@ -1,11 +1,13 @@
 ---
 name: add-voice-transcription
-description: Add voice message transcription to NanoClaw using OpenAI's Whisper API. Automatically transcribes WhatsApp voice notes so the agent can read and respond to them.
+description: Add voice message transcription to NanoClaw using Alibaba Qwen3 ASR (DashScope). Automatically transcribes Telegram voice notes so the agent can read and respond to them.
 ---
 
 # Add Voice Transcription
 
-This skill adds automatic voice message transcription to NanoClaw's WhatsApp channel using OpenAI's Whisper API. When a voice note arrives, it is downloaded, transcribed, and delivered to the agent as `[Voice: <transcript>]`.
+This skill adds automatic voice message transcription to NanoClaw's Telegram channel using Alibaba's Qwen3 ASR via DashScope API. When a voice note arrives, it is downloaded via the Telegram Bot API, transcribed, and delivered to the agent as `[Voice: <transcript>]`.
+
+**Prerequisite**: Telegram must already be set up via the `/add-telegram` skill.
 
 ## Phase 1: Pre-flight
 
@@ -17,9 +19,9 @@ Read `.nanoclaw/state.yaml`. If `voice-transcription` is in `applied_skills`, sk
 
 Use `AskUserQuestion` to collect information:
 
-AskUserQuestion: Do you have an OpenAI API key for Whisper transcription?
+AskUserQuestion: Do you have a DashScope API key for Qwen3 ASR transcription?
 
-If yes, collect it now. If no, direct them to create one at https://platform.openai.com/api-keys.
+If yes, collect it now. If no, direct them to create one at https://bailian.console.aliyun.com/.
 
 ## Phase 2: Apply Code Changes
 
@@ -40,16 +42,13 @@ npx tsx scripts/apply-skill.ts .claude/skills/add-voice-transcription
 ```
 
 This deterministically:
-- Adds `src/transcription.ts` (voice transcription module using OpenAI Whisper)
-- Three-way merges voice handling into `src/channels/whatsapp.ts` (isVoiceMessage check, transcribeAudioMessage call)
-- Three-way merges transcription tests into `src/channels/whatsapp.test.ts` (mock + 3 test cases)
-- Installs the `openai` npm dependency
-- Updates `.env.example` with `OPENAI_API_KEY`
+- Adds `src/transcription.ts` (voice transcription module using Qwen3 ASR via DashScope)
+- Three-way merges voice handling into `src/channels/telegram.ts` (download + transcribe voice messages)
+- Updates `.env.example` with `DASHSCOPE_API_KEY`
 - Records the application in `.nanoclaw/state.yaml`
 
-If the apply reports merge conflicts, read the intent files:
-- `modify/src/channels/whatsapp.ts.intent.md` — what changed and invariants for whatsapp.ts
-- `modify/src/channels/whatsapp.test.ts.intent.md` — what changed for whatsapp.test.ts
+If the apply reports merge conflicts, read the intent file:
+- `modify/src/channels/telegram.ts.intent.md` — what changed and invariants
 
 ### Validate code changes
 
@@ -58,22 +57,22 @@ npm test
 npm run build
 ```
 
-All tests must pass (including the 3 new voice transcription tests) and build must be clean before proceeding.
+All tests must pass and build must be clean before proceeding.
 
 ## Phase 3: Configure
 
-### Get OpenAI API key (if needed)
+### Get DashScope API key (if needed)
 
 If the user doesn't have an API key:
 
-> I need you to create an OpenAI API key:
+> I need you to create a DashScope API key:
 >
-> 1. Go to https://platform.openai.com/api-keys
-> 2. Click "Create new secret key"
-> 3. Give it a name (e.g., "NanoClaw Transcription")
+> 1. Go to https://bailian.console.aliyun.com/
+> 2. Open API Key management
+> 3. Click "Create new API key"
 > 4. Copy the key (starts with `sk-`)
 >
-> Cost: ~$0.006 per minute of audio (~$0.003 per typical 30-second voice note)
+> Cost: Qwen3 ASR Flash is very affordable, see https://help.aliyun.com/zh/model-studio/pricing for details.
 
 Wait for the user to provide the key.
 
@@ -82,7 +81,7 @@ Wait for the user to provide the key.
 Add to `.env`:
 
 ```bash
-OPENAI_API_KEY=<their-key>
+DASHSCOPE_API_KEY=<their-key>
 ```
 
 Sync to container environment:
@@ -107,7 +106,7 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # macOS
 
 Tell the user:
 
-> Send a voice note in any registered WhatsApp chat. The agent should receive it as `[Voice: <transcript>]` and respond to its content.
+> Send a voice note in any registered Telegram chat. The agent should receive it as `[Voice: <transcript>]` and respond to its content.
 
 ### Check logs if needed
 
@@ -116,24 +115,24 @@ tail -f logs/nanoclaw.log | grep -i voice
 ```
 
 Look for:
-- `Transcribed voice message` — successful transcription with character count
-- `OPENAI_API_KEY not set` — key missing from `.env`
-- `OpenAI transcription failed` — API error (check key validity, billing)
-- `Failed to download audio message` — media download issue
+- `Transcribed Telegram voice message` — successful transcription with character count
+- `DASHSCOPE_API_KEY not set` — key missing from `.env`
+- `DashScope transcription failed` — API error (check key validity, billing)
+- `Failed to download Telegram voice file` — file download issue
 
 ## Troubleshooting
 
 ### Voice notes show "[Voice Message - transcription unavailable]"
 
-1. Check `OPENAI_API_KEY` is set in `.env` AND synced to `data/env/env`
-2. Verify key works: `curl -s https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY" | head -c 200`
-3. Check OpenAI billing — Whisper requires a funded account
+1. Check `DASHSCOPE_API_KEY` is set in `.env` AND synced to `data/env/env`
+2. Verify key works: `curl -s https://dashscope.aliyuncs.com/compatible-mode/v1/models -H "Authorization: Bearer $DASHSCOPE_API_KEY" | head -c 200`
+3. Check DashScope billing — ensure the account is active and funded
 
 ### Voice notes show "[Voice Message - transcription failed]"
 
 Check logs for the specific error. Common causes:
 - Network timeout — transient, will work on next message
-- Invalid API key — regenerate at https://platform.openai.com/api-keys
+- Invalid API key — regenerate at https://bailian.console.aliyun.com/
 - Rate limiting — wait and retry
 
 ### Agent doesn't respond to voice notes

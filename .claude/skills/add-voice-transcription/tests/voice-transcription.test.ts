@@ -12,8 +12,9 @@ describe('voice-transcription skill package', () => {
     const content = fs.readFileSync(manifestPath, 'utf-8');
     expect(content).toContain('skill: voice-transcription');
     expect(content).toContain('version: 1.0.0');
-    expect(content).toContain('openai');
-    expect(content).toContain('OPENAI_API_KEY');
+    expect(content).toContain('DASHSCOPE_API_KEY');
+    expect(content).toContain('depends:');
+    expect(content).toContain('telegram');
   });
 
   it('has all files declared in adds', () => {
@@ -22,33 +23,32 @@ describe('voice-transcription skill package', () => {
 
     const content = fs.readFileSync(transcriptionFile, 'utf-8');
     expect(content).toContain('transcribeAudioMessage');
-    expect(content).toContain('isVoiceMessage');
-    expect(content).toContain('transcribeWithOpenAI');
-    expect(content).toContain('downloadMediaMessage');
+    expect(content).toContain('transcribeWithDashScope');
     expect(content).toContain('readEnvFile');
+    // Should NOT contain WhatsApp-specific imports
+    expect(content).not.toContain('downloadMediaMessage');
+    expect(content).not.toContain('WAMessage');
+    expect(content).not.toContain('WASocket');
+    expect(content).not.toContain('isVoiceMessage');
   });
 
   it('has all files declared in modifies', () => {
-    const whatsappFile = path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.ts');
-    const whatsappTestFile = path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.test.ts');
-
-    expect(fs.existsSync(whatsappFile)).toBe(true);
-    expect(fs.existsSync(whatsappTestFile)).toBe(true);
+    const telegramFile = path.join(skillDir, 'modify', 'src', 'channels', 'telegram.ts');
+    expect(fs.existsSync(telegramFile)).toBe(true);
   });
 
   it('has intent files for modified files', () => {
-    expect(fs.existsSync(path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.ts.intent.md'))).toBe(true);
-    expect(fs.existsSync(path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.test.ts.intent.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skillDir, 'modify', 'src', 'channels', 'telegram.ts.intent.md'))).toBe(true);
   });
 
-  it('modified whatsapp.ts preserves core structure', () => {
+  it('modified telegram.ts preserves core structure', () => {
     const content = fs.readFileSync(
-      path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.ts'),
+      path.join(skillDir, 'modify', 'src', 'channels', 'telegram.ts'),
       'utf-8',
     );
 
     // Core class and methods preserved
-    expect(content).toContain('class WhatsAppChannel');
+    expect(content).toContain('class TelegramChannel');
     expect(content).toContain('implements Channel');
     expect(content).toContain('async connect()');
     expect(content).toContain('async sendMessage(');
@@ -56,68 +56,43 @@ describe('voice-transcription skill package', () => {
     expect(content).toContain('ownsJid(');
     expect(content).toContain('async disconnect()');
     expect(content).toContain('async setTyping(');
-    expect(content).toContain('async syncGroupMetadata(');
-    expect(content).toContain('private async translateJid(');
-    expect(content).toContain('private async flushOutgoingQueue(');
 
     // Core imports preserved
-    expect(content).toContain('ASSISTANT_HAS_OWN_NUMBER');
     expect(content).toContain('ASSISTANT_NAME');
-    expect(content).toContain('STORE_DIR');
+    expect(content).toContain('TRIGGER_PATTERN');
+    expect(content).toContain('registerChannel');
   });
 
-  it('modified whatsapp.ts includes transcription integration', () => {
+  it('modified telegram.ts includes transcription integration', () => {
     const content = fs.readFileSync(
-      path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.ts'),
+      path.join(skillDir, 'modify', 'src', 'channels', 'telegram.ts'),
       'utf-8',
     );
 
-    // Transcription imports
-    expect(content).toContain("import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js'");
+    // Transcription import
+    expect(content).toContain("import { transcribeAudioMessage } from '../transcription.js'");
 
-    // Voice message handling
-    expect(content).toContain('isVoiceMessage(msg)');
-    expect(content).toContain('transcribeAudioMessage(msg, this.sock)');
-    expect(content).toContain('finalContent');
+    // Voice message handling with transcription
+    expect(content).toContain("this.bot.on('message:voice'");
+    expect(content).toContain('ctx.getFile()');
+    expect(content).toContain('transcribeAudioMessage(buffer)');
     expect(content).toContain('[Voice:');
     expect(content).toContain('[Voice Message - transcription unavailable]');
     expect(content).toContain('[Voice Message - transcription failed]');
   });
 
-  it('modified whatsapp.test.ts includes transcription mock and tests', () => {
+  it('modified telegram.ts preserves all non-text handlers', () => {
     const content = fs.readFileSync(
-      path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.test.ts'),
+      path.join(skillDir, 'modify', 'src', 'channels', 'telegram.ts'),
       'utf-8',
     );
 
-    // Transcription mock
-    expect(content).toContain("vi.mock('../transcription.js'");
-    expect(content).toContain('isVoiceMessage');
-    expect(content).toContain('transcribeAudioMessage');
-
-    // Voice transcription test cases
-    expect(content).toContain('transcribes voice messages');
-    expect(content).toContain('falls back when transcription returns null');
-    expect(content).toContain('falls back when transcription throws');
-    expect(content).toContain('[Voice: Hello this is a voice message]');
-  });
-
-  it('modified whatsapp.test.ts preserves all existing test sections', () => {
-    const content = fs.readFileSync(
-      path.join(skillDir, 'modify', 'src', 'channels', 'whatsapp.test.ts'),
-      'utf-8',
-    );
-
-    // All existing test describe blocks preserved
-    expect(content).toContain("describe('connection lifecycle'");
-    expect(content).toContain("describe('authentication'");
-    expect(content).toContain("describe('reconnection'");
-    expect(content).toContain("describe('message handling'");
-    expect(content).toContain("describe('LID to JID translation'");
-    expect(content).toContain("describe('outgoing message queue'");
-    expect(content).toContain("describe('group metadata sync'");
-    expect(content).toContain("describe('ownsJid'");
-    expect(content).toContain("describe('setTyping'");
-    expect(content).toContain("describe('channel properties'");
+    expect(content).toContain("'message:photo'");
+    expect(content).toContain("'message:video'");
+    expect(content).toContain("'message:audio'");
+    expect(content).toContain("'message:document'");
+    expect(content).toContain("'message:sticker'");
+    expect(content).toContain("'message:location'");
+    expect(content).toContain("'message:contact'");
   });
 });

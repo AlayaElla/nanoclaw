@@ -221,6 +221,8 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_MODEL',
+    'PARALLEL_API_KEY',
+    'DASHSCOPE_API_KEY',
   ]);
 }
 
@@ -312,6 +314,10 @@ export async function runContainerAgent(
 
     // Pass secrets via stdin (never written to disk or mounted as files)
     input.secrets = readSecrets();
+    // Per-group model override: use group's model if configured
+    if (group.model) {
+      input.secrets.ANTHROPIC_MODEL = group.model;
+    }
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
     // Remove secrets from input so they don't appear in logs

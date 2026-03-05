@@ -119,6 +119,33 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
+  // Add model column if it doesn't exist (migration for per-group model selection)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN model TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Add bot_token column if it doesn't exist (migration for multi-bot support)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN bot_token TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Add assistant_name column if it doesn't exist (migration for per-group assistant name)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN assistant_name TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
     database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
@@ -536,15 +563,18 @@ export function getRegisteredGroup(
     .prepare('SELECT * FROM registered_groups WHERE jid = ?')
     .get(jid) as
     | {
-        jid: string;
-        name: string;
-        folder: string;
-        trigger_pattern: string;
-        added_at: string;
-        container_config: string | null;
-        requires_trigger: number | null;
-        is_main: number | null;
-      }
+      jid: string;
+      name: string;
+      folder: string;
+      trigger_pattern: string;
+      added_at: string;
+      container_config: string | null;
+      requires_trigger: number | null;
+      is_main: number | null;
+      model: string | null;
+      bot_token: string | null;
+      assistant_name: string | null;
+    }
     | undefined;
   if (!row) return undefined;
   if (!isValidGroupFolder(row.folder)) {
@@ -566,6 +596,9 @@ export function getRegisteredGroup(
     requiresTrigger:
       row.requires_trigger === null ? undefined : row.requires_trigger === 1,
     isMain: row.is_main === 1 ? true : undefined,
+    model: row.model || undefined,
+    botToken: row.bot_token || undefined,
+    assistantName: row.assistant_name || undefined,
   };
 }
 
@@ -574,8 +607,8 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, model, bot_token, assistant_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -585,6 +618,9 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
     group.isMain ? 1 : 0,
+    group.model || null,
+    group.botToken || null,
+    group.assistantName || null,
   );
 }
 
@@ -598,6 +634,9 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     container_config: string | null;
     requires_trigger: number | null;
     is_main: number | null;
+    model: string | null;
+    bot_token: string | null;
+    assistant_name: string | null;
   }>;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
@@ -619,6 +658,9 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       requiresTrigger:
         row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
+      model: row.model || undefined,
+      botToken: row.bot_token || undefined,
+      assistantName: row.assistant_name || undefined,
     };
   }
   return result;

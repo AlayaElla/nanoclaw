@@ -4,10 +4,13 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { sendPoolMessage } from './channels/telegram.js';
+import { handleXIpc } from './x-integration-host.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { searchMemory, isRagEnabled } from './rag.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -80,9 +83,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   isMain ||
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
-                  await deps.sendMessage(data.chatJid, data.text);
+                  if (data.sender && data.chatJid.startsWith('tg:')) {
+                    await sendPoolMessage(data.chatJid, data.text, data.sender, sourceGroup);
+                  } else {
+                    await deps.sendMessage(data.chatJid, data.text);
+                  }
                   logger.info(
-                    { chatJid: data.chatJid, sourceGroup },
+                    { chatJid: data.chatJid, sourceGroup, sender: data.sender },
                     'IPC message sent',
                   );
                 } else {
@@ -383,7 +390,46 @@ export async function processTaskIpc(
       }
       break;
 
-    default:
-      logger.warn({ type: data.type }, 'Unknown IPC task type');
+    case 'rag_search': {
+      // RAG search: agent writes request, host writes result file back
+      if (!isRagEnabled()) {
+        logger.debug('RAG search requested but RAG is disabled');
+        break;
+      }
+      const ragQuery = (data as any).query as string;
+      const ragRequestId = (data as any).requestId as string;
+      const ragTopK = (data as any).topK as number || 5;
+      if (!ragQuery || !ragRequestId) {
+        logger.warn({ data }, 'Invalid rag_search request');
+        break;
+      }
+      try {
+        const results = await searchMemory(sourceGroup, ragQuery, ragTopK);
+        // Write result file for the agent to read
+        const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'rag_results');
+        fs.mkdirSync(resultDir, { recursive: true });
+        const resultPath = path.join(resultDir, `${ragRequestId}.json`);
+        fs.writeFileSync(resultPath, JSON.stringify({ results, requestId: ragRequestId }));
+        logger.info(
+          { sourceGroup, query: ragQuery.slice(0, 50), results: results.length },
+          'RAG search completed via IPC',
+        );
+      } catch (err) {
+        logger.error({ err, sourceGroup, ragQuery }, 'RAG search failed via IPC');
+        // Write empty result so agent doesn't hang
+        const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'rag_results');
+        fs.mkdirSync(resultDir, { recursive: true });
+        const resultPath = path.join(resultDir, `${ragRequestId}.json`);
+        fs.writeFileSync(resultPath, JSON.stringify({ results: [], requestId: ragRequestId, error: String(err) }));
+      }
+      break;
+    }
+
+    default: {
+      const handled = await handleXIpc(data, sourceGroup, isMain, DATA_DIR);
+      if (!handled) {
+        logger.warn({ type: data.type }, 'Unknown IPC task type');
+      }
+    }
   }
 }

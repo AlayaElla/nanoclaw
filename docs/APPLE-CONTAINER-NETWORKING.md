@@ -1,90 +1,90 @@
-# Apple Container Networking Setup (macOS 26)
+# Apple Container 网络配置 (macOS 26)
 
-Apple Container's vmnet networking requires manual configuration for containers to access the internet. Without this, containers can communicate with the host but cannot reach external services (DNS, HTTPS, APIs).
+Apple Container 的 vmnet 网络需要手动配置才能让容器访问互联网。未配置时，容器可以与宿主机通信，但无法访问外部服务（DNS、HTTPS、API）。
 
-## Quick Setup
+## 快速配置
 
-Run these two commands (requires `sudo`):
+运行以下两个命令（需要 `sudo`）：
 
 ```bash
-# 1. Enable IP forwarding so the host routes container traffic
+# 1. 启用 IP 转发，让宿主机路由容器流量
 sudo sysctl -w net.inet.ip.forwarding=1
 
-# 2. Enable NAT so container traffic gets masqueraded through your internet interface
+# 2. 启用 NAT，将容器流量通过你的网络接口进行伪装
 echo "nat on en0 from 192.168.64.0/24 to any -> (en0)" | sudo pfctl -ef -
 ```
 
-> **Note:** Replace `en0` with your active internet interface. Check with: `route get 8.8.8.8 | grep interface`
+> **注意：** 将 `en0` 替换为你实际使用的网络接口。可通过以下命令查看：`route get 8.8.8.8 | grep interface`
 
-## Making It Persistent
+## 设为持久化配置
 
-These settings reset on reboot. To make them permanent:
+以上设置在重启后会失效。如需永久生效：
 
-**IP Forwarding** — add to `/etc/sysctl.conf`:
+**IP 转发** — 添加到 `/etc/sysctl.conf`：
 ```
 net.inet.ip.forwarding=1
 ```
 
-**NAT Rules** — add to `/etc/pf.conf` (before any existing rules):
+**NAT 规则** — 添加到 `/etc/pf.conf`（放在现有规则之前）：
 ```
 nat on en0 from 192.168.64.0/24 to any -> (en0)
 ```
 
-Then reload: `sudo pfctl -f /etc/pf.conf`
+然后重新加载：`sudo pfctl -f /etc/pf.conf`
 
-## IPv6 DNS Issue
+## IPv6 DNS 问题
 
-By default, DNS resolvers return IPv6 (AAAA) records before IPv4 (A) records. Since our NAT only handles IPv4, Node.js applications inside containers will try IPv6 first and fail.
+默认情况下，DNS 解析器会优先返回 IPv6（AAAA）记录而非 IPv4（A）记录。由于我们的 NAT 只处理 IPv4，容器内的 Node.js 应用会先尝试 IPv6 并失败。
 
-The container image and runner are configured to prefer IPv4 via:
+容器镜像和运行器通过以下方式强制使用 IPv4 优先：
 ```
 NODE_OPTIONS=--dns-result-order=ipv4first
 ```
 
-This is set both in the `Dockerfile` and passed via `-e` flag in `container-runner.ts`.
+该配置同时在 `Dockerfile` 和 `container-runner.ts` 中通过 `-e` 标志设置。
 
-## Verification
+## 验证
 
 ```bash
-# Check IP forwarding is enabled
+# 检查 IP 转发是否已启用
 sysctl net.inet.ip.forwarding
-# Expected: net.inet.ip.forwarding: 1
+# 预期输出：net.inet.ip.forwarding: 1
 
-# Test container internet access
+# 测试容器的互联网访问
 container run --rm --entrypoint curl nanoclaw-agent:latest \
   -s4 --connect-timeout 5 -o /dev/null -w "%{http_code}" https://api.anthropic.com
-# Expected: 404
+# 预期输出：404
 
-# Check bridge interface (only exists when a container is running)
+# 检查桥接接口（仅在容器运行时存在）
 ifconfig bridge100
 ```
 
-## Troubleshooting
+## 故障排除
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `curl: (28) Connection timed out` | IP forwarding disabled | `sudo sysctl -w net.inet.ip.forwarding=1` |
-| HTTP works, HTTPS times out | IPv6 DNS resolution | Add `NODE_OPTIONS=--dns-result-order=ipv4first` |
-| `Could not resolve host` | DNS not forwarded | Check bridge100 exists, verify pfctl NAT rules |
-| Container hangs after output | Missing `process.exit(0)` in agent-runner | Rebuild container image |
+| 症状 | 原因 | 修复方法 |
+|------|------|----------|
+| `curl: (28) Connection timed out` | IP 转发未启用 | `sudo sysctl -w net.inet.ip.forwarding=1` |
+| HTTP 正常，HTTPS 超时 | IPv6 DNS 解析 | 添加 `NODE_OPTIONS=--dns-result-order=ipv4first` |
+| `Could not resolve host` | DNS 未转发 | 检查 bridge100 是否存在，验证 pfctl NAT 规则 |
+| 容器输出后挂起 | agent-runner 中缺少 `process.exit(0)` | 重新构建容器镜像 |
 
-## How It Works
+## 工作原理
 
 ```
-Container VM (192.168.64.x)
+容器 VM (192.168.64.x)
     │
-    ├── eth0 → gateway 192.168.64.1
+    ├── eth0 → 网关 192.168.64.1
     │
-bridge100 (192.168.64.1) ← host bridge, created by vmnet when container runs
+bridge100 (192.168.64.1) ← 宿主机桥接，容器运行时由 vmnet 创建
     │
-    ├── IP forwarding (sysctl) routes packets from bridge100 → en0
+    ├── IP 转发 (sysctl) 将数据包从 bridge100 路由到 en0
     │
-    ├── NAT (pfctl) masquerades 192.168.64.0/24 → en0's IP
+    ├── NAT (pfctl) 将 192.168.64.0/24 伪装为 en0 的 IP
     │
-en0 (your WiFi/Ethernet) → Internet
+en0 (你的 WiFi/以太网) → 互联网
 ```
 
-## References
+## 参考资料
 
-- [apple/container#469](https://github.com/apple/container/issues/469) — No network from container on macOS 26
-- [apple/container#656](https://github.com/apple/container/issues/656) — Cannot access internet URLs during building
+- [apple/container#469](https://github.com/apple/container/issues/469) — macOS 26 上容器无网络
+- [apple/container#656](https://github.com/apple/container/issues/656) — 构建过程中无法访问互联网 URL

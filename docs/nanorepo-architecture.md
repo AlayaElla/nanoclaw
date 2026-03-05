@@ -1,44 +1,44 @@
-# NanoClaw Skills Architecture
+# NanoClaw 技能架构（精简版）
 
-## What Skills Are For
+## 技能的用途
 
-NanoClaw's core is intentionally minimal. Skills are how users extend it: adding channels, integrations, cross-platform support, or replacing internals entirely. Examples: add Telegram alongside WhatsApp, switch from Apple Container to Docker, add Gmail integration, add voice message transcription. Each skill modifies the actual codebase, adding channel handlers, updating the message router, changing container configuration, and adding dependencies, rather than working through a plugin API or runtime hooks.
+NanoClaw 的核心是刻意精简的。技能是用户扩展它的方式：添加渠道、集成、跨平台支持，或完全替换内部实现。示例：在 WhatsApp 旁添加 Telegram、从 Apple Container 切换到 Docker、添加 Gmail 集成、添加语音消息转录。每个技能修改实际的代码库——添加渠道处理器、更新消息路由器、修改容器配置、添加依赖——而不是通过插件 API 或运行时钩子工作。
 
-## Why This Architecture
+## 为什么选择这种架构
 
-The problem: users need to combine multiple modifications to a shared codebase, keep those modifications working across core updates, and do all of this without becoming git experts or losing their custom changes. A plugin system would be simpler but constrains what skills can do. Giving skills full codebase access means they can change anything, but that creates merge conflicts, update breakage, and state tracking challenges.
+问题：用户需要在共享代码库上组合多个修改，保持这些修改在核心更新中持续工作，而所有这一切都不需要成为 git 专家或丢失自定义更改。插件系统会更简单，但会限制技能能做什么。给技能完全的代码库访问意味着它们可以更改任何东西，但这会产生合并冲突、更新破坏和状态跟踪挑战。
 
-This architecture solves that by making skill application fully programmatic using standard git mechanics, with AI as a fallback for conflicts git can't resolve, and a shared resolution cache so most users never hit those conflicts at all. The result: users compose exactly the features they want, customizations survive core updates automatically, and the system is always recoverable.
+这种架构通过使用标准 git 机制使技能应用完全程序化来解决问题，AI 作为 git 无法解决冲突时的后备方案，以及共享的解决方案缓存使大多数用户根本不会遇到这些冲突。结果：用户精确组合他们想要的功能，定制在核心更新中自动保留，系统始终可恢复。
 
-## Core Principle
+## 核心原则
 
-Skills are self-contained, auditable packages applied via standard git merge mechanics. Claude Code orchestrates the process — running git commands, reading skill manifests, and stepping in only when git can't resolve a conflict. The system uses existing git features (`merge-file`, `rerere`, `apply`) rather than custom merge infrastructure.
+技能是自包含的、可审计的包，通过标准 git 合并机制应用。Claude Code 编排这个过程——运行 git 命令、读取技能清单、仅在 git 无法解决冲突时介入。系统使用现有的 git 功能（`merge-file`、`rerere`、`apply`）而不是自定义合并基础设施。
 
-## Three-Level Resolution Model
+## 三级解决模型
 
-Every operation follows this escalation:
+每个操作遵循以下升级：
 
-1. **Git** — deterministic. `git merge-file` merges, `git rerere` replays cached resolutions, structured operations apply without merging. No AI. Handles the vast majority of cases.
-2. **Claude Code** — reads `SKILL.md`, `.intent.md`, and `state.yaml` to resolve conflicts git can't handle. Caches resolutions via `git rerere` so the same conflict never needs resolving twice.
-3. **Claude Code + user input** — when Claude Code lacks sufficient context to determine intent (e.g., two features genuinely conflict at an application level), it asks the user for a decision, then uses that input to perform the resolution. Claude Code still does the work — the user provides direction, not code.
+1. **Git** — 确定性的。`git merge-file` 合并，`git rerere` 重放缓存的解决方案，结构化操作无需合并即可应用。无 AI。处理绝大多数情况。
+2. **Claude Code** — 读取 `SKILL.md`、`.intent.md` 和 `state.yaml` 来解决 git 无法处理的冲突。通过 `git rerere` 缓存解决方案，同一冲突永远不需要第二次解决。
+3. **Claude Code + 用户输入** — 当 Claude Code 缺乏足够上下文来确定意图时（例如两个功能在应用层面真正冲突），它询问用户决定，然后使用该输入执行解决。Claude Code 仍然做实际工作——用户提供方向，而不是代码。
 
-**Important**: A clean merge doesn't guarantee working code. Semantic conflicts can produce clean text merges that break at runtime. **Tests run after every operation.**
+**重要**：干净的合并不保证代码能工作。语义冲突可以产生在运行时破坏的干净文本合并。**每次操作后都运行测试。**
 
-## Backup/Restore Safety
+## 备份/恢复安全
 
-Before any operation, all affected files are copied to `.nanoclaw/backup/`. On success, backup is deleted. On failure, backup is restored. Works safely for users who don't use git.
+任何操作前，所有受影响的文件被复制到 `.nanoclaw/backup/`。成功时删除备份。失败时恢复备份。对不使用 git 的用户也能安全工作。
 
-## The Shared Base
+## 共享基线
 
-`.nanoclaw/base/` holds a clean copy of the core codebase. This is the single common ancestor for all three-way merges, only updated during core updates.
+`.nanoclaw/base/` 保存核心代码库的干净副本。这是所有三路合并的唯一共同祖先，仅在核心更新时更新。
 
-## Two Types of Changes
+## 两种变更类型
 
-### Code Files (Three-Way Merge)
-Source code where skills weave in logic. Merged via `git merge-file` against the shared base. Skills carry full modified files.
+### 代码文件（三路合并）
+技能编织逻辑的源代码。通过 `git merge-file` 对照共享基线合并。技能携带完整的修改后文件。
 
-### Structured Data (Deterministic Operations)
-Files like `package.json`, `docker-compose.yml`, `.env.example`. Skills declare requirements in the manifest; the system applies them programmatically. Multiple skills' declarations are batched — dependencies merged, `package.json` written once, `npm install` run once.
+### 结构化数据（确定性操作）
+像 `package.json`、`docker-compose.yml`、`.env.example` 这样的文件。技能在清单中声明需求；系统程序化地应用。多个技能的声明被批量处理——依赖合并，`package.json` 写一次，`npm install` 运行一次。
 
 ```yaml
 structured:
@@ -52,117 +52,117 @@ structured:
       ports: ["6380:6379"]
 ```
 
-Structured conflicts (version incompatibilities, port collisions) follow the same three-level resolution model.
+结构化冲突（版本不兼容、端口冲突）遵循相同的三级解决模型。
 
-## Skill Package Structure
+## 技能包结构
 
-A skill contains only the files it adds or modifies. Modified code files carry the **full file** (clean core + skill's changes), making `git merge-file` straightforward and auditable.
+技能只包含它添加或修改的文件。修改的代码文件携带**完整文件**（干净的核心 + 技能的更改），使 `git merge-file` 简单且可审计。
 
 ```
 skills/add-whatsapp/
-  SKILL.md                    # What this skill does and why
-  manifest.yaml               # Metadata, dependencies, structured ops
-  tests/whatsapp.test.ts      # Integration tests
-  add/src/channels/whatsapp.ts          # New files
-  modify/src/server.ts                  # Full modified file for merge
-  modify/src/server.ts.intent.md        # Structured intent for conflict resolution
+  SKILL.md                    # 这个技能做什么以及为什么
+  manifest.yaml               # 元数据、依赖、结构化操作
+  tests/whatsapp.test.ts      # 集成测试
+  add/src/channels/whatsapp.ts          # 新文件
+  modify/src/server.ts                  # 用于合并的完整修改文件
+  modify/src/server.ts.intent.md        # 用于冲突解决的结构化意图
 ```
 
-### Intent Files
-Each modified file has a `.intent.md` with structured headings: **What this skill adds**, **Key sections**, **Invariants**, and **Must-keep sections**. These give Claude Code specific guidance during conflict resolution.
+### 意图文件
+每个修改的文件有一个带结构化标题的 `.intent.md`：**这个技能添加了什么**、**关键部分**、**不变量**和**必须保留的部分**。这些为 Claude Code 在冲突解决期间提供具体指导。
 
-### Manifest
-Declares: skill metadata, core version compatibility, files added/modified, file operations, structured operations, skill relationships (conflicts, depends, tested_with), post-apply commands, and test command.
+### 清单
+声明：技能元数据、核心版本兼容性、添加/修改的文件、文件操作、结构化操作、技能关系（冲突、依赖、已测试）、应用后命令和测试命令。
 
-## Customization and Layering
+## 定制与分层
 
-**One skill, one happy path** — a skill implements the reasonable default for 80% of users.
+**一个技能，一条快乐路径** — 技能实现 80% 用户的合理默认方案。
 
-**Customization is more patching.** Apply the skill, then modify via tracked patches, direct editing, or additional layered skills. Custom modifications are recorded in `state.yaml` and replayable.
+**定制就是更多的补丁。** 应用技能，然后通过跟踪的补丁、直接编辑或额外的分层技能进行修改。自定义修改记录在 `state.yaml` 中，可重放。
 
-**Skills layer via `depends`.** Extension skills build on base skills (e.g., `telegram-reactions` depends on `add-telegram`).
+**技能通过 `depends` 分层。** 扩展技能基于基础技能构建（例如 `telegram-reactions` 依赖 `add-telegram`）。
 
-## File Operations
+## 文件操作
 
-Renames, deletes, and moves are declared in the manifest and run **before** code merges. When core renames a file, a **path remap** resolves skill references at apply time — skill packages are never mutated.
+重命名、删除和移动在清单中声明，在代码合并**之前**运行。当核心重命名文件时，**路径重映射**在应用时解析技能引用——技能包永远不会被修改。
 
-## The Apply Flow
+## 应用流程
 
-1. Pre-flight checks (compatibility, dependencies, untracked changes)
-2. Backup
-3. File operations + path remapping
-4. Copy new files
-5. Merge modified code files (`git merge-file`)
-6. Conflict resolution (shared cache → `git rerere` → Claude Code → Claude Code + user input)
-7. Apply structured operations (batched)
-8. Post-apply commands, update `state.yaml`
-9. **Run tests** (mandatory, even if all merges were clean)
-10. Clean up (delete backup on success, restore on failure)
+1. 预检查（兼容性、依赖、未跟踪的更改）
+2. 备份
+3. 文件操作 + 路径重映射
+4. 复制新文件
+5. 合并修改的代码文件（`git merge-file`）
+6. 冲突解决（共享缓存 → `git rerere` → Claude Code → Claude Code + 用户输入）
+7. 应用结构化操作（批量）
+8. 应用后命令，更新 `state.yaml`
+9. **运行测试**（必须，即使所有合并都是干净的）
+10. 清理（成功时删除备份，失败时恢复）
 
-## Shared Resolution Cache
+## 共享解决方案缓存
 
-`.nanoclaw/resolutions/` ships pre-computed, verified conflict resolutions with **hash enforcement** — a cached resolution only applies if base, current, and skill input hashes match exactly. This means most users never encounter unresolved conflicts for common skill combinations.
+`.nanoclaw/resolutions/` 附带预计算的、经过验证的冲突解决方案，使用**哈希强制** — 缓存的解决方案仅在基线、当前和技能输入哈希完全匹配时才应用。这意味着大多数用户在常见技能组合中永远不会遇到未解决的冲突。
 
-### rerere Adapter
-`git rerere` requires unmerged index entries that `git merge-file` doesn't create. An adapter sets up the required index state after `merge-file` produces a conflict, enabling rerere caching. This requires the project to be a git repository; users without `.git/` lose caching but not functionality.
+### rerere 适配器
+`git rerere` 需要 `git merge-file` 不会创建的未合并索引条目。适配器在 `merge-file` 产生冲突后设置所需的索引状态，启用 rerere 缓存。这要求项目是一个 git 仓库；没有 `.git/` 的用户失去缓存但不失去功能。
 
-## State Tracking
+## 状态跟踪
 
-`.nanoclaw/state.yaml` records: core version, all applied skills (with per-file hashes for base/skill/merged), structured operation outcomes, custom patches, and path remaps. This makes drift detection instant and replay deterministic.
+`.nanoclaw/state.yaml` 记录：核心版本、所有已应用的技能（带每个文件的基线/技能/合并哈希）、结构化操作结果、自定义补丁和路径重映射。这使漂移检测即时且重放确定性。
 
-## Untracked Changes
+## 未跟踪的更改
 
-Direct edits are detected via hash comparison before any operation. Users can record them as tracked patches, continue untracked, or abort. The three-level model can always recover coherent state from any starting point.
+直接编辑在任何操作前通过哈希比较检测。用户可以将其记录为跟踪的补丁、继续不跟踪或中止。三级模型始终可以从任何起点恢复一致状态。
 
-## Core Updates
+## 核心更新
 
-Most changes propagate automatically through three-way merge. **Breaking changes** require a **migration skill** — a regular skill that preserves the old behavior, authored against the new core. Migrations are declared in `migrations.yaml` and applied automatically during updates.
+大多数更改通过三路合并自动传播。**破坏性更改**需要**迁移技能** — 一个保留旧行为的常规技能，针对新核心编写。迁移在 `migrations.yaml` 中声明，在更新期间自动应用。
 
-### Update Flow
-1. Preview changes (git-only, no files modified)
-2. Backup → file operations → three-way merge → conflict resolution
-3. Re-apply custom patches (`git apply --3way`)
-4. **Update base** to new core
-5. Apply migration skills (preserves user's setup automatically)
-6. Re-apply updated skills (version-changed skills only)
-7. Re-run structured operations → run all tests → clean up
+### 更新流程
+1. 预览更改（仅 git，不修改文件）
+2. 备份 → 文件操作 → 三路合并 → 冲突解决
+3. 重新应用自定义补丁（`git apply --3way`）
+4. **更新基线**为新核心
+5. 应用迁移技能（自动保留用户的设置）
+6. 重新应用更新的技能（仅版本变更的技能）
+7. 重新运行结构化操作 → 运行所有测试 → 清理
 
-The user sees no prompts during updates. To accept a new default later, they remove the migration skill.
+用户在更新期间看不到提示。要在之后接受新默认值，他们移除迁移技能。
 
-## Skill Removal
+## 技能移除
 
-Uninstall is **replay without the skill**: read `state.yaml`, remove the target skill, replay all remaining skills from clean base using the resolution cache. Backup for safety.
+卸载是**不包含该技能的重放**：读取 `state.yaml`，移除目标技能，使用解决方案缓存从干净基线重放所有剩余技能。备份以确保安全。
 
-## Rebase
+## 变基
 
-Flatten accumulated layers into a clean starting point. Updates base, regenerates diffs, clears old patches and stale cache entries. Trades individual skill history for simpler future merges.
+将累积的层展平为干净的起点。更新基线，重新生成差异，清除旧补丁和过期的缓存条目。以牺牲单个技能历史换取更简单的未来合并。
 
-## Replay
+## 重放
 
-Given `state.yaml`, reproduce the exact installation on a fresh machine with no AI (assuming cached resolutions). Apply skills in order, merge, apply custom patches, batch structured operations, run tests.
+给定 `state.yaml`，在全新机器上无需 AI 干预即可重现完全相同的安装（假设有缓存的解决方案）。按顺序应用技能，合并，应用自定义补丁，批量结构化操作，运行测试。
 
-## Skill Tests
+## 技能测试
 
-Each skill includes integration tests. Tests run **always** — after apply, after update, after uninstall, during replay, in CI. CI tests all official skills individually and pairwise combinations for skills sharing modified files or structured operations.
+每个技能包含集成测试。测试**始终**运行 — 应用后、更新后、卸载后、重放期间、在 CI 中。CI 测试所有官方技能的单独和共享修改文件或结构化操作的成对组合。
 
-## Design Principles
+## 设计原则
 
-1. **Use git, don't reinvent it.**
-2. **Three-level resolution: git → Claude Code → Claude Code + user input.**
-3. **Clean merges aren't enough.** Tests run after every operation.
-4. **All operations are safe.** Backup/restore, no half-applied state.
-5. **One shared base**, only updated on core updates.
-6. **Code merges vs. structured operations.** Source code is merged; configs are aggregated.
-7. **Resolutions are learned and shared** with hash enforcement.
-8. **One skill, one happy path.** Customization is more patching.
-9. **Skills layer and compose.**
-10. **Intent is first-class and structured.**
-11. **State is explicit and complete.** Replay is deterministic.
-12. **Always recoverable.**
-13. **Uninstall is replay.**
-14. **Core updates are the maintainers' responsibility.** Breaking changes require migration skills.
-15. **File operations and path remapping are first-class.**
-16. **Skills are tested.** CI tests pairwise by overlap.
-17. **Deterministic serialization.** No noisy diffs.
-18. **Rebase when needed.**
-19. **Progressive core slimming** via migration skills.
+1. **使用 git，不要重新发明它。**
+2. **三级解决：git → Claude Code → Claude Code + 用户输入。**
+3. **干净的合并不够。** 每次操作后运行测试。
+4. **所有操作都是安全的。** 备份/恢复，无半应用状态。
+5. **一个共享基线**，仅在核心更新时更新。
+6. **代码合并 vs. 结构化操作。** 源代码合并；配置聚合。
+7. **解决方案被学习和共享**，带哈希强制。
+8. **一个技能，一条快乐路径。** 定制就是更多的补丁。
+9. **技能分层和组合。**
+10. **意图是一等公民且结构化的。**
+11. **状态是显式且完整的。** 重放是确定性的。
+12. **始终可恢复。**
+13. **卸载就是重放。**
+14. **核心更新是维护者的责任。** 破坏性更改需要迁移技能。
+15. **文件操作和路径重映射是一等公民。**
+16. **技能要测试。** CI 按重叠测试成对组合。
+17. **确定性序列化。** 无噪音差异。
+18. **需要时变基。**
+19. **渐进式核心精简**，通过迁移技能。

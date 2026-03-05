@@ -7,7 +7,7 @@ import {
   formatOutbound,
   stripInternalTags,
 } from './router.js';
-import { NewMessage } from './types.js';
+import { NewMessage, getTextContent } from './types.js';
 
 function makeMsg(overrides: Partial<NewMessage> = {}): NewMessage {
   return {
@@ -62,8 +62,8 @@ describe('formatMessages', () => {
     const result = formatMessages([makeMsg()]);
     expect(result).toBe(
       '<messages>\n' +
-        '<message sender="Alice" time="2024-01-01T00:00:00.000Z">hello</message>\n' +
-        '</messages>',
+      '<message sender="Alice" time="2024-01-01T00:00:00.000Z">hello</message>\n' +
+      '</messages>',
     );
   });
 
@@ -202,7 +202,7 @@ describe('trigger gating (requiresTrigger interaction)', () => {
     messages: NewMessage[],
   ): boolean {
     if (!shouldRequireTrigger(isMainGroup, requiresTrigger)) return true;
-    return messages.some((m) => TRIGGER_PATTERN.test(m.content.trim()));
+    return messages.some((m) => TRIGGER_PATTERN.test(getTextContent(m.content).trim()));
   }
 
   it('main group always processes (no trigger needed)', () => {

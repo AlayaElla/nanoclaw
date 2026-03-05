@@ -1,196 +1,196 @@
-# NanoClaw Requirements
+# NanoClaw 需求文档
 
-Original requirements and design decisions from the project creator.
-
----
-
-## Why This Exists
-
-This is a lightweight, secure alternative to OpenClaw (formerly ClawBot). That project became a monstrosity - 4-5 different processes running different gateways, endless configuration files, endless integrations. It's a security nightmare where agents don't run in isolated processes; there's all kinds of leaky workarounds trying to prevent them from accessing parts of the system they shouldn't. It's impossible for anyone to realistically understand the whole codebase. When you run it you're kind of just yoloing it.
-
-NanoClaw gives you the core functionality without that mess.
+项目创建者的原始需求及设计决策。
 
 ---
 
-## Philosophy
+## 为什么做这个项目
 
-### Small Enough to Understand
+这是 OpenClaw（原 ClawBot）的一个轻量级、安全的替代方案。那个项目已经变成了一个庞然大物 —— 4-5 个不同的进程运行不同的网关，无尽的配置文件，无尽的集成。它是一个安全噩梦，agent 不在隔离进程中运行；到处都是泄漏的变通方案，试图阻止它们访问系统中不该访问的部分。任何人都不可能真正理解整个代码库。运行它的时候基本就是在赌运气。
 
-The entire codebase should be something you can read and understand. One Node.js process. A handful of source files. No microservices, no message queues, no abstraction layers.
-
-### Security Through True Isolation
-
-Instead of application-level permission systems trying to prevent agents from accessing things, agents run in actual Linux containers. The isolation is at the OS level. Agents can only see what's explicitly mounted. Bash access is safe because commands run inside the container, not on your Mac.
-
-### Built for One User
-
-This isn't a framework or a platform. It's working software for my specific needs. I use WhatsApp and Email, so it supports WhatsApp and Email. I don't use Telegram, so it doesn't support Telegram. I add the integrations I actually want, not every possible integration.
-
-### Customization = Code Changes
-
-No configuration sprawl. If you want different behavior, modify the code. The codebase is small enough that this is safe and practical. Very minimal things like the trigger word are in config. Everything else - just change the code to do what you want.
-
-### AI-Native Development
-
-I don't need an installation wizard - Claude Code guides the setup. I don't need a monitoring dashboard - I ask Claude Code what's happening. I don't need elaborate logging UIs - I ask Claude to read the logs. I don't need debugging tools - I describe the problem and Claude fixes it.
-
-The codebase assumes you have an AI collaborator. It doesn't need to be excessively self-documenting or self-debugging because Claude is always there.
-
-### Skills Over Features
-
-When people contribute, they shouldn't add "Telegram support alongside WhatsApp." They should contribute a skill like `/add-telegram` that transforms the codebase. Users fork the repo, run skills to customize, and end up with clean code that does exactly what they need - not a bloated system trying to support everyone's use case simultaneously.
+NanoClaw 提供核心功能，而没有那些混乱。
 
 ---
 
-## RFS (Request for Skills)
+## 理念
 
-Skills we'd love contributors to build:
+### 小到能理解
 
-### Communication Channels
-Skills to add or switch to different messaging platforms:
-- `/add-telegram` - Add Telegram as an input channel
-- `/add-slack` - Add Slack as an input channel
-- `/add-discord` - Add Discord as an input channel
-- `/add-sms` - Add SMS via Twilio or similar
-- `/convert-to-telegram` - Replace WhatsApp with Telegram entirely
+整个代码库应该是你能阅读和理解的。一个 Node.js 进程。几个源文件。没有微服务，没有消息队列，没有抽象层。
 
-### Container Runtime
-The project uses Docker by default (cross-platform). For macOS users who prefer Apple Container:
-- `/convert-to-apple-container` - Switch from Docker to Apple Container (macOS-only)
+### 通过真正的隔离实现安全
 
-### Platform Support
-- `/setup-linux` - Make the full setup work on Linux (depends on Docker conversion)
-- `/setup-windows` - Windows support via WSL2 + Docker
+不是靠应用层权限系统试图阻止 agent 访问东西，agent 运行在真正的 Linux 容器中。隔离在操作系统层面。Agent 只能看到明确挂载的内容。Bash 访问是安全的，因为命令在容器内运行，而不是在你的 Mac 上。
 
----
+### 为单个用户构建
 
-## Vision
+这不是框架或平台。这是为我特定需求构建的可用软件。我用 WhatsApp 和邮件，所以它支持 WhatsApp 和邮件。我不用 Telegram，所以不支持 Telegram。我添加我实际需要的集成，而不是每一种可能的集成。
 
-A personal Claude assistant accessible via WhatsApp, with minimal custom code.
+### 定制 = 修改代码
 
-**Core components:**
-- **Claude Agent SDK** as the core agent
-- **Containers** for isolated agent execution (Linux VMs)
-- **WhatsApp** as the primary I/O channel
-- **Persistent memory** per conversation and globally
-- **Scheduled tasks** that run Claude and can message back
-- **Web access** for search and browsing
-- **Browser automation** via agent-browser
+没有配置膨胀。如果你想要不同的行为，修改代码。代码库足够小，这样做是安全和实际的。只有极少数东西如触发词放在配置中。其他的 —— 直接改代码来实现你想要的。
 
-**Implementation approach:**
-- Use existing tools (WhatsApp connector, Claude Agent SDK, MCP servers)
-- Minimal glue code
-- File-based systems where possible (CLAUDE.md for memory, folders for groups)
+### AI 原生开发
+
+我不需要安装向导 —— Claude Code 指导安装。我不需要监控仪表板 —— 我问 Claude Code 发生了什么。我不需要精心制作的日志 UI —— 我让 Claude 读日志。我不需要调试工具 —— 我描述问题，Claude 修复它。
+
+代码库假设你有一个 AI 协作者。它不需要过度自文档化或自调试，因为 Claude 随时都在。
+
+### 技能优于功能
+
+当人们贡献时，他们不应该"在 WhatsApp 旁边添加 Telegram 支持"。他们应该贡献一个像 `/add-telegram` 的技能来转换代码库。用户 fork 仓库，运行技能来定制，最终得到干净的代码，正好做他们需要的事 —— 而不是一个试图同时支持所有人用例的臃肿系统。
 
 ---
 
-## Architecture Decisions
+## 技能需求征集 (RFS)
 
-### Message Routing
-- A router listens to WhatsApp and routes messages based on configuration
-- Only messages from registered groups are processed
-- Trigger: `@Andy` prefix (case insensitive), configurable via `ASSISTANT_NAME` env var
-- Unregistered groups are ignored completely
+我们希望贡献者构建的技能：
 
-### Memory System
-- **Per-group memory**: Each group has a folder with its own `CLAUDE.md`
-- **Global memory**: Root `CLAUDE.md` is read by all groups, but only writable from "main" (self-chat)
-- **Files**: Groups can create/read files in their folder and reference them
-- Agent runs in the group's folder, automatically inherits both CLAUDE.md files
+### 通信渠道
+添加或切换到不同消息平台的技能：
+- `/add-telegram` - 添加 Telegram 作为输入渠道
+- `/add-slack` - 添加 Slack 作为输入渠道
+- `/add-discord` - 添加 Discord 作为输入渠道
+- `/add-sms` - 通过 Twilio 或类似服务添加短信
+- `/convert-to-telegram` - 完全将 WhatsApp 替换为 Telegram
 
-### Session Management
-- Each group maintains a conversation session (via Claude Agent SDK)
-- Sessions auto-compact when context gets too long, preserving critical information
+### 容器运行时
+项目默认使用 Docker（跨平台）。对于偏好 Apple Container 的 macOS 用户：
+- `/convert-to-apple-container` - 从 Docker 切换到 Apple Container（仅限 macOS）
 
-### Container Isolation
-- All agents run inside containers (lightweight Linux VMs)
-- Each agent invocation spawns a container with mounted directories
-- Containers provide filesystem isolation - agents can only see mounted paths
-- Bash access is safe because commands run inside the container, not on the host
-- Browser automation via agent-browser with Chromium in the container
-
-### Scheduled Tasks
-- Users can ask Claude to schedule recurring or one-time tasks from any group
-- Tasks run as full agents in the context of the group that created them
-- Tasks have access to all tools including Bash (safe in container)
-- Tasks can optionally send messages to their group via `send_message` tool, or complete silently
-- Task runs are logged to the database with duration and result
-- Schedule types: cron expressions, intervals (ms), or one-time (ISO timestamp)
-- From main: can schedule tasks for any group, view/manage all tasks
-- From other groups: can only manage that group's tasks
-
-### Group Management
-- New groups are added explicitly via the main channel
-- Groups are registered in SQLite (via the main channel or IPC `register_group` command)
-- Each group gets a dedicated folder under `groups/`
-- Groups can have additional directories mounted via `containerConfig`
-
-### Main Channel Privileges
-- Main channel is the admin/control group (typically self-chat)
-- Can write to global memory (`groups/CLAUDE.md`)
-- Can schedule tasks for any group
-- Can view and manage tasks from all groups
-- Can configure additional directory mounts for any group
+### 平台支持
+- `/setup-linux` - 使完整配置在 Linux 上运行（依赖于 Docker 转换）
+- `/setup-windows` - 通过 WSL2 + Docker 支持 Windows
 
 ---
 
-## Integration Points
+## 愿景
+
+一个可通过 WhatsApp 访问的个人 Claude 助手，使用最少的自定义代码。
+
+**核心组件：**
+- **Claude Agent SDK** 作为核心 agent
+- **容器** 用于隔离 agent 执行（Linux VM）
+- **WhatsApp** 作为主要 I/O 渠道
+- **持久化记忆** 按对话和全局
+- **定时任务** 运行 Claude 并可回复消息
+- **网络访问** 用于搜索和浏览
+- **浏览器自动化** 通过 agent-browser
+
+**实现方式：**
+- 使用现有工具（WhatsApp 连接器、Claude Agent SDK、MCP 服务器）
+- 最少的胶水代码
+- 尽可能使用基于文件的系统（CLAUDE.md 用于记忆，文件夹用于群组）
+
+---
+
+## 架构决策
+
+### 消息路由
+- 路由器监听 WhatsApp 并根据配置路由消息
+- 只处理来自已注册群组的消息
+- 触发条件：`@Andy` 前缀（不区分大小写），可通过 `ASSISTANT_NAME` 环境变量配置
+- 未注册群组完全被忽略
+
+### 记忆系统
+- **群组记忆**：每个群组有自己的文件夹和 `CLAUDE.md`
+- **全局记忆**：根目录 `CLAUDE.md` 被所有群组读取，但只能从"主频道"（自聊天）写入
+- **文件**：群组可以在其文件夹中创建/读取文件并引用它们
+- Agent 运行在群组文件夹中，自动继承两个 CLAUDE.md 文件
+
+### 会话管理
+- 每个群组维护一个对话会话（通过 Claude Agent SDK）
+- 当上下文变得过长时，会话自动压缩，保留关键信息
+
+### 容器隔离
+- 所有 agent 运行在容器内（轻量级 Linux VM）
+- 每次 agent 调用都会启动一个挂载了目录的容器
+- 容器提供文件系统隔离 —— agent 只能看到挂载的路径
+- Bash 访问是安全的，因为命令在容器内运行，而不是在宿主机上
+- 通过 agent-browser 和容器内的 Chromium 实现浏览器自动化
+
+### 定时任务
+- 用户可以从任何群组要求 Claude 安排循环或一次性任务
+- 任务作为完整 agent 在创建它们的群组上下文中运行
+- 任务可以访问所有工具，包括 Bash（在容器中是安全的）
+- 任务可以选择通过 `send_message` 工具向其群组发送消息，或静默完成
+- 任务运行记录到数据库，包含持续时间和结果
+- 调度类型：cron 表达式、间隔（毫秒）或一次性（ISO 时间戳）
+- 从主频道：可以为任何群组安排任务，查看/管理所有任务
+- 从其他群组：只能管理该群组的任务
+
+### 群组管理
+- 通过主频道明确添加新群组
+- 群组在 SQLite 中注册（通过主频道或 IPC `register_group` 命令）
+- 每个群组在 `groups/` 下有专用文件夹
+- 群组可以通过 `containerConfig` 挂载额外目录
+
+### 主频道特权
+- 主频道是管理/控制群组（通常是自聊天）
+- 可以写入全局记忆（`groups/CLAUDE.md`）
+- 可以为任何群组安排任务
+- 可以查看和管理所有群组的任务
+- 可以为任何群组配置额外目录挂载
+
+---
+
+## 集成点
 
 ### WhatsApp
-- Using baileys library for WhatsApp Web connection
-- Messages stored in SQLite, polled by router
-- QR code authentication during setup
+- 使用 baileys 库连接 WhatsApp Web
+- 消息存储在 SQLite 中，由路由器轮询
+- 安装时通过二维码认证
 
-### Scheduler
-- Built-in scheduler runs on the host, spawns containers for task execution
-- Custom `nanoclaw` MCP server (inside container) provides scheduling tools
-- Tools: `schedule_task`, `list_tasks`, `pause_task`, `resume_task`, `cancel_task`, `send_message`
-- Tasks stored in SQLite with run history
-- Scheduler loop checks for due tasks every minute
-- Tasks execute Claude Agent SDK in containerized group context
+### 调度器
+- 内置调度器运行在宿主机上，为任务执行启动容器
+- 自定义 `nanoclaw` MCP 服务器（在容器内）提供调度工具
+- 工具：`schedule_task`、`list_tasks`、`pause_task`、`resume_task`、`cancel_task`、`send_message`
+- 任务存储在 SQLite 中，带有运行历史
+- 调度器循环每分钟检查到期任务
+- 任务在容器化的群组上下文中执行 Claude Agent SDK
 
-### Web Access
-- Built-in WebSearch and WebFetch tools
-- Standard Claude Agent SDK capabilities
+### 网络访问
+- 内置 WebSearch 和 WebFetch 工具
+- 标准 Claude Agent SDK 功能
 
-### Browser Automation
-- agent-browser CLI with Chromium in container
-- Snapshot-based interaction with element references (@e1, @e2, etc.)
-- Screenshots, PDFs, video recording
-- Authentication state persistence
-
----
-
-## Setup & Customization
-
-### Philosophy
-- Minimal configuration files
-- Setup and customization done via Claude Code
-- Users clone the repo and run Claude Code to configure
-- Each user gets a custom setup matching their exact needs
-
-### Skills
-- `/setup` - Install dependencies, authenticate WhatsApp, configure scheduler, start services
-- `/customize` - General-purpose skill for adding capabilities (new channels like Telegram, new integrations, behavior changes)
-- `/update` - Pull upstream changes, merge with customizations, run migrations
-
-### Deployment
-- Runs on local Mac via launchd
-- Single Node.js process handles everything
+### 浏览器自动化
+- 容器中的 agent-browser CLI 和 Chromium
+- 基于快照的交互，使用元素引用（@e1、@e2 等）
+- 截图、PDF、视频录制
+- 认证状态持久化
 
 ---
 
-## Personal Configuration (Reference)
+## 安装与定制
 
-These are the creator's settings, stored here for reference:
+### 理念
+- 最少的配置文件
+- 安装和定制通过 Claude Code 完成
+- 用户克隆仓库并运行 Claude Code 来配置
+- 每个用户获得完全匹配其需求的自定义配置
 
-- **Trigger**: `@Andy` (case insensitive)
-- **Response prefix**: `Andy:`
-- **Persona**: Default Claude (no custom personality)
-- **Main channel**: Self-chat (messaging yourself in WhatsApp)
+### 技能
+- `/setup` - 安装依赖、认证 WhatsApp、配置调度器、启动服务
+- `/customize` - 通用技能，用于添加功能（新渠道如 Telegram、新集成、行为变更）
+- `/update` - 拉取上游更改、与定制合并、运行迁移
+
+### 部署
+- 通过 launchd 在本地 Mac 上运行
+- 单个 Node.js 进程处理所有事务
 
 ---
 
-## Project Name
+## 个人配置（参考）
 
-**NanoClaw** - A reference to Clawdbot (now OpenClaw).
+以下是创建者的设置，存储于此以供参考：
+
+- **触发词**：`@Andy`（不区分大小写）
+- **响应前缀**：`Andy:`
+- **人设**：默认 Claude（无自定义人格）
+- **主频道**：自聊天（在 WhatsApp 中给自己发消息）
+
+---
+
+## 项目名称
+
+**NanoClaw** —— 致敬 Clawdbot（现为 OpenClaw）。

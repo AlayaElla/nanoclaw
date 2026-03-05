@@ -41,8 +41,9 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
+import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { Channel, NewMessage, RegisteredGroup } from './types.js';
+import { Channel, NewMessage, RegisteredGroup, getTextContent } from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -156,7 +157,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const hasTrigger = missedMessages.some((m) =>
-      TRIGGER_PATTERN.test(m.content.trim()),
+      TRIGGER_PATTERN.test(getTextContent(m.content).trim()),
     );
     if (!hasTrigger) return true;
   }
@@ -206,6 +207,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (text) {
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
+        // Auto-index agent output for RAG (fire-and-forget)
+        if (isRagEnabled()) {
+          indexMessage(group.folder, text, {
+            role: 'assistant',
+            timestamp: new Date().toISOString(),
+          }).catch(() => { });
+        }
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
@@ -283,12 +291,12 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
-        }
-        await onOutput(output);
+      if (output.newSessionId) {
+        sessions[group.folder] = output.newSessionId;
+        setSession(group.folder, output.newSessionId);
       }
+      await onOutput(output);
+    }
     : undefined;
 
   try {
@@ -300,7 +308,7 @@ async function runAgent(
         groupFolder: group.folder,
         chatJid,
         isMain,
-        assistantName: ASSISTANT_NAME,
+        assistantName: group.assistantName || ASSISTANT_NAME,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -381,7 +389,7 @@ async function startMessageLoop(): Promise<void> {
           // context when a trigger eventually arrives.
           if (needsTrigger) {
             const hasTrigger = groupMessages.some((m) =>
-              TRIGGER_PATTERN.test(m.content.trim()),
+              TRIGGER_PATTERN.test(getTextContent(m.content).trim()),
             );
             if (!hasTrigger) continue;
           }
@@ -451,6 +459,7 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
+  initRag();
   loadState();
 
   // Graceful shutdown handlers
@@ -465,7 +474,21 @@ async function main(): Promise<void> {
 
   // Channel callbacks (shared by all channels)
   const channelOpts = {
-    onMessage: (_chatJid: string, msg: NewMessage) => storeMessage(msg),
+    onMessage: (_chatJid: string, msg: NewMessage) => {
+      storeMessage(msg);
+      // Auto-index user messages for RAG (fire-and-forget)
+      if (isRagEnabled()) {
+        const group = registeredGroups[msg.chat_jid];
+        if (group) {
+          indexMessage(group.folder, typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content), {
+            role: 'user',
+            sender_name: msg.sender_name,
+            message_id: msg.id,
+            timestamp: msg.timestamp,
+          }).catch(() => { });
+        }
+      }
+    },
     onChatMetadata: (
       chatJid: string,
       timestamp: string,
@@ -481,20 +504,31 @@ async function main(): Promise<void> {
   // Factories return null when credentials are missing, so unconfigured channels are skipped.
   for (const channelName of getRegisteredChannelNames()) {
     const factory = getChannelFactory(channelName)!;
-    const channel = factory(channelOpts);
-    if (!channel) {
+    const result = factory(channelOpts);
+    if (!result) {
       logger.warn(
         { channel: channelName },
         'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
       );
       continue;
     }
-    channels.push(channel);
-    await channel.connect();
+    // Support factories that return multiple channel instances (e.g., multi-bot Telegram)
+    const instances = Array.isArray(result) ? result : [result];
+    for (const channel of instances) {
+      channels.push(channel);
+      await channel.connect();
+    }
   }
   if (channels.length === 0) {
     logger.fatal('No channels connected');
     process.exit(1);
+  }
+
+  // Initialize Telegram bot pool for agent swarm
+  const { TELEGRAM_BOT_POOL } = await import('./config.js');
+  if (TELEGRAM_BOT_POOL.length > 0) {
+    const { initBotPool } = await import('./channels/telegram.js');
+    await initBotPool(TELEGRAM_BOT_POOL);
   }
 
   // Start subsystems (independently of connection handler)
@@ -545,7 +579,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-    new URL(`file://${process.argv[1]}`).pathname;
+  new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

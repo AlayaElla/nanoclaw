@@ -40,12 +40,24 @@ export interface RegisteredGroup {
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
+  model?: string; // LiteLLM model name override (e.g., 'qwen-plus', 'grok-4-fast-reasoning')
+  botToken?: string; // Env var name for the bot token (e.g., 'TELEGRAM_BOT_TOKEN_1')
+  assistantName?: string; // Per-group assistant name (e.g., '星梦', '星月')
 }
 
 export interface MultiPartContent {
   type: 'text' | 'image_url';
   text?: string;
   image_url?: { url: string };
+}
+
+/** Extract text content from string or MultiPartContent[] */
+export function getTextContent(content: string | MultiPartContent[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((p) => p.type === 'text' && p.text)
+    .map((p) => p.text!)
+    .join('\n');
 }
 
 export interface NewMessage {

@@ -31,7 +31,7 @@ const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 export interface ContainerInput {
-  prompt: string;
+  prompt: string | any[];
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
@@ -523,7 +523,7 @@ export async function runContainerAgent(
       } else {
         logLines.push(
           `=== Input Summary ===`,
-          `Prompt length: ${input.prompt.length} chars`,
+          `Prompt length: ${typeof input.prompt === 'string' ? input.prompt.length : input.prompt.length} elements/chars`,
           `Session ID: ${input.sessionId || 'new'}`,
           ``,
           `=== Mounts ===`,

@@ -97,7 +97,7 @@ async function runTask(
     tasks.map((t) => ({
       id: t.id,
       groupFolder: t.group_folder,
-      prompt: t.prompt,
+      prompt: (typeof t.prompt === 'string' && t.prompt.trim().startsWith('[')) ? (() => { try { return JSON.parse(t.prompt); } catch { return t.prompt; } })() : t.prompt,
       schedule_type: t.schedule_type,
       schedule_value: t.schedule_value,
       status: t.status,
@@ -127,11 +127,20 @@ async function runTask(
     }, TASK_CLOSE_DELAY_MS);
   };
 
+  let parsedPrompt: string | any[] = task.prompt;
+  if (typeof task.prompt === 'string' && task.prompt.trim().startsWith('[')) {
+    try {
+      parsedPrompt = JSON.parse(task.prompt);
+    } catch {
+      // Keep as string if parsing fails
+    }
+  }
+
   try {
     const output = await runContainerAgent(
       group,
       {
-        prompt: task.prompt,
+        prompt: parsedPrompt,
         sessionId,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,

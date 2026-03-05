@@ -42,12 +42,18 @@ export interface RegisteredGroup {
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
 }
 
+export interface MultiPartContent {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string };
+}
+
 export interface NewMessage {
   id: string;
   chat_jid: string;
   sender: string;
   sender_name: string;
-  content: string;
+  content: string | MultiPartContent[];
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;

@@ -1,0 +1,16 @@
+model_list:
+  - model_name: claude-3-5-sonnet-20241022
+    litellm_params:
+      model: openai/qwen-plus
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: "os.environ/QWEN_API_KEY"
+      rpm: 1000
+    # Enable deep thinking parameter for Qwen via extra_body
+      extra_body:
+        enable_thinking: true
+
+litellm_settings:
+  drop_params: true
+  set_verbose: true
+  # Add specific Anthropic headers mapped correctly if needed
+  # LiteLLM natively handles the Anthropic -> OpenAI translation

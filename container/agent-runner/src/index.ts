@@ -20,7 +20,7 @@ import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@
 import { fileURLToPath } from 'url';
 
 interface ContainerInput {
-  prompt: string;
+  prompt: string | any[];
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
@@ -68,10 +68,10 @@ class MessageStream {
   private waiting: (() => void) | null = null;
   private done = false;
 
-  push(text: string): void {
+  push(content: string | any[]): void {
     this.queue.push({
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content: content as any },
       parent_tool_use_id: null,
       session_id: '',
     });
@@ -355,7 +355,7 @@ function waitForIpcMessage(): Promise<string | null> {
  * Also pipes IPC messages into the stream during the query.
  */
 async function runQuery(
-  prompt: string,
+  prompt: string | any[],
   sessionId: string | undefined,
   mcpServerPath: string,
   containerInput: ContainerInput,
@@ -526,14 +526,25 @@ async function main(): Promise<void> {
   try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
 
   // Build initial prompt (drain any pending IPC messages too)
-  let prompt = containerInput.prompt;
+  let prompt: string | any[] = containerInput.prompt;
   if (containerInput.isScheduledTask) {
-    prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+    if (typeof prompt === 'string') {
+      prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+    } else if (Array.isArray(prompt)) {
+      prompt = [
+        { type: 'text', text: `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n` },
+        ...prompt
+      ];
+    }
   }
   const pending = drainIpcInput();
   if (pending.length > 0) {
     log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.join('\n');
+    if (typeof prompt === 'string') {
+      prompt += '\n' + pending.join('\n');
+    } else {
+      prompt.push({ type: 'text', text: '\n' + pending.join('\n') });
+    }
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat
@@ -570,7 +581,7 @@ async function main(): Promise<void> {
         break;
       }
 
-      log(`Got new message (${nextMessage.length} chars), starting new query`);
+      log(`Got new message, starting new query`);
       prompt = nextMessage;
     }
   } catch (err) {

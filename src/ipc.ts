@@ -157,7 +157,7 @@ export async function processTaskIpc(
   data: {
     type: string;
     taskId?: string;
-    prompt?: string;
+    prompt?: string | any[];
     schedule_type?: string;
     schedule_value?: string;
     context_mode?: string;
@@ -256,7 +256,7 @@ export async function processTaskIpc(
           id: taskId,
           group_folder: targetFolder,
           chat_jid: targetJid,
-          prompt: data.prompt,
+          prompt: typeof data.prompt === 'string' ? data.prompt : JSON.stringify(data.prompt),
           schedule_type: scheduleType,
           schedule_value: data.schedule_value,
           context_mode: contextMode,

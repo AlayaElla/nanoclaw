@@ -53,8 +53,8 @@ function escapeRegex(str: string): string {
 }
 
 export const TRIGGER_PATTERN = new RegExp(
-  `^@${escapeRegex(ASSISTANT_NAME)}\\b`,
-  'i',
+  `^@${escapeRegex(ASSISTANT_NAME)}(?=[\\s\\p{P}]|$)`,
+  'iu',
 );
 
 // Timezone for scheduled tasks (cron expressions, etc.)

@@ -5,6 +5,7 @@ import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
+import { getAllBotConfigs } from '../agents-config.js';
 import {
   Channel,
   OnChatMetadata,
@@ -26,12 +27,27 @@ export class TelegramChannel implements Channel {
   private botToken: string;
   /** Env var name for this bot token (e.g., 'TELEGRAM_BOT_TOKEN_1') */
   private tokenEnvName: string;
+  /** Numeric bot ID extracted from token */
+  private botId: string;
+  /** Per-JID intervals that refresh the Telegram typing indicator every 4s */
+  private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(botToken: string, tokenEnvName: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
     this.tokenEnvName = tokenEnvName;
+    this.botId = botToken.split(':')[0];
     this.name = `telegram:${tokenEnvName}`;
     this.opts = opts;
+  }
+
+  /** Generate a JID that includes the bot ID for multi-bot isolation */
+  private makeJid(chatId: number | string): string {
+    return `tg:${chatId}@${this.botId}`;
+  }
+
+  /** Extract numeric chat ID from JID (strips tg: prefix and @botId suffix) */
+  private static extractChatId(jid: string): string {
+    return jid.replace(/^tg:/, '').replace(/@.*$/, '');
   }
 
   /**
@@ -77,8 +93,7 @@ export class TelegramChannel implements Channel {
           : (ctx.chat as any).title || 'Unknown';
 
       ctx.reply(
-        `Chat ID: \`tg:${chatId}\`\nBot: ${this.tokenEnvName}\nName: ${chatName}\nType: ${chatType}`,
-        { parse_mode: 'Markdown' },
+        `Chat ID: tg:${chatId}@${this.botId}\nBot: ${this.tokenEnvName}\nName: ${chatName}\nType: ${chatType}`,
       );
     });
 
@@ -91,7 +106,7 @@ export class TelegramChannel implements Channel {
       // Skip commands
       if (ctx.message.text.startsWith('/')) return;
 
-      const chatJid = `tg:${ctx.chat.id}`;
+      const chatJid = this.makeJid(ctx.chat.id);
       let content = ctx.message.text;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =
@@ -162,7 +177,7 @@ export class TelegramChannel implements Channel {
 
     // Handle non-text messages with placeholders so the agent knows something was sent
     const storeNonText = (ctx: any, placeholder: string) => {
-      const chatJid = `tg:${ctx.chat.id}`;
+      const chatJid = this.makeJid(ctx.chat.id);
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
 
@@ -190,10 +205,59 @@ export class TelegramChannel implements Channel {
       });
     };
 
-    this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
+    this.bot.on('message:photo', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group || !this.ownsJid(chatJid)) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+
+      try {
+        const photo = ctx.message.photo[ctx.message.photo.length - 1];
+        const file = await ctx.api.getFile(photo.file_id);
+        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const base64 = buffer.toString('base64');
+        const dataUri = `data:image/jpeg;base64,${base64}`;
+
+        const contentItem: any[] = [];
+        if (caption.trim()) {
+          contentItem.push({ type: 'text', text: caption.trim() });
+        }
+        contentItem.push({ type: 'image_url', image_url: { url: dataUri } });
+
+        this.opts.onMessage(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          sender: ctx.from?.id?.toString() || '',
+          sender_name: senderName,
+          content: contentItem,
+          timestamp,
+          is_from_me: false,
+        });
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo message processed');
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo download failed');
+        this.opts.onMessage(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          sender: ctx.from?.id?.toString() || '',
+          sender_name: senderName,
+          content: `[Photo]${caption}`,
+          timestamp,
+          is_from_me: false,
+        });
+      }
+    });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
     this.bot.on('message:voice', async (ctx) => {
-      const chatJid = `tg:${ctx.chat.id}`;
+      const chatJid = this.makeJid(ctx.chat.id);
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
       if (!this.ownsJid(chatJid)) return;
@@ -274,7 +338,7 @@ export class TelegramChannel implements Channel {
     }
 
     try {
-      const numericId = jid.replace(/^tg:/, '');
+      const numericId = TelegramChannel.extractChatId(jid);
 
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
@@ -299,6 +363,11 @@ export class TelegramChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    // Clear all typing intervals
+    for (const interval of this.typingIntervals.values()) {
+      clearInterval(interval);
+    }
+    this.typingIntervals.clear();
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
@@ -307,13 +376,24 @@ export class TelegramChannel implements Channel {
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    if (!this.bot || !isTyping) return;
-    try {
-      const numericId = jid.replace(/^tg:/, '');
-      await this.bot.api.sendChatAction(numericId, 'typing');
-    } catch (err) {
-      logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+    // Clear any existing interval for this JID first
+    const existing = this.typingIntervals.get(jid);
+    if (existing) {
+      clearInterval(existing);
+      this.typingIntervals.delete(jid);
     }
+
+    if (!this.bot || !isTyping) return;
+
+    const numericId = TelegramChannel.extractChatId(jid);
+    // Send immediately, then refresh every 4s (Telegram expires after ~5s)
+    const send = () => {
+      this.bot?.api.sendChatAction(numericId, 'typing').catch((err) => {
+        logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
+      });
+    };
+    send();
+    this.typingIntervals.set(jid, setInterval(send, 4000));
   }
 }
 
@@ -377,7 +457,7 @@ export async function sendPoolMessage(
 
   const api = poolApis[idx];
   try {
-    const numericId = chatId.replace(/^tg:/, '');
+    const numericId = chatId.replace(/^tg:/, '').replace(/@.*$/, '');
     const MAX_LENGTH = 4096;
     if (text.length <= MAX_LENGTH) {
       await api.sendMessage(numericId, text);
@@ -393,15 +473,37 @@ export async function sendPoolMessage(
 }
 
 /**
- * Multi-bot factory: scans env vars for TELEGRAM_BOT_TOKEN_* entries.
- * Returns one TelegramChannel per token. Falls back to legacy
- * TELEGRAM_BOT_TOKEN if no numbered tokens are found.
+ * Multi-bot factory: reads bot tokens from agents.yaml first,
+ * falls back to TELEGRAM_BOT_TOKEN_* env vars for backwards compatibility.
  */
 registerChannel('telegram', (opts: ChannelOpts) => {
+  // Try agents.yaml first
+  const botConfigs = getAllBotConfigs();
+
+  if (botConfigs.length > 0) {
+    const channels: TelegramChannel[] = [];
+    for (let i = 0; i < botConfigs.length; i++) {
+      const cfg = botConfigs[i];
+      if (!cfg.token) continue;
+      // Stable env name for ownsJid matching (1-based index)
+      const envName = `TELEGRAM_BOT_TOKEN_${i + 1}`;
+      // Also write to process.env so _getFirstTokenEnvName() works
+      process.env[envName] = cfg.token;
+      channels.push(new TelegramChannel(cfg.token, envName, opts));
+    }
+    if (channels.length > 0) {
+      logger.info(
+        { count: channels.length, bots: channels.map((c) => c.name) },
+        'Created Telegram bots from agents.yaml',
+      );
+      return channels;
+    }
+  }
+
+  // Fallback: env vars
   const envVars = readEnvFile(
     ['TELEGRAM_BOT_TOKEN', ...Array.from({ length: 10 }, (_, i) => `TELEGRAM_BOT_TOKEN_${i + 1}`)],
   );
-  // Merge with process.env
   const allEnv: Record<string, string> = { ...envVars };
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('TELEGRAM_BOT_TOKEN') && process.env[key]) {
@@ -409,7 +511,6 @@ registerChannel('telegram', (opts: ChannelOpts) => {
     }
   }
 
-  // Collect all numbered tokens (TELEGRAM_BOT_TOKEN_1, _2, ...)
   const tokenEntries: Array<{ envName: string; token: string }> = [];
   for (const [key, value] of Object.entries(allEnv)) {
     if (key.startsWith('TELEGRAM_BOT_TOKEN_') && value) {
@@ -417,24 +518,16 @@ registerChannel('telegram', (opts: ChannelOpts) => {
     }
   }
 
-  // Fallback: legacy single-token mode
   if (tokenEntries.length === 0) {
     const legacyToken = allEnv.TELEGRAM_BOT_TOKEN || '';
     if (!legacyToken) {
-      logger.warn('Telegram: no TELEGRAM_BOT_TOKEN_* env vars set');
+      logger.warn('Telegram: no bot tokens configured (check agents.yaml or .env)');
       return null;
     }
     return new TelegramChannel(legacyToken, 'TELEGRAM_BOT_TOKEN', opts);
   }
 
-  // Sort by env name for deterministic ordering
   tokenEntries.sort((a, b) => a.envName.localeCompare(b.envName));
-
-  logger.info(
-    { count: tokenEntries.length, tokens: tokenEntries.map(t => t.envName) },
-    'Creating multiple Telegram bot instances',
-  );
-
   return tokenEntries.map(({ envName, token }) =>
     new TelegramChannel(token, envName, opts),
   );

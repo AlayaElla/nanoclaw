@@ -18,6 +18,7 @@ Browser automation for X interactions via WhatsApp.
 | Reply | `x_reply` | Reply to tweets |
 | Retweet | `x_retweet` | Retweet without comment |
 | Quote | `x_quote` | Quote tweet with comment |
+| Trends | `x_trends` | Read global trending tweets |
 
 ## Prerequisites
 
@@ -149,7 +150,8 @@ Paths relative to project root:
     ├── like.ts       # Like tweet
     ├── reply.ts      # Reply to tweet
     ├── retweet.ts    # Retweet
-    └── quote.ts      # Quote tweet
+    ├── quote.ts      # Quote tweet
+    └── trends.ts     # Read global trending tweets
 ```
 
 ### Integration Points
@@ -296,6 +298,10 @@ Replace `@Assistant` with your configured trigger name (`ASSISTANT_NAME` in `.en
 @Assistant retweet https://x.com/user/status/123
 
 @Assistant quote https://x.com/user/status/123 with comment: Interesting
+
+@Assistant 看看推特上现在最火的是什么
+
+@Assistant get the top 5 trending tweets
 ```
 
 **Note:** Only the main group can use X tools. Other groups will receive an error.

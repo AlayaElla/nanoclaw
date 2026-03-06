@@ -16,11 +16,11 @@ async function transcribeWithDashScope(
   audioBuffer: Buffer,
   config: TranscriptionConfig,
 ): Promise<string | null> {
-  const env = readEnvFile(['DASHSCOPE_API_KEY']);
-  const apiKey = env.DASHSCOPE_API_KEY;
+  const env = readEnvFile(['EMBEDDING_API_KEY']);
+  const apiKey = env.EMBEDDING_API_KEY;
 
   if (!apiKey) {
-    console.warn('DASHSCOPE_API_KEY not set in .env');
+    console.warn('EMBEDDING_API_KEY not set in .env');
     return null;
   }
 

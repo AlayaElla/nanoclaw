@@ -24,7 +24,8 @@ ENV_ARGS=""
 
 # 启动容器并挂载配置文件
 docker run -d \
-  -v $(pwd)/litellm_config.yaml:/app/config.yaml \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/raw_logger.py:/app/raw_logger.py \
   $ENV_ARGS \
   -p 4000:4000 \
   --name nanoclaw-litellm-proxy \

@@ -145,6 +145,10 @@ export async function handleXIpc(
       result = await runScript('quote', { tweetUrl: data.tweetUrl, comment: data.comment });
       break;
 
+    case 'x_trends':
+      result = await runScript('trends', { count: data.count || 10 });
+      break;
+
     default:
       return false;
   }

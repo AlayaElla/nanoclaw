@@ -79,17 +79,17 @@ describe('ensureContainerRuntimeRunning', () => {
 // --- cleanupOrphans ---
 
 describe('cleanupOrphans', () => {
-  it('stops orphaned nanoclaw containers', () => {
+  it('stops orphaned nanoclaw containers but ignores litellm proxy', () => {
     // docker ps returns container names, one per line
     mockExecSync.mockReturnValueOnce(
-      'nanoclaw-group1-111\nnanoclaw-group2-222\n',
+      'nanoclaw-group1-111\nnanoclaw-litellm-proxy\nnanoclaw-group2-222\n',
     );
     // stop calls succeed
     mockExecSync.mockReturnValue('');
 
     cleanupOrphans();
 
-    // ps + 2 stop calls
+    // ps + 2 stop calls (litellm proxy is ignored)
     expect(mockExecSync).toHaveBeenCalledTimes(3);
     expect(mockExecSync).toHaveBeenNthCalledWith(
       2,

@@ -40,7 +40,6 @@ export interface RegisteredGroup {
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
-  model?: string; // LiteLLM model name override (e.g., 'qwen-plus', 'grok-4-fast-reasoning')
   botToken?: string; // Env var name for the bot token (e.g., 'TELEGRAM_BOT_TOKEN_1')
   assistantName?: string; // Per-group assistant name (e.g., '星梦', '星月')
 }

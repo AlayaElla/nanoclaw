@@ -238,6 +238,40 @@ Retweet with your own comment added.`,
           isError: !result.success
         };
       }
+    ),
+
+    tool(
+      'x_trends',
+      `获取 X (Twitter) 全球热门推文。仅主群组可用。
+
+返回当前全球最热门的推文列表，包含作者、内容和发布时间。
+可用于了解当前热点话题、获取灵感或追踪趋势。`,
+      {
+        count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）')
+      },
+      async (args: { count?: number }) => {
+        if (!isMain) {
+          return {
+            content: [{ type: 'text', text: 'Only the main group can read X trends.' }],
+            isError: true
+          };
+        }
+
+        const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        writeIpcFile(TASKS_DIR, {
+          type: 'x_trends',
+          requestId,
+          count: args.count || 10,
+          groupFolder,
+          timestamp: new Date().toISOString()
+        });
+
+        const result = await waitForResult(requestId, 120000);
+        return {
+          content: [{ type: 'text', text: result.message }],
+          isError: !result.success
+        };
+      }
     )
   ];
 }

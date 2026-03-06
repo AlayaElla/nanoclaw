@@ -25,6 +25,7 @@ import {
 } from './container-runtime.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
+import { getBotConfig, getBotConfigByIndex } from './agents-config.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -223,6 +224,8 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_MODEL',
     'PARALLEL_API_KEY',
     'DASHSCOPE_API_KEY',
+    'EMBEDDING_API_KEY',
+    'WHATAI_API_KEY',
   ]);
 }
 
@@ -231,6 +234,9 @@ function buildContainerArgs(
   containerName: string,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
+
+  // Allow container to reach host services by sharing the host network
+  args.push('--network', 'host');
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
@@ -314,9 +320,16 @@ export async function runContainerAgent(
 
     // Pass secrets via stdin (never written to disk or mounted as files)
     input.secrets = readSecrets();
-    // Per-group model override: use group's model if configured
-    if (group.model) {
-      input.secrets.ANTHROPIC_MODEL = group.model;
+    // Look up per-bot config from agents.yaml
+    // Main group has no botToken, so it falls back to the first bot (index 0)
+    const botConfig = group.botToken ? getBotConfig(group.botToken) : getBotConfigByIndex(0);
+
+    if (botConfig?.model) {
+      input.secrets.ANTHROPIC_MODEL = botConfig.model;
+    }
+    // Per-bot assistant name from agents.yaml
+    if (!group.assistantName && botConfig?.name) {
+      input.assistantName = botConfig.name;
     }
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();

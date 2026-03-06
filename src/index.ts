@@ -205,6 +205,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
+        // Stop typing indicator before sending — user should see the reply, not "typing..."
+        await channel.setTyping?.(chatJid, false);
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
         // Auto-index agent output for RAG (fire-and-forget)

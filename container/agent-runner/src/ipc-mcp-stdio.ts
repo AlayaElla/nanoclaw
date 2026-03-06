@@ -254,6 +254,8 @@ server.tool(
     name: z.string().describe('群组显示名称'),
     folder: z.string().describe('带通道前缀的文件夹名（例如 "whatsapp_family-chat"、"telegram_dev-team"）'),
     trigger: z.string().describe('触发词（例如 "@Andy"）'),
+    bot_token: z.string().optional().describe('Bot token 的环境变量名（例如 "TELEGRAM_BOT_TOKEN_2"）。用于多 bot 隔离。'),
+    assistant_name: z.string().optional().describe('该群组的助手名称（例如 "星月"、"星梦"）'),
   },
   async (args) => {
     if (!isMain) {
@@ -263,7 +265,7 @@ server.tool(
       };
     }
 
-    const data = {
+    const data: Record<string, any> = {
       type: 'register_group',
       jid: args.jid,
       name: args.name,
@@ -271,6 +273,8 @@ server.tool(
       trigger: args.trigger,
       timestamp: new Date().toISOString(),
     };
+    if (args.bot_token) data.botToken = args.bot_token;
+    if (args.assistant_name) data.assistantName = args.assistant_name;
 
     writeIpcFile(TASKS_DIR, data);
 
@@ -405,6 +409,13 @@ if (isMain) {
   server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args) => {
     const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     writeIpcFile(TASKS_DIR, { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() });
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  });
+
+  server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args) => {
+    const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() });
     const result = await waitForXResult(requestId);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });

@@ -5,7 +5,6 @@ import {
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
-  TRIGGER_PATTERN,
 } from './config.js';
 import './channels/index.js';
 import {
@@ -202,9 +201,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const hasTrigger = missedMessages.some((m) =>
-      TRIGGER_PATTERN.test(getTextContent(m.content).trim()),
-    );
+    const triggerLower = group.trigger.toLowerCase();
+    const nameTrigger = `@${(group.assistantName || ASSISTANT_NAME).toLowerCase()}`;
+    const hasTrigger = missedMessages.some((m) => {
+      const text = getTextContent(m.content).trim().toLowerCase();
+      return text.includes(triggerLower) || text.includes(nameTrigger);
+    });
     if (!hasTrigger) return true;
   }
 
@@ -438,9 +440,12 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const hasTrigger = groupMessages.some((m) =>
-              TRIGGER_PATTERN.test(getTextContent(m.content).trim()),
-            );
+            const triggerLower = group.trigger.toLowerCase();
+            const nameTrigger = `@${(group.assistantName || ASSISTANT_NAME).toLowerCase()}`;
+            const hasTrigger = groupMessages.some((m) => {
+              const text = getTextContent(m.content).trim().toLowerCase();
+              return text.includes(triggerLower) || text.includes(nameTrigger);
+            });
             if (!hasTrigger) continue;
           }
 

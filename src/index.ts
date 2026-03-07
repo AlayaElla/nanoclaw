@@ -119,6 +119,9 @@ function crossPostToSiblingAgents(
   // Extract Telegram chat ID: tg:-1003751636421@8624060050 → -1003751636421
   const chatId = senderJid.replace(/^tg:/, '').replace(/@.*$/, '');
 
+  // Skip private chats — only groups (negative IDs) need cross-posting
+  if (!chatId.startsWith('-')) return;
+
   for (const [jid] of Object.entries(registeredGroups)) {
     if (jid === senderJid) continue;
     if (!jid.startsWith('tg:')) continue;
@@ -126,13 +129,18 @@ function crossPostToSiblingAgents(
     const otherChatId = jid.replace(/^tg:/, '').replace(/@.*$/, '');
     if (otherChatId !== chatId) continue;
 
+    const now = new Date().toISOString();
+    // Ensure the sibling chat exists in the chats table (FK parent row)
+    const siblingGroup = registeredGroups[jid];
+    storeChatMetadata(jid, now, siblingGroup?.name, 'telegram', true);
+
     storeMessage({
       id: `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       chat_jid: jid,
       sender: 'bot',
       sender_name: senderName,
       content: text,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
       is_from_me: false,
     });
 

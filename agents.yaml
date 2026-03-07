@@ -2,10 +2,10 @@
 # 每个 bot 的完整配置：token、名字、模型
 
 bots:
-  - name: 星梦
+  - name: xingmeng
     token: "8624060050:AAFMuTQq_u0PJZgywvG-43EibEF2IvpOH78"
     model: qwen3.5-plus
 
-  - name: 星月
+  - name: xingyue
     token: "8505631292:AAEfiNBS9-jPpJgk5MkQOGWnh2omn6nWQEg"
     model: grok-4-1-fast-reasoning

@@ -154,7 +154,8 @@ export async function getEmbedding(text: string): Promise<number[]> {
 // --- Table helpers ---
 
 function sanitizeTableName(groupFolder: string): string {
-    return groupFolder.replace(/[^a-zA-Z0-9_-]/g, '_');
+    // LanceDB only allows alphanumeric ASCII, underscores, hyphens, and periods
+    return groupFolder.replace(/[^a-zA-Z0-9_.-]/g, '_');
 }
 
 async function getOrCreateTable(

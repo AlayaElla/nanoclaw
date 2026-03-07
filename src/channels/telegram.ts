@@ -32,6 +32,21 @@ export class TelegramChannel implements Channel {
   private botId: string;
   /** Per-JID intervals that refresh the Telegram typing indicator every 4s */
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  /** Buffered media waiting for a possible follow-up text (key: chatJid) */
+  private pendingMedia = new Map<string, {
+    timer: ReturnType<typeof setTimeout>;
+    chatJid: string;
+    fileUrl: string;
+    buffer: Buffer;
+    timestamp: string;
+    senderName: string;
+    sender: string;
+    msgId: string;
+    mediaType: 'photo' | 'video';
+    mimeType?: string;
+  }>();
+  /** How long to wait for a follow-up text after receiving media (ms) */
+  private static readonly MEDIA_MERGE_WINDOW = 1000;
 
   constructor(botToken: string, tokenEnvName: string, opts: TelegramChannelOpts) {
     this.botToken = botToken;
@@ -159,6 +174,22 @@ export class TelegramChannel implements Channel {
       // Message isolation: skip if this group belongs to a different bot
       if (!this.ownsJid(chatJid)) return;
 
+      // Check if there's pending media waiting for a follow-up text
+      const pending = this.pendingMedia.get(chatJid);
+      if (pending) {
+        // Consume the pending media — merge text as the Vision API prompt
+        clearTimeout(pending.timer);
+        this.pendingMedia.delete(chatJid);
+        logger.info(
+          { chatJid, mediaType: pending.mediaType, bot: this.tokenEnvName },
+          'Merging follow-up text with pending media',
+        );
+        // Process media with user's text as context (blocks Grammy, typing already on)
+        await this.processAndStoreMedia(pending, content);
+        // Also store the text message itself so the agent sees both
+        // (the described media + the user's original text)
+      }
+
       // Deliver message — startMessageLoop() will pick it up
       this.opts.onMessage(chatJid, {
         id: msgId,
@@ -213,43 +244,68 @@ export class TelegramChannel implements Channel {
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const sender = ctx.from?.id?.toString() || '';
+      const msgId = ctx.message.message_id.toString();
       const caption = ctx.message.caption || undefined;
       const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
 
-      let finalContent: string;
+      // Show typing indicator while downloading the image
+      await this.setTyping(chatJid, true);
+
+      // Download the image first (fast, needed in all paths)
+      let buffer: Buffer;
       try {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const file = await ctx.api.getFile(photo.file_id);
         const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
-        const description = await describeImage(buffer, caption);
-        if (description) {
-          finalContent = caption
-            ? `[Photo: ${description} | Caption: ${caption}]`
-            : `[Photo: ${description}]`;
-        } else {
-          finalContent = caption
-            ? `[Photo - description unavailable | Caption: ${caption}]`
-            : '[Photo - description unavailable]';
-        }
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo message described');
+        buffer = Buffer.from(await resp.arrayBuffer());
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo description failed');
-        finalContent = caption ? `[Photo - description failed | Caption: ${caption}]` : '[Photo - description failed]';
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo download failed');
+        const errorContent = caption ? `[Photo - download failed | Caption: ${caption}]` : '[Photo - download failed]';
+        this.opts.onMessage(chatJid, {
+          id: msgId, chat_jid: chatJid, sender, sender_name: senderName,
+          content: errorContent, timestamp, is_from_me: false,
+        });
+        return;
       }
 
-      this.opts.onMessage(chatJid, {
-        id: ctx.message.message_id.toString(),
-        chat_jid: chatJid,
-        sender: ctx.from?.id?.toString() || '',
-        sender_name: senderName,
-        content: finalContent,
-        timestamp,
-        is_from_me: false,
-      });
+      if (caption) {
+        // Has caption — process immediately, no need to wait for follow-up text
+        const pending = {
+          chatJid, fileUrl: '', buffer, timestamp, senderName, sender, msgId,
+          mediaType: 'photo' as const, timer: setTimeout(() => { }, 0),
+        };
+        await this.processAndStoreMedia(pending, caption);
+      } else {
+        // No caption — buffer and wait for possible follow-up text
+        // Cancel any existing pending media for this chat
+        const existing = this.pendingMedia.get(chatJid);
+        if (existing) {
+          clearTimeout(existing.timer);
+          // Process the old pending media with generic prompt before replacing
+          await this.processAndStoreMedia(existing, undefined);
+        }
+
+        const timer = setTimeout(() => {
+          const entry = this.pendingMedia.get(chatJid);
+          if (entry && entry.msgId === msgId) {
+            this.pendingMedia.delete(chatJid);
+            logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing photo with generic prompt');
+            this.processAndStoreMedia(entry, undefined).catch((err) => {
+              logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred photo processing failed');
+            });
+          }
+        }, TelegramChannel.MEDIA_MERGE_WINDOW);
+
+        this.pendingMedia.set(chatJid, {
+          timer, chatJid, fileUrl: '', buffer, timestamp,
+          senderName, sender, msgId, mediaType: 'photo',
+        });
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo buffered, waiting for follow-up text');
+      }
     });
     this.bot.on('message:video', async (ctx) => {
       const chatJid = this.makeJid(ctx.chat.id);
@@ -258,44 +314,63 @@ export class TelegramChannel implements Channel {
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const sender = ctx.from?.id?.toString() || '';
+      const msgId = ctx.message.message_id.toString();
       const caption = ctx.message.caption || undefined;
       const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
 
-      let finalContent: string;
+      await this.setTyping(chatJid, true);
+
+      const video = ctx.message.video;
+      const mimeType = video.mime_type || 'video/mp4';
+      let buffer: Buffer;
       try {
-        const video = ctx.message.video;
         const file = await ctx.api.getFile(video.file_id);
         const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
-        const mimeType = video.mime_type || 'video/mp4';
-        const description = await describeVideo(buffer, mimeType, caption);
-        if (description) {
-          finalContent = caption
-            ? `[Video: ${description} | Caption: ${caption}]`
-            : `[Video: ${description}]`;
-        } else {
-          finalContent = caption
-            ? `[Video - description unavailable | Caption: ${caption}]`
-            : '[Video - description unavailable]';
-        }
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Video message described');
+        buffer = Buffer.from(await resp.arrayBuffer());
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Video description failed');
-        finalContent = caption ? `[Video - description failed | Caption: ${caption}]` : '[Video - description failed]';
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Video download failed');
+        const errorContent = caption ? `[Video - download failed | Caption: ${caption}]` : '[Video - download failed]';
+        this.opts.onMessage(chatJid, {
+          id: msgId, chat_jid: chatJid, sender, sender_name: senderName,
+          content: errorContent, timestamp, is_from_me: false,
+        });
+        return;
       }
 
-      this.opts.onMessage(chatJid, {
-        id: ctx.message.message_id.toString(),
-        chat_jid: chatJid,
-        sender: ctx.from?.id?.toString() || '',
-        sender_name: senderName,
-        content: finalContent,
-        timestamp,
-        is_from_me: false,
-      });
+      if (caption) {
+        const pending = {
+          chatJid, fileUrl: '', buffer, timestamp, senderName, sender, msgId,
+          mediaType: 'video' as const, mimeType, timer: setTimeout(() => { }, 0),
+        };
+        await this.processAndStoreMedia(pending, caption);
+      } else {
+        const existing = this.pendingMedia.get(chatJid);
+        if (existing) {
+          clearTimeout(existing.timer);
+          await this.processAndStoreMedia(existing, undefined);
+        }
+
+        const timer = setTimeout(() => {
+          const entry = this.pendingMedia.get(chatJid);
+          if (entry && entry.msgId === msgId) {
+            this.pendingMedia.delete(chatJid);
+            logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing video with generic prompt');
+            this.processAndStoreMedia(entry, undefined).catch((err) => {
+              logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred video processing failed');
+            });
+          }
+        }, TelegramChannel.MEDIA_MERGE_WINDOW);
+
+        this.pendingMedia.set(chatJid, {
+          timer, chatJid, fileUrl: '', buffer, timestamp,
+          senderName, sender, msgId, mediaType: 'video', mimeType,
+        });
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Video buffered, waiting for follow-up text');
+      }
     });
     this.bot.on('message:voice', async (ctx) => {
       const chatJid = this.makeJid(ctx.chat.id);
@@ -312,6 +387,9 @@ export class TelegramChannel implements Channel {
       const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
 
+      // Show typing indicator while downloading & transcribing the voice message
+      await this.setTyping(chatJid, true);
+
       let finalContent: string;
       try {
         const file = await ctx.getFile();
@@ -326,6 +404,8 @@ export class TelegramChannel implements Channel {
         logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Voice transcription failed');
         finalContent = '[Voice Message - transcription failed]';
       }
+
+      // Don't stop typing here — let it flow seamlessly into processGroupMessages
 
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
@@ -409,11 +489,74 @@ export class TelegramChannel implements Channel {
       clearInterval(interval);
     }
     this.typingIntervals.clear();
+    // Clear all pending media timers
+    for (const entry of this.pendingMedia.values()) {
+      clearTimeout(entry.timer);
+    }
+    this.pendingMedia.clear();
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
       logger.info({ bot: this.tokenEnvName }, 'Telegram bot stopped');
     }
+  }
+
+  /**
+   * Process buffered media with the Vision API and store the result.
+   * @param media - The buffered media entry from pendingMedia
+   * @param userText - Follow-up text from user (used as Vision prompt), or undefined for generic
+   */
+  private async processAndStoreMedia(
+    media: {
+      chatJid: string;
+      buffer: Buffer;
+      timestamp: string;
+      senderName: string;
+      sender: string;
+      msgId: string;
+      mediaType: 'photo' | 'video';
+      mimeType?: string;
+    },
+    userText: string | undefined,
+  ): Promise<void> {
+    const { chatJid, buffer, timestamp, senderName, sender, msgId, mediaType } = media;
+    const label = mediaType === 'photo' ? 'Photo' : 'Video';
+
+    let finalContent: string;
+    try {
+      let description: string | null;
+      if (mediaType === 'photo') {
+        description = await describeImage(buffer, userText);
+      } else {
+        description = await describeVideo(buffer, media.mimeType, userText);
+      }
+
+      if (description) {
+        finalContent = userText
+          ? `[${label}: ${description} | User: ${userText}]`
+          : `[${label}: ${description}]`;
+      } else {
+        finalContent = userText
+          ? `[${label} - description unavailable | User: ${userText}]`
+          : `[${label} - description unavailable]`;
+      }
+      logger.info({ chatJid, bytes: buffer.length, mediaType, bot: this.tokenEnvName }, `${label} message processed`);
+    } catch (err) {
+      logger.error({ chatJid, err, mediaType, bot: this.tokenEnvName }, `${label} description failed`);
+      finalContent = userText
+        ? `[${label} - description failed | User: ${userText}]`
+        : `[${label} - description failed]`;
+    }
+
+    this.opts.onMessage(chatJid, {
+      id: msgId,
+      chat_jid: chatJid,
+      sender,
+      sender_name: senderName,
+      content: finalContent,
+      timestamp,
+      is_from_me: false,
+    });
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {

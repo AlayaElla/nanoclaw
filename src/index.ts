@@ -105,6 +105,45 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
 }
 
 /**
+ * Cross-post a bot message to sibling agents in the same Telegram chat.
+ * Telegram doesn't deliver bot messages to other bots, so we manually
+ * store the message in each sibling's DB record.
+ */
+function crossPostToSiblingAgents(
+  senderJid: string,
+  text: string,
+  senderName: string,
+): void {
+  if (!senderJid.startsWith('tg:')) return;
+
+  // Extract Telegram chat ID: tg:-1003751636421@8624060050 → -1003751636421
+  const chatId = senderJid.replace(/^tg:/, '').replace(/@.*$/, '');
+
+  for (const [jid] of Object.entries(registeredGroups)) {
+    if (jid === senderJid) continue;
+    if (!jid.startsWith('tg:')) continue;
+
+    const otherChatId = jid.replace(/^tg:/, '').replace(/@.*$/, '');
+    if (otherChatId !== chatId) continue;
+
+    storeMessage({
+      id: `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      chat_jid: jid,
+      sender: 'bot',
+      sender_name: senderName,
+      content: text,
+      timestamp: new Date().toISOString(),
+      is_from_me: false,
+    });
+
+    logger.debug(
+      { from: senderJid, to: jid, senderName },
+      'Cross-posted bot message to sibling agent',
+    );
+  }
+}
+
+/**
  * Get available groups list for the agent.
  * Returns groups ordered by most recent activity.
  */
@@ -209,6 +248,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         await channel.setTyping?.(chatJid, false);
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
+        // Cross-post to sibling agents in same Telegram group
+        crossPostToSiblingAgents(chatJid, text, group.assistantName || ASSISTANT_NAME);
         // Auto-index agent output for RAG (fire-and-forget)
         if (isRagEnabled()) {
           indexMessage(group.folder, text, {

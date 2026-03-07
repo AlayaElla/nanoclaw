@@ -55,6 +55,34 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+/**
+ * Resolve the per-agent CLAUDE.md file path.
+ * Structure: groups/<agentName>/main/CLAUDE.md  (for main sessions)
+ *            groups/<agentName>/group/CLAUDE.md (for group sessions)
+ * Auto-creates the directory and an empty CLAUDE.md if they don't exist.
+ * Returns the path to the CLAUDE.md file itself.
+ */
+function resolveAgentClaudeFile(
+  botToken: string | undefined,
+  isMain: boolean,
+): string | null {
+  const botConfig = botToken
+    ? getBotConfig(botToken)
+    : getBotConfigByIndex(0);
+  if (!botConfig?.name) return null;
+
+  const subDir = isMain ? 'main' : 'group';
+  const agentClaudeDir = path.join(GROUPS_DIR, botConfig.name, subDir);
+  fs.mkdirSync(agentClaudeDir, { recursive: true });
+
+  const claudeFile = path.join(agentClaudeDir, 'CLAUDE.md');
+  if (!fs.existsSync(claudeFile)) {
+    fs.writeFileSync(claudeFile, '');
+  }
+
+  return claudeFile;
+}
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -92,6 +120,17 @@ function buildVolumeMounts(
       containerPath: '/workspace/group',
       readonly: false,
     });
+
+    // Per-agent CLAUDE.md: overlay the agent's main/CLAUDE.md onto
+    // /workspace/group/CLAUDE.md so the SDK reads it at the same path.
+    const agentMainFile = resolveAgentClaudeFile(group.botToken, true);
+    if (agentMainFile) {
+      mounts.push({
+        hostPath: agentMainFile,
+        containerPath: '/workspace/group/CLAUDE.md',
+        readonly: true,
+      });
+    }
   } else {
     // Other groups only get their own folder
     mounts.push({
@@ -107,6 +146,17 @@ function buildVolumeMounts(
       mounts.push({
         hostPath: globalDir,
         containerPath: '/workspace/global',
+        readonly: true,
+      });
+    }
+
+    // Per-agent CLAUDE.md: overlay the agent's group/CLAUDE.md onto
+    // /workspace/group/CLAUDE.md so the SDK reads it at the same path.
+    const agentGroupFile = resolveAgentClaudeFile(group.botToken, false);
+    if (agentGroupFile) {
+      mounts.push({
+        hostPath: agentGroupFile,
+        containerPath: '/workspace/group/CLAUDE.md',
         readonly: true,
       });
     }

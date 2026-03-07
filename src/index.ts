@@ -131,8 +131,7 @@ function crossPostToSiblingAgents(
 
     const now = new Date().toISOString();
     // Ensure the sibling chat exists in the chats table (FK parent row)
-    const siblingGroup = registeredGroups[jid];
-    storeChatMetadata(jid, now, siblingGroup?.name, 'telegram', true);
+    storeChatMetadata(jid, now, undefined, 'telegram', true);
 
     storeMessage({
       id: `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

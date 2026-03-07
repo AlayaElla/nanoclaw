@@ -1,6 +1,6 @@
 import path from 'path';
 
-import { DATA_DIR, GROUPS_DIR } from './config.js';
+import { DATA_DIR } from './config.js';
 
 const GROUP_FOLDER_PATTERN = /^[\w\p{L}\p{N}][\w\p{L}\p{N}_-]{0,63}$/u;
 const RESERVED_FOLDERS = new Set(['global']);
@@ -30,8 +30,9 @@ function ensureWithinBase(baseDir: string, resolvedPath: string): void {
 
 export function resolveGroupFolderPath(folder: string): string {
   assertValidGroupFolder(folder);
-  const groupPath = path.resolve(GROUPS_DIR, folder);
-  ensureWithinBase(GROUPS_DIR, groupPath);
+  const sessionsDir = path.resolve(DATA_DIR, 'sessions');
+  const groupPath = path.resolve(sessionsDir, folder);
+  ensureWithinBase(sessionsDir, groupPath);
   return groupPath;
 }
 

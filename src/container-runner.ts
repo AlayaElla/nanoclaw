@@ -139,13 +139,12 @@ function buildVolumeMounts(
       readonly: false,
     });
 
-    // Global memory directory (read-only for non-main)
-    // Only directory mounts are supported, not file mounts
-    const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
+    // Shared team rules (read-only for non-main groups)
+    const teamRuleDir = path.join(GROUPS_DIR, 'TeamRule');
+    if (fs.existsSync(teamRuleDir)) {
       mounts.push({
-        hostPath: globalDir,
-        containerPath: '/workspace/global',
+        hostPath: teamRuleDir,
+        containerPath: '/workspace/TeamRule',
         readonly: true,
       });
     }

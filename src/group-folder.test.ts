@@ -22,11 +22,13 @@ describe('group folder validation', () => {
     expect(isValidGroupFolder('')).toBe(false);
   });
 
-  it('resolves safe paths under groups directory', () => {
+  it('resolves safe paths under data sessions directory', () => {
     const resolved = resolveGroupFolderPath('family-chat');
-    expect(resolved.endsWith(`${path.sep}groups${path.sep}family-chat`)).toBe(
-      true,
-    );
+    expect(
+      resolved.endsWith(
+        `${path.sep}data${path.sep}sessions${path.sep}family-chat`,
+      ),
+    ).toBe(true);
   });
 
   it('resolves safe paths under data ipc directory', () => {

@@ -198,6 +198,16 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Mount host SSH keys (read-only) so the container agent can use git over SSH
+  const sshDir = path.join(process.env.HOME || '/home/node', '.ssh');
+  if (fs.existsSync(sshDir)) {
+    mounts.push({
+      hostPath: sshDir,
+      containerPath: '/home/node/.ssh',
+      readonly: true,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(

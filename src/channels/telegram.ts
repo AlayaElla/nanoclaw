@@ -5,6 +5,7 @@ import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
+import { describeImage, describeVideo } from '../vision.js';
 import { getAllBotConfigs } from '../agents-config.js';
 import {
   Channel,
@@ -212,10 +213,11 @@ export class TelegramChannel implements Channel {
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
-      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+      const caption = ctx.message.caption || undefined;
       const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
 
+      let finalContent: string;
       try {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const file = await ctx.api.getFile(photo.file_id);
@@ -223,39 +225,78 @@ export class TelegramChannel implements Channel {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
-        const base64 = buffer.toString('base64');
-        const dataUri = `data:image/jpeg;base64,${base64}`;
-
-        const contentItem: any[] = [];
-        if (caption.trim()) {
-          contentItem.push({ type: 'text', text: caption.trim() });
+        const description = await describeImage(buffer, caption);
+        if (description) {
+          finalContent = caption
+            ? `[Photo: ${description} | Caption: ${caption}]`
+            : `[Photo: ${description}]`;
+        } else {
+          finalContent = caption
+            ? `[Photo - description unavailable | Caption: ${caption}]`
+            : '[Photo - description unavailable]';
         }
-        contentItem.push({ type: 'image_url', image_url: { url: dataUri } });
-
-        this.opts.onMessage(chatJid, {
-          id: ctx.message.message_id.toString(),
-          chat_jid: chatJid,
-          sender: ctx.from?.id?.toString() || '',
-          sender_name: senderName,
-          content: contentItem,
-          timestamp,
-          is_from_me: false,
-        });
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo message processed');
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo message described');
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo download failed');
-        this.opts.onMessage(chatJid, {
-          id: ctx.message.message_id.toString(),
-          chat_jid: chatJid,
-          sender: ctx.from?.id?.toString() || '',
-          sender_name: senderName,
-          content: `[Photo]${caption}`,
-          timestamp,
-          is_from_me: false,
-        });
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo description failed');
+        finalContent = caption ? `[Photo - description failed | Caption: ${caption}]` : '[Photo - description failed]';
       }
+
+      this.opts.onMessage(chatJid, {
+        id: ctx.message.message_id.toString(),
+        chat_jid: chatJid,
+        sender: ctx.from?.id?.toString() || '',
+        sender_name: senderName,
+        content: finalContent,
+        timestamp,
+        is_from_me: false,
+      });
     });
-    this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
+    this.bot.on('message:video', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group || !this.ownsJid(chatJid)) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const caption = ctx.message.caption || undefined;
+      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+
+      let finalContent: string;
+      try {
+        const video = ctx.message.video;
+        const file = await ctx.api.getFile(video.file_id);
+        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const mimeType = video.mime_type || 'video/mp4';
+        const description = await describeVideo(buffer, mimeType, caption);
+        if (description) {
+          finalContent = caption
+            ? `[Video: ${description} | Caption: ${caption}]`
+            : `[Video: ${description}]`;
+        } else {
+          finalContent = caption
+            ? `[Video - description unavailable | Caption: ${caption}]`
+            : '[Video - description unavailable]';
+        }
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Video message described');
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Video description failed');
+        finalContent = caption ? `[Video - description failed | Caption: ${caption}]` : '[Video - description failed]';
+      }
+
+      this.opts.onMessage(chatJid, {
+        id: ctx.message.message_id.toString(),
+        chat_jid: chatJid,
+        sender: ctx.from?.id?.toString() || '',
+        sender_name: senderName,
+        content: finalContent,
+        timestamp,
+        is_from_me: false,
+      });
+    });
     this.bot.on('message:voice', async (ctx) => {
       const chatJid = this.makeJid(ctx.chat.id);
       const group = this.opts.registeredGroups()[chatJid];

@@ -226,6 +226,9 @@ function readSecrets(): Record<string, string> {
     'DASHSCOPE_API_KEY',
     'EMBEDDING_API_KEY',
     'WHATAI_API_KEY',
+    'VISION_API_KEY',
+    'VISION_BASE_URL',
+    'VISION_MODEL',
   ]);
 }
 

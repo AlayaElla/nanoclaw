@@ -13,6 +13,7 @@ import {
 } from './types.js';
 
 let db: Database.Database;
+let groupsDb: Database.Database;
 
 function createSchema(database: Database.Database): void {
   database.exec(`
@@ -73,15 +74,7 @@ function createSchema(database: Database.Database): void {
       group_folder TEXT PRIMARY KEY,
       session_id TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS registered_groups (
-      jid TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      folder TEXT NOT NULL UNIQUE,
-      trigger_pattern TEXT NOT NULL,
-      added_at TEXT NOT NULL,
-      container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1
-    );
+
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -106,45 +99,7 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
-  // Add is_main column if it doesn't exist (migration for existing DBs)
-  try {
-    database.exec(
-      `ALTER TABLE registered_groups ADD COLUMN is_main INTEGER DEFAULT 0`,
-    );
-    // Backfill: existing rows with folder = 'main' are the main group
-    database.exec(
-      `UPDATE registered_groups SET is_main = 1 WHERE folder = 'main'`,
-    );
-  } catch {
-    /* column already exists */
-  }
 
-  // Add model column if it doesn't exist (migration for per-group model selection)
-  try {
-    database.exec(
-      `ALTER TABLE registered_groups ADD COLUMN model TEXT`,
-    );
-  } catch {
-    /* column already exists */
-  }
-
-  // Add bot_token column if it doesn't exist (migration for multi-bot support)
-  try {
-    database.exec(
-      `ALTER TABLE registered_groups ADD COLUMN bot_token TEXT`,
-    );
-  } catch {
-    /* column already exists */
-  }
-
-  // Add assistant_name column if it doesn't exist (migration for per-group assistant name)
-  try {
-    database.exec(
-      `ALTER TABLE registered_groups ADD COLUMN assistant_name TEXT`,
-    );
-  } catch {
-    /* column already exists */
-  }
 
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
@@ -168,12 +123,34 @@ function createSchema(database: Database.Database): void {
   }
 }
 
-export function initDatabase(): void {
-  const dbPath = path.join(STORE_DIR, 'messages.db');
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+function createGroupsSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS registered_groups (
+      jid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      folder TEXT NOT NULL UNIQUE,
+      trigger_pattern TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      container_config TEXT,
+      requires_trigger INTEGER DEFAULT 1,
+      is_main INTEGER DEFAULT 0,
+      model TEXT,
+      bot_token TEXT,
+      assistant_name TEXT
+    );
+  `);
+}
 
+export function initDatabase(): void {
+  fs.mkdirSync(STORE_DIR, { recursive: true });
+
+  const dbPath = path.join(STORE_DIR, 'messages.db');
   db = new Database(dbPath);
   createSchema(db);
+
+  const groupsDbPath = path.join(STORE_DIR, 'groups.db');
+  groupsDb = new Database(groupsDbPath);
+  createGroupsSchema(groupsDb);
 
   // Migrate from JSON files if they exist
   migrateJsonState();
@@ -183,6 +160,8 @@ export function initDatabase(): void {
 export function _initTestDatabase(): void {
   db = new Database(':memory:');
   createSchema(db);
+  groupsDb = new Database(':memory:');
+  createGroupsSchema(groupsDb);
 }
 
 /**
@@ -559,7 +538,7 @@ export function getAllSessions(): Record<string, string> {
 export function getRegisteredGroup(
   jid: string,
 ): (RegisteredGroup & { jid: string }) | undefined {
-  const row = db
+  const row = groupsDb
     .prepare('SELECT * FROM registered_groups WHERE jid = ?')
     .get(jid) as
     | {
@@ -604,7 +583,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
-  db.prepare(
+  groupsDb.prepare(
     `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, bot_token, assistant_name)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -622,7 +601,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = db.prepare('SELECT * FROM registered_groups').all() as Array<{
+  const rows = groupsDb.prepare('SELECT * FROM registered_groups').all() as Array<{
     jid: string;
     name: string;
     folder: string;

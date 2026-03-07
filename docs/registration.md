@@ -39,7 +39,7 @@ npm start
 ### 3. 注册群组
 
 ```bash
-sqlite3 store/messages.db "
+sqlite3 store/groups.db "
 INSERT INTO registered_groups
   (jid, name, folder, trigger_pattern, added_at, is_main, requires_trigger, bot_token, assistant_name)
 VALUES
@@ -65,7 +65,7 @@ VALUES
 
 ### 实际例子解析
 ```bash
-sqlite3 store/messages.db "
+sqlite3 store/groups.db "
 INSERT OR REPLACE INTO registered_groups
   (jid, name, folder, trigger_pattern, added_at, is_main, requires_trigger, bot_token, assistant_name)
 VALUES
@@ -96,7 +96,7 @@ VALUES
 ## 清理重置
 
 ```bash
-rm -f store/messages.db
+rm -f store/messages.db store/groups.db
 rm -rf data/sessions/ data/ipc/ data/rag/ data/x-browser-profile/
 rm -f groups/*/logs/*.log
 ```

@@ -10,6 +10,7 @@ import {
 } from './container-runner.js';
 import {
   getAllTasks,
+  getChatIsGroup,
   getDueTasks,
   getTaskById,
   logTaskRun,
@@ -137,6 +138,8 @@ async function runTask(
   }
 
   try {
+    const isGroup = getChatIsGroup(task.chat_jid) ?? (group.requiresTrigger !== false);
+
     const output = await runContainerAgent(
       group,
       {
@@ -145,6 +148,7 @@ async function runTask(
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
         isMain,
+        isGroup,
         isScheduledTask: true,
         assistantName: group.assistantName || ASSISTANT_NAME,
       },

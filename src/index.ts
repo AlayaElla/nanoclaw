@@ -26,6 +26,7 @@ import {
   getAllRegisteredGroups,
   getAllSessions,
   getAllTasks,
+  getChatIsGroup,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -352,6 +353,8 @@ async function runAgent(
     : undefined;
 
   try {
+    const isGroup = getChatIsGroup(chatJid) ?? (group.requiresTrigger !== false);
+
     const output = await runContainerAgent(
       group,
       {
@@ -360,6 +363,7 @@ async function runAgent(
         groupFolder: group.folder,
         chatJid,
         isMain,
+        isGroup,
         assistantName: group.assistantName || ASSISTANT_NAME,
       },
       (proc, containerName) =>

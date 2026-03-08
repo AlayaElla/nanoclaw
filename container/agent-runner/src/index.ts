@@ -25,8 +25,10 @@ interface ContainerInput {
   groupFolder: string;
   chatJid: string;
   isMain: boolean;
+  isGroup?: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  teamRuleContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -398,6 +400,16 @@ async function runQuery(
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
+  // Use TeamRule content for group chats (passed from host via stdin)
+  let teamRuleMd: string | undefined;
+  if (!containerInput.isMain && containerInput.isGroup && containerInput.teamRuleContent) {
+    teamRuleMd = containerInput.teamRuleContent;
+    log('Injecting TeamRule.md into system prompt for group chat');
+  }
+
+  // Combine additional system context
+  const additionalContext = [globalClaudeMd, teamRuleMd].filter(Boolean).join('\n\n---\n\n');
+
   // Discover additional directories mounted at /workspace/extra/*
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically
   const extraDirs: string[] = [];
@@ -422,8 +434,8 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
+      systemPrompt: additionalContext
+        ? { type: 'preset' as const, preset: 'claude_code' as const, append: additionalContext }
         : undefined,
       allowedTools: [
         'Bash',

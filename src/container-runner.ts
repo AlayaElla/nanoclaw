@@ -37,8 +37,10 @@ export interface ContainerInput {
   groupFolder: string;
   chatJid: string;
   isMain: boolean;
+  isGroup?: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  teamRuleContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -139,15 +141,6 @@ function buildVolumeMounts(
       readonly: false,
     });
 
-    // Shared team rules (read-only for non-main groups)
-    const teamRuleDir = path.join(GROUPS_DIR, 'TeamRule');
-    if (fs.existsSync(teamRuleDir)) {
-      mounts.push({
-        hostPath: teamRuleDir,
-        containerPath: '/workspace/TeamRule',
-        readonly: true,
-      });
-    }
 
     // Per-agent CLAUDE.md: overlay the agent's group/CLAUDE.md onto
     // /workspace/group/CLAUDE.md so the SDK reads it at the same path.
@@ -333,6 +326,18 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+
+  // Read TeamRule.md on host side for group chats (centralized here so callers don't duplicate)
+  if (!input.isMain && input.isGroup && !input.teamRuleContent) {
+    const teamRulePath = path.join(GROUPS_DIR, 'TeamRule.md');
+    try {
+      if (fs.existsSync(teamRulePath)) {
+        input.teamRuleContent = fs.readFileSync(teamRulePath, 'utf-8');
+      }
+    } catch {
+      /* ignore read errors */
+    }
+  }
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });

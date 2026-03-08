@@ -59,7 +59,24 @@ interface SDKUserMessage {
 
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
+const IPC_STATUS_DIR = '/workspace/ipc/status';
 const IPC_POLL_MS = 500;
+
+/**
+ * Write a tool status event to IPC so the host can relay it to Telegram.
+ */
+function writeToolStatus(status: { type: 'tool_status'; tool?: string; status: 'running' | 'idle'; elapsed?: number }): void {
+  try {
+    fs.mkdirSync(IPC_STATUS_DIR, { recursive: true });
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
+    const filepath = path.join(IPC_STATUS_DIR, filename);
+    const tempPath = `${filepath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(status));
+    fs.renameSync(tempPath, filepath);
+  } catch (err) {
+    log(`Failed to write tool status: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 /**
  * Push-based async iterable for streaming user messages to the SDK.
@@ -481,6 +498,7 @@ async function runQuery(
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
         PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
       },
+      includePartialMessages: true,
     }
   })) {
     messageCount++;
@@ -501,7 +519,24 @@ async function runQuery(
       log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
     }
 
+    // Emit tool status events for host-side Telegram updates
+    // stream_event with content_block_start of type tool_use captures ALL tools
+    if (message.type === 'stream_event') {
+      const event = (message as { event: { type: string; content_block?: { type: string; name?: string } } }).event;
+      if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use' && event.content_block.name) {
+        writeToolStatus({ type: 'tool_status', tool: event.content_block.name, status: 'running' });
+      }
+    }
+
+    // tool_progress only fires for Bash/PowerShell, keep as secondary source
+    if (message.type === 'tool_progress') {
+      const tp = message as { tool_name: string; elapsed_time_seconds: number };
+      writeToolStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });
+    }
+
     if (message.type === 'result') {
+      // Signal tool status idle when a result arrives
+      writeToolStatus({ type: 'tool_status', status: 'idle' });
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
       const subtype = (message as { subtype?: string }).subtype || '';

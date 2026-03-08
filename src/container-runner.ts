@@ -51,6 +51,13 @@ export interface ContainerOutput {
   error?: string;
 }
 
+export interface ToolStatusEvent {
+  type: 'tool_status';
+  tool?: string;
+  status: 'running' | 'idle';
+  elapsed?: number;
+}
+
 interface VolumeMount {
   hostPath: string;
   containerPath: string;
@@ -210,6 +217,7 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'status'), { recursive: true });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -324,6 +332,7 @@ export async function runContainerAgent(
   input: ContainerInput,
   onProcess: (proc: ChildProcess, containerName: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  onToolStatus?: (event: ToolStatusEvent) => void,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
@@ -379,6 +388,52 @@ export async function runContainerAgent(
     });
 
     onProcess(container, containerName);
+
+    // Poll IPC status directory for tool status events from agent-runner
+    const statusDir = path.join(resolveGroupIpcPath(group.folder), 'status');
+    let statusPolling = true;
+    const statusQueue: ToolStatusEvent[] = [];
+    let processingStatus = false;
+
+    const processStatusQueue = async () => {
+      if (processingStatus) return;
+      processingStatus = true;
+      while (statusQueue.length > 0) {
+        const event = statusQueue.shift()!;
+        try {
+          await onToolStatus!(event);
+        } catch (err) {
+          logger.debug({ err }, 'Error processing tool status event');
+        }
+      }
+      processingStatus = false;
+    };
+
+    const pollToolStatus = () => {
+      if (!statusPolling || !onToolStatus) return;
+      try {
+        const files = fs.readdirSync(statusDir)
+          .filter((f: string) => f.endsWith('.json'))
+          .sort();
+        for (const file of files) {
+          const filePath = path.join(statusDir, file);
+          try {
+            const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ToolStatusEvent;
+            fs.unlinkSync(filePath);
+            statusQueue.push(data);
+          } catch {
+            try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+          }
+        }
+        if (statusQueue.length > 0) {
+          processStatusQueue().catch(() => { /* handled inside */ });
+        }
+      } catch { /* status dir may not exist yet */ }
+      setTimeout(pollToolStatus, 500);
+    };
+    if (onToolStatus) {
+      setTimeout(pollToolStatus, 500);
+    }
 
     let stdout = '';
     let stderr = '';
@@ -516,6 +571,7 @@ export async function runContainerAgent(
 
     container.on('close', (code) => {
       clearTimeout(timeout);
+      statusPolling = false;
       const duration = Date.now() - startTime;
 
       if (timedOut) {

@@ -13,6 +13,7 @@ import {
 } from './channels/registry.js';
 import {
   ContainerOutput,
+  ToolStatusEvent,
   runContainerAgent,
   writeGroupsSnapshot,
   writeTasksSnapshot,
@@ -243,6 +244,58 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  // Track tool status message for send → edit → delete pattern
+  // Typing stays active until the first tool event arrives
+  let statusMessageId: number | null = null;
+  let lastToolName: string | null = null;
+
+  const TOOL_DISPLAY_NAMES: Record<string, string> = {
+    Bash: '命令行',
+    Read: '读取文件',
+    Write: '写入文件',
+    Edit: '编辑文件',
+    Grep: '搜索代码',
+    Glob: '查找文件',
+    WebSearch: '网页搜索',
+    WebFetch: '获取网页',
+    Task: '子任务',
+    TaskOutput: '读取任务结果',
+    TaskStop: '停止任务',
+    TeamCreate: '创建团队',
+    TeamDelete: '删除团队',
+    SendMessage: '发送消息',
+    TodoWrite: '更新待办',
+    ToolSearch: '搜索工具',
+    Skill: '技能',
+    NotebookEdit: '编辑笔记本',
+  };
+
+  const onToolStatus = async (event: ToolStatusEvent) => {
+    if (!channel.sendStatusMessage) return;
+
+    if (event.status === 'running' && event.tool) {
+      const displayName = TOOL_DISPLAY_NAMES[event.tool] || event.tool;
+      const statusText = `⏳ 正在${displayName}...`;
+      if (statusMessageId) {
+        // Edit existing status message (tool changed)
+        if (lastToolName !== event.tool) {
+          await channel.editStatusMessage?.(chatJid, statusMessageId, statusText);
+        }
+      } else {
+        // First tool — send status message (typing stays active)
+        statusMessageId = await channel.sendStatusMessage(chatJid, statusText);
+      }
+      lastToolName = event.tool;
+    } else if (event.status === 'idle') {
+      // Agent finished — delete status message
+      if (statusMessageId) {
+        await channel.deleteMessage?.(chatJid, statusMessageId);
+        statusMessageId = null;
+        lastToolName = null;
+      }
+    }
+  };
+
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
@@ -279,9 +332,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (result.status === 'error') {
       hadError = true;
     }
-  });
+  }, onToolStatus);
 
   await channel.setTyping?.(chatJid, false);
+  // Clean up status message if still present
+  if (statusMessageId && channel.deleteMessage) {
+    await channel.deleteMessage(chatJid, statusMessageId);
+    statusMessageId = null;
+  }
   if (idleTimer) clearTimeout(idleTimer);
 
   if (output === 'error' || hadError) {
@@ -312,6 +370,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  onToolStatus?: (event: ToolStatusEvent) => void,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -369,6 +428,7 @@ async function runAgent(
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
+      onToolStatus,
     );
 
     if (output.newSessionId) {

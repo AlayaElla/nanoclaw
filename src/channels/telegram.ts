@@ -563,6 +563,38 @@ export class TelegramChannel implements Channel {
     send();
     this.typingIntervals.set(jid, setInterval(send, 4000));
   }
+
+  async sendStatusMessage(jid: string, text: string): Promise<number | null> {
+    if (!this.bot) return null;
+    try {
+      const numericId = TelegramChannel.extractChatId(jid);
+      const msg = await this.bot.api.sendMessage(numericId, text);
+      return msg.message_id;
+    } catch (err) {
+      logger.debug({ jid, err, bot: this.tokenEnvName }, 'Failed to send status message');
+      return null;
+    }
+  }
+
+  async editStatusMessage(jid: string, messageId: number, text: string): Promise<void> {
+    if (!this.bot) return;
+    try {
+      const numericId = TelegramChannel.extractChatId(jid);
+      await this.bot.api.editMessageText(numericId, messageId, text);
+    } catch (err) {
+      logger.debug({ jid, messageId, err, bot: this.tokenEnvName }, 'Failed to edit status message');
+    }
+  }
+
+  async deleteMessage(jid: string, messageId: number): Promise<void> {
+    if (!this.bot) return;
+    try {
+      const numericId = TelegramChannel.extractChatId(jid);
+      await this.bot.api.deleteMessage(numericId, messageId);
+    } catch (err) {
+      logger.debug({ jid, messageId, err, bot: this.tokenEnvName }, 'Failed to delete status message');
+    }
+  }
 }
 
 // --- Bot Pool for Agent Swarm ---

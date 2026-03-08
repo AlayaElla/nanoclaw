@@ -327,12 +327,12 @@ export async function runContainerAgent(
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
-  // Read TeamRule.md on host side for group chats (centralized here so callers don't duplicate)
+  // Read GroupRule.md on host side for group chats (centralized here so callers don't duplicate)
   if (!input.isMain && input.isGroup && !input.teamRuleContent) {
-    const teamRulePath = path.join(GROUPS_DIR, 'TeamRule.md');
+    const groupRulePath = path.join(GROUPS_DIR, 'GroupRule.md');
     try {
-      if (fs.existsSync(teamRulePath)) {
-        input.teamRuleContent = fs.readFileSync(teamRulePath, 'utf-8');
+      if (fs.existsSync(groupRulePath)) {
+        input.teamRuleContent = fs.readFileSync(groupRulePath, 'utf-8');
       }
     } catch {
       /* ignore read errors */

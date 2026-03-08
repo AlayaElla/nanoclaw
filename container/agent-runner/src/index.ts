@@ -363,7 +363,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean }> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -392,6 +392,7 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let hadError = false;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -400,11 +401,11 @@ async function runQuery(
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
-  // Use TeamRule content for group chats (passed from host via stdin)
+  // Use GroupRule content for group chats (passed from host via stdin)
   let teamRuleMd: string | undefined;
   if (!containerInput.isMain && containerInput.isGroup && containerInput.teamRuleContent) {
     teamRuleMd = containerInput.teamRuleContent;
-    log('Injecting TeamRule.md into system prompt for group chat');
+    log('Injecting GroupRule.md into system prompt for group chat');
   }
 
   // Combine additional system context
@@ -503,18 +504,24 @@ async function runQuery(
     if (message.type === 'result') {
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const subtype = (message as { subtype?: string }).subtype || '';
+      if (subtype === 'error_during_execution' || subtype === 'error_max_turns') {
+        hadError = true;
+        log(`Result #${resultCount} had error subtype: ${subtype}`);
+      }
+      log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
       writeOutput({
-        status: 'success',
+        status: hadError ? 'error' : 'success',
         result: textResult || null,
-        newSessionId
+        newSessionId,
+        ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
       });
     }
   }
 
   ipcPolling = false;
-  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, hadError: ${hadError}`);
+  return { newSessionId, lastAssistantUuid, closedDuringQuery, hadError };
 }
 
 async function main(): Promise<void> {
@@ -579,11 +586,45 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      let queryResult: { newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean };
+      try {
+        queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      } catch (queryErr) {
+        // SDK threw during query (e.g. resuming from an error state).
+        // Recover by clearing resume state and starting fresh on next message.
+        const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        log(`Query threw error, recovering: ${msg}`);
+        writeOutput({
+          status: 'error',
+          result: null,
+          newSessionId: sessionId,
+          error: msg
+        });
+        resumeAt = undefined;
+        sessionId = undefined;
+
+        // Wait for next IPC message instead of crashing
+        log('Waiting for next IPC message after error recovery...');
+        const nextMessage = await waitForIpcMessage();
+        if (nextMessage === null) {
+          log('Close sentinel received during error recovery, exiting');
+          break;
+        }
+        prompt = nextMessage;
+        continue;
+      }
+
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
-      if (queryResult.lastAssistantUuid) {
+
+      // When query ended with an error result, don't try to resume from the
+      // error point — the SDK will crash. Start fresh on next message.
+      if (queryResult.hadError) {
+        log('Query ended with error result, resetting resume state for clean restart');
+        resumeAt = undefined;
+        sessionId = undefined;
+      } else if (queryResult.lastAssistantUuid) {
         resumeAt = queryResult.lastAssistantUuid;
       }
 

@@ -9,10 +9,16 @@ store/
 data/
 logs/
 
-# Groups - only track base structure and specific CLAUDE.md files
+# Groups - only track base structure, TeamRule.md, and CLAUDE.md files
 groups/*
+!groups/TeamRule.md
 !groups/main/
 !groups/global/
+!groups/*/
+groups/*/main/*
+groups/*/group/*
+!groups/*/main/CLAUDE.md
+!groups/*/group/CLAUDE.md
 groups/main/*
 groups/global/*
 !groups/main/CLAUDE.md

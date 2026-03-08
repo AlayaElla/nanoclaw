@@ -43,6 +43,7 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
+import { resolveAgentName } from './agents-config.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup, getTextContent } from './types.js';
 import { logger } from './logger.js';
@@ -315,7 +316,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         crossPostToSiblingAgents(chatJid, text, group.assistantName || ASSISTANT_NAME);
         // Auto-index agent output for RAG (fire-and-forget)
         if (isRagEnabled()) {
-          indexMessage(group.folder, text, {
+          indexMessage(resolveAgentName(group.botToken), text, {
             role: 'assistant',
             timestamp: new Date().toISOString(),
           }).catch(() => { });
@@ -599,7 +600,7 @@ async function main(): Promise<void> {
       if (isRagEnabled()) {
         const group = registeredGroups[msg.chat_jid];
         if (group) {
-          indexMessage(group.folder, typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content), {
+          indexMessage(resolveAgentName(group.botToken), typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content), {
             role: 'user',
             sender_name: msg.sender_name,
             message_id: msg.id,

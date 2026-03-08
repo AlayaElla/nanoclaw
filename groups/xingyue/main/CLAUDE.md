@@ -171,12 +171,12 @@ mcp__nanoclaw__rag_search(query: "上次讨论的方案")
 | 容器路径 | 宿主机路径 | 访问权限 |
 |----------|-----------|---------|\
 | `/workspace/project` | 项目根目录 | 只读 |
-| `/workspace/group` | `groups/main/` | 读写 |
+| `/workspace/group` | `data/workspace/xingyue/` | 读写 |
 
 容器内的关键路径：
-- `/workspace/project/store/messages.db` - SQLite 数据库
-- `/workspace/project/store/messages.db`（registered_groups 表）- 群组配置
-- `/workspace/project/groups/` - 所有群组文件夹
+- `/workspace/project/store/messages.db` - 消息数据库（SQLite）
+- `/workspace/project/store/groups.db`（registered_groups 表）- 群组配置
+- `/workspace/project/groups/` - 所有群组的 CLAUDE.md 文件
 
 ---
 
@@ -295,20 +295,18 @@ sqlite3 /workspace/project/store/messages.db "
 
 ### 移除群组
 
-1. 读取 `/workspace/project/data/registered_groups.json`
-2. 移除该群组的条目
-3. 写回更新后的 JSON
-4. 群组文件夹和文件保留不变（不要删除它们）
+1. 在 `groups.db` 的 `registered_groups` 表中删除该群组的条目
+2. 群组文件夹和文件保留不变（不要删除它们）
 
 ### 列出群组
 
-读取 `/workspace/project/data/registered_groups.json` 并格式化显示。
+读取 `groups.db` 的 `registered_groups` 表并格式化显示。
 
 ---
 
 ## 为其他群组安排任务
 
-为其他群组安排任务时，使用 `target_group_jid` 参数并提供群组的 JID（来自 `registered_groups.json`）：
+为其他群组安排任务时，使用 `target_group_jid` 参数并提供群组的 JID（来自 `groups.db`）：
 - `schedule_task(prompt: "...", schedule_type: "cron", schedule_value: "0 9 * * 1", target_group_jid: "120363336345536173@g.us")`
 
 任务将在该群组的上下文中运行，可以访问其文件和记忆。

@@ -69,3 +69,14 @@ export function getBotConfig(tokenEnvVar: string): BotConfig | undefined {
 export function getBotConfigByIndex(index: number): BotConfig | undefined {
     return loadConfig()[index];
 }
+
+/**
+ * Resolve the agent name from a bot token env var (e.g. 'TELEGRAM_BOT_TOKEN_2').
+ * Falls back to the first bot's name or 'default'.
+ */
+export function resolveAgentName(botToken?: string): string {
+    const config = botToken
+        ? getBotConfig(botToken)
+        : getBotConfigByIndex(0);
+    return config?.name || 'default';
+}

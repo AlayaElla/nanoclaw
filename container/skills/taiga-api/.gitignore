@@ -1,6 +1,0 @@
-# 忽略包含真实凭证的文件
-.env
-taiga_credentials.json
-__pycache__/
-*.pyc
-*.pyo

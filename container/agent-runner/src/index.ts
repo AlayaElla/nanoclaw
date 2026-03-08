@@ -411,22 +411,12 @@ async function runQuery(
   let resultCount = 0;
   let hadError = false;
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
-  let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
-  }
-
   // Use GroupRule content for group chats (passed from host via stdin)
-  let teamRuleMd: string | undefined;
+  let additionalContext: string | undefined;
   if (!containerInput.isMain && containerInput.isGroup && containerInput.teamRuleContent) {
-    teamRuleMd = containerInput.teamRuleContent;
+    additionalContext = containerInput.teamRuleContent;
     log('Injecting GroupRule.md into system prompt for group chat');
   }
-
-  // Combine additional system context
-  const additionalContext = [globalClaudeMd, teamRuleMd].filter(Boolean).join('\n\n---\n\n');
 
   // Discover additional directories mounted at /workspace/extra/*
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically

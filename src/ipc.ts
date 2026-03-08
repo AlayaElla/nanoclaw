@@ -11,6 +11,7 @@ import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { searchMemory, isRagEnabled } from './rag.js';
+import { resolveAgentName } from './agents-config.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -424,7 +425,10 @@ export async function processTaskIpc(
         break;
       }
       try {
-        const results = await searchMemory(sourceGroup, ragQuery, ragTopK);
+        // Resolve agent name for per-agent RAG table
+        const ragGroup = Object.values(registeredGroups).find(g => g.folder === sourceGroup);
+        const ragAgentName = resolveAgentName(ragGroup?.botToken);
+        const results = await searchMemory(ragAgentName, ragQuery, ragTopK);
         // Write result file for the agent to read
         const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'rag_results');
         fs.mkdirSync(resultDir, { recursive: true });

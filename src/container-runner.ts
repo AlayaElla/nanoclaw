@@ -14,6 +14,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
+  WORKSPACE_DIR,
 } from './config.js';
 import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -98,11 +99,25 @@ function buildVolumeMounts(
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
-  const groupDir = resolveGroupFolderPath(group.folder);
+
+  // Per-agent shared workspace: same agent's group chats and private chats
+  // share one workspace, but different agents have separate workspaces.
+  // e.g. data/workspace/xingmeng/ for all of xingmeng's chats.
+  const botConfig = group.botToken
+    ? getBotConfig(group.botToken)
+    : getBotConfigByIndex(0);
+  const agentName = botConfig?.name || 'default';
+  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
+  fs.mkdirSync(agentWorkspaceDir, { recursive: true });
+  mounts.push({
+    hostPath: agentWorkspaceDir,
+    containerPath: '/workspace/group',
+    readonly: false,
+  });
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
+    // (workspace, IPC, .claude/) are mounted separately.
     // Read-only prevents the agent from modifying host application code
     // (src/, dist/, package.json, etc.) which would bypass the sandbox
     // entirely on next restart.
@@ -123,13 +138,6 @@ function buildVolumeMounts(
       });
     }
 
-    // Main also gets its group folder as the working directory
-    mounts.push({
-      hostPath: groupDir,
-      containerPath: '/workspace/group',
-      readonly: false,
-    });
-
     // Per-agent CLAUDE.md: overlay the agent's main/CLAUDE.md onto
     // /workspace/group/CLAUDE.md so the SDK reads it at the same path.
     const agentMainFile = resolveAgentClaudeFile(group.botToken, true);
@@ -141,14 +149,6 @@ function buildVolumeMounts(
       });
     }
   } else {
-    // Other groups only get their own folder
-    mounts.push({
-      hostPath: groupDir,
-      containerPath: '/workspace/group',
-      readonly: false,
-    });
-
-
     // Per-agent CLAUDE.md: overlay the agent's group/CLAUDE.md onto
     // /workspace/group/CLAUDE.md so the SDK reads it at the same path.
     const agentGroupFile = resolveAgentClaudeFile(group.botToken, false);
@@ -194,9 +194,12 @@ function buildVolumeMounts(
     );
   }
 
-  // Sync skills from container/skills/ into each group's .claude/skills/
+  // Sync base skills into the shared workspace's .claude/skills/.
+  // Since workspace is shared per-agent, skills are shared across all chats.
+  // The SDK discovers project-level skills from <cwd>/.claude/skills/.
   const skillsSrc = path.join(process.cwd(), 'container', 'skills');
-  const skillsDst = path.join(groupSessionsDir, 'skills');
+  const skillsDst = path.join(agentWorkspaceDir, '.claude', 'skills');
+  fs.mkdirSync(skillsDst, { recursive: true });
   if (fs.existsSync(skillsSrc)) {
     for (const skillDir of fs.readdirSync(skillsSrc)) {
       const srcDir = path.join(skillsSrc, skillDir);
@@ -350,6 +353,7 @@ export async function runContainerAgent(
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
+  fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
@@ -379,7 +383,8 @@ export async function runContainerAgent(
     'Spawning container agent',
   );
 
-  const logsDir = path.join(groupDir, 'logs');
+  // Logs stored per-group under sessions dir (not in shared workspace)
+  const logsDir = path.join(DATA_DIR, 'sessions', group.folder, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {

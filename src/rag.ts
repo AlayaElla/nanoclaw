@@ -24,6 +24,7 @@ interface RagMetadata {
     sender_name?: string;
     message_id?: string;
     timestamp?: string;
+    chat_source?: string;
     chunk_index?: number;
     total_chunks?: number;
 }
@@ -33,6 +34,7 @@ export interface SearchResult {
     role: string;
     sender_name: string;
     timestamp: string;
+    chat_source: string;
     score: number;
 }
 
@@ -179,6 +181,7 @@ async function getOrCreateTable(
             sender_name: '',
             message_id: '__init__',
             timestamp: new Date().toISOString(),
+            chat_source: '',
             chunk_index: 0,
             total_chunks: 0,
         },
@@ -215,6 +218,7 @@ export async function indexMessage(
                     sender_name: metadata.sender_name || '',
                     message_id: metadata.message_id || '',
                     timestamp: metadata.timestamp || new Date().toISOString(),
+                    chat_source: metadata.chat_source || '',
                     chunk_index: i,
                     total_chunks: chunks.length,
                 },
@@ -265,6 +269,7 @@ export async function searchMemory(
                 role: row.role,
                 sender_name: row.sender_name,
                 timestamp: row.timestamp,
+                chat_source: row.chat_source || '',
                 score: row._distance != null ? 1 - row._distance : 0,
             });
 

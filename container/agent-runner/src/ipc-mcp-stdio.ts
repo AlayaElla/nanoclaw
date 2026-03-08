@@ -330,10 +330,11 @@ server.tool(
           }
 
           const formatted = resultData.results
-            .map((r: { text: string; role: string; sender_name: string; timestamp: string; score: number }, i: number) => {
+            .map((r: { text: string; role: string; sender_name: string; timestamp: string; chat_source: string; score: number }, i: number) => {
               const role = r.role === 'user' ? `👤 ${r.sender_name || 'User'}` : '🤖 Assistant';
               const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
-              return `[${i + 1}] ${role} (${time}, 相关度: ${(r.score * 100).toFixed(0)}%)\n${r.text}`;
+              const source = r.chat_source ? ` | 来源: ${r.chat_source}` : '';
+              return `[${i + 1}] ${role} (${time}, 相关度: ${(r.score * 100).toFixed(0)}%${source})\n${r.text}`;
             })
             .join('\n\n---\n\n');
 

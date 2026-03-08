@@ -318,6 +318,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (isRagEnabled()) {
           indexMessage(resolveAgentName(group.botToken), text, {
             role: 'assistant',
+            chat_source: (getChatIsGroup(chatJid) ?? false) ? `群聊:${group.name}` : '私聊',
             timestamp: new Date().toISOString(),
           }).catch(() => { });
         }
@@ -604,6 +605,7 @@ async function main(): Promise<void> {
             role: 'user',
             sender_name: msg.sender_name,
             message_id: msg.id,
+            chat_source: (getChatIsGroup(msg.chat_jid) ?? false) ? `群聊:${group.name}` : '私聊',
             timestamp: msg.timestamp,
           }).catch(() => { });
         }

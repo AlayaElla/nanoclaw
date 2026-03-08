@@ -8,4 +8,4 @@ bots:
 
   - name: xingyue
     token: "8505631292:AAEfiNBS9-jPpJgk5MkQOGWnh2omn6nWQEg"
-    model: grok-4-1-fast-reasoning
+    model: kimi-k2.5

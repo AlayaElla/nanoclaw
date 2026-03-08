@@ -9,3 +9,15 @@ bots:
   - name: xingyue
     token: "8505631292:AAEfiNBS9-jPpJgk5MkQOGWnh2omn6nWQEg"
     model: kimi-k2.5
+
+  - name: xingchu
+    token: "8618871411:AAHdx3jyRs3AgUcxFVItdQyGBdWUhN0z9Ao"
+    model: grok-4-1-fast-reasoning
+
+  - name: xingshi
+    token: "8416759218:AAGyv2HdS-hzbcUBRBZnawu64g7kjvgKqrc"
+    model: qwen3.5-plus-non-thinking
+
+  - name: PoemCatBot
+    token: "8675954843:AAGg8D3alpbvOOTIHOLe2XLV5KQaifQYGGU"
+    model: qwen3.5-plus-non-thinking

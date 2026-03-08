@@ -84,7 +84,23 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
                   if (data.sender && data.chatJid.startsWith('tg:')) {
-                    await sendPoolMessage(data.chatJid, data.text, data.sender, sourceGroup);
+                    const chatNumericId = data.chatJid.replace(/^tg:/, '').replace(/@.*$/, '');
+                    const isPrivate = !chatNumericId.startsWith('-');
+
+                    if (isPrivate) {
+                      // Private chat: use main bot with sender prefix
+                      await deps.sendMessage(data.chatJid, `*${data.sender}*:\n${data.text}`);
+                    } else {
+                      // Group chat: try pool bot, fallback to main bot
+                      const sent = await sendPoolMessage(data.chatJid, data.text, data.sender, sourceGroup);
+                      if (!sent) {
+                        await deps.sendMessage(data.chatJid, `*${data.sender}*:\n${data.text}`);
+                        logger.info(
+                          { chatJid: data.chatJid, sender: data.sender },
+                          'Pool message failed, sent via main bot fallback',
+                        );
+                      }
+                    }
                   } else {
                     await deps.sendMessage(data.chatJid, data.text);
                   }

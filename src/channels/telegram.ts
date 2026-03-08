@@ -569,12 +569,10 @@ export class TelegramChannel implements Channel {
 import { Api } from 'grammy';
 
 const poolApis: Api[] = [];
-const senderBotMap = new Map<string, number>();
-let nextPoolIndex = 0;
 
 /**
  * Initialize send-only Api instances for the bot pool.
- * Each pool bot can send messages but doesn't poll for updates.
+ * Only the first bot is used as the "spokesperson" for all sub-agents.
  */
 export async function initBotPool(tokens: string[]): Promise<void> {
   for (const token of tokens) {
@@ -596,47 +594,36 @@ export async function initBotPool(tokens: string[]): Promise<void> {
 }
 
 /**
- * Send a message via a pool bot assigned to the given sender name.
- * Assigns bots round-robin; subsequent messages from same sender in
- * same group always use the same bot.
+ * Send a message via the pool bot with the sender name prefixed.
+ * Uses the first pool bot as a shared "spokesperson" — no renaming.
+ * Returns true on success, false on failure (caller should fallback).
  */
 export async function sendPoolMessage(
   chatId: string,
   text: string,
   sender: string,
-  groupFolder: string,
-): Promise<void> {
-  if (poolApis.length === 0) return;
+  _groupFolder: string,
+): Promise<boolean> {
+  if (poolApis.length === 0) return false;
 
-  const key = `${groupFolder}:${sender}`;
-  let idx = senderBotMap.get(key);
-  if (idx === undefined) {
-    idx = nextPoolIndex % poolApis.length;
-    nextPoolIndex++;
-    senderBotMap.set(key, idx);
-    try {
-      await poolApis[idx].setMyName(sender);
-      await new Promise((r) => setTimeout(r, 2000));
-      logger.info({ sender, groupFolder, poolIndex: idx }, 'Assigned and renamed pool bot');
-    } catch (err) {
-      logger.warn({ sender, err }, 'Failed to rename pool bot');
-    }
-  }
+  const api = poolApis[0];
+  const prefixedText = `*${sender}*:\n${text}`;
 
-  const api = poolApis[idx];
   try {
     const numericId = chatId.replace(/^tg:/, '').replace(/@.*$/, '');
     const MAX_LENGTH = 4096;
-    if (text.length <= MAX_LENGTH) {
-      await api.sendMessage(numericId, text);
+    if (prefixedText.length <= MAX_LENGTH) {
+      await api.sendMessage(numericId, prefixedText);
     } else {
-      for (let i = 0; i < text.length; i += MAX_LENGTH) {
-        await api.sendMessage(numericId, text.slice(i, i + MAX_LENGTH));
+      for (let i = 0; i < prefixedText.length; i += MAX_LENGTH) {
+        await api.sendMessage(numericId, prefixedText.slice(i, i + MAX_LENGTH));
       }
     }
-    logger.info({ chatId, sender, poolIndex: idx, length: text.length }, 'Pool message sent');
+    logger.info({ chatId, sender, length: text.length }, 'Pool message sent');
+    return true;
   } catch (err) {
     logger.error({ chatId, sender, err }, 'Failed to send pool message');
+    return false;
   }
 }
 

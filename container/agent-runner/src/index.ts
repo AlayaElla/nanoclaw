@@ -29,6 +29,7 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   teamRuleContent?: string;
+  contextModeContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -228,6 +229,71 @@ function createSanitizeBashHook(): HookCallback {
   };
 }
 
+/**
+ * Native, single-process hook adapter for context-mode.
+ * Instead of spawning CLI processes, this intercepts stdout and dynamically
+ * imports the context-mode hook scripts directly into the agent-runner process.
+ */
+function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precompact' | 'sessionstart'): HookCallback {
+  return async (input, _toolUseId, _context) => {
+    try {
+      const { resolve } = await import('node:path');
+      const { pathToFileURL } = await import('node:url');
+      const { createRequire } = await import('node:module');
+      const req = createRequire(import.meta.url);
+      
+      // Resolve the actual installation path of context-mode
+      const cmRoot = resolve(req.resolve('context-mode/package.json'), '..');
+      const scriptPath = resolve(cmRoot, 'hooks', `${hookName}.mjs`);
+      
+      // Context-mode hook scripts read from stdin and write to stdout.
+      // We must mock these for the duration of the dynamic import.
+      const originalStdinRead = process.stdin.read;
+      const originalStdinOn = process.stdin.on;
+      const originalStdinSetEncoding = process.stdin.setEncoding;
+      const originalStdinResume = process.stdin.resume;
+      const originalStdoutWrite = process.stdout.write;
+      
+      let capturedOutput = '';
+      const inputBuffer = Buffer.from(JSON.stringify(input) + '\n', 'utf-8');
+      
+      // Mock stdin to immediately yield our Input JSON
+      process.stdin.setEncoding = () => process.stdin;
+      process.stdin.resume = () => process.stdin;
+      process.stdin.on = ((event: string, listener: (...args: any[]) => void) => {
+        if (event === 'data') listener(inputBuffer);
+        if (event === 'end') listener();
+        return process.stdin;
+      }) as any;
+      
+      // Mock stdout to capture the Result JSON
+      process.stdout.write = ((chunk: any) => {
+        capturedOutput += chunk.toString();
+        return true;
+      }) as any;
+      
+      try {
+        // Execute the hook script natively
+        // Cache busting allows the script to run multiple times
+        await import(pathToFileURL(scriptPath).href + `?t=${Date.now()}`);
+      } finally {
+        // Restore IO
+        process.stdin.read = originalStdinRead;
+        process.stdin.on = originalStdinOn;
+        process.stdin.setEncoding = originalStdinSetEncoding;
+        process.stdin.resume = originalStdinResume;
+        process.stdout.write = originalStdoutWrite;
+      }
+      
+      if (!capturedOutput.trim()) return {};
+      return JSON.parse(capturedOutput);
+    } catch (err) {
+      log(`Context-mode hook [${hookName}] failed: ${err}`);
+      return {}; // Non-blocking: fail open
+    }
+  };
+}
+
 function sanitizeFilename(summary: string): string {
   return summary
     .toLowerCase()
@@ -411,12 +477,17 @@ async function runQuery(
   let resultCount = 0;
   let hadError = false;
 
-  // Use GroupRule content for group chats (passed from host via stdin)
-  let additionalContext: string | undefined;
+  // Inject global rules and group-specific rules
+  let additionalContext = '';
+  if (containerInput.contextModeContent) {
+    additionalContext += '\n' + containerInput.contextModeContent + '\n';
+    log('Injecting ContextMode.md into system prompt');
+  }
   if (!containerInput.isMain && containerInput.isGroup && containerInput.teamRuleContent) {
-    additionalContext = containerInput.teamRuleContent;
+    additionalContext += '\n' + containerInput.teamRuleContent + '\n';
     log('Injecting GroupRule.md into system prompt for group chat');
   }
+  const finalAdditionalContext = additionalContext.trim() || undefined;
 
   // Discover additional directories mounted at /workspace/extra/*
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically
@@ -442,8 +513,8 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: additionalContext
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: additionalContext }
+      systemPrompt: finalAdditionalContext
+        ? { type: 'preset' as const, preset: 'claude_code' as const, append: finalAdditionalContext }
         : undefined,
       allowedTools: [
         'Bash',
@@ -454,6 +525,7 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
+        'mcp__context-mode__*',
         'mcp__parallel-search__*',
         'mcp__parallel-task__*'
       ],
@@ -471,6 +543,10 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        'context-mode': {
+          command: 'context-mode',
+          args: ['--transport', 'stdio'],
+        },
         ...(process.env.PARALLEL_API_KEY ? {
           'parallel-search': {
             type: 'http' as const,
@@ -485,8 +561,20 @@ async function runQuery(
         } : {}),
       },
       hooks: {
-        PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
-        PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
+        PreCompact: [
+          { hooks: [createPreCompactHook(containerInput.assistantName)] },
+          { hooks: [createContextModeHook('precompact')] }
+        ],
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+          { matcher: '', hooks: [createContextModeHook('pretooluse')] }
+        ],
+        PostToolUse: [
+          { matcher: '', hooks: [createContextModeHook('posttooluse')] }
+        ],
+        SessionStart: [
+          { matcher: '', hooks: [createContextModeHook('sessionstart')] }
+        ],
       },
       includePartialMessages: true,
     }

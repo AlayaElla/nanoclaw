@@ -43,6 +43,7 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   teamRuleContent?: string;
+  contextModeContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -319,6 +320,9 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Force TMPDIR so context-mode's store.ts uses the hidden persistent mount instead of the ephemeral /tmp
+  args.push('-e', 'TMPDIR=/home/node/.claude/.tmp');
+
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
   // or when getuid is unavailable (native Windows without WSL).
@@ -351,16 +355,21 @@ export async function runContainerAgent(
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
-  // Read GroupRule.md on host side for group chats (centralized here so callers don't duplicate)
-  if (!input.isMain && input.isGroup && !input.teamRuleContent) {
-    const groupRulePath = path.join(AGENTS_DIR, 'GroupRule.md');
-    try {
+  // Read ContextMode.md (for all chats) and GroupRule.md (for group chats)
+  try {
+    const contextModePath = path.join(AGENTS_DIR, 'ContextMode.md');
+    if (fs.existsSync(contextModePath) && !input.contextModeContent) {
+      input.contextModeContent = fs.readFileSync(contextModePath, 'utf-8');
+    }
+    
+    if (!input.isMain && input.isGroup && !input.teamRuleContent) {
+      const groupRulePath = path.join(AGENTS_DIR, 'GroupRule.md');
       if (fs.existsSync(groupRulePath)) {
         input.teamRuleContent = fs.readFileSync(groupRulePath, 'utf-8');
       }
-    } catch {
-      /* ignore read errors */
     }
+  } catch {
+    /* ignore read errors */
   }
 
   const groupDir = resolveGroupFolderPath(group.folder);

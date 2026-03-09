@@ -15,6 +15,7 @@ agents/*
 !agents/agents.yaml.example
 !agents/example/
 !agents/GroupRule.md
+!agents/ContextMode.md
 !agents/USER.md.example
 
 # Secrets

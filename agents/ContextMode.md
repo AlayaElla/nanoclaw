@@ -50,8 +50,13 @@
 1. **信息收集 (GATHER)**: `mcp__context-mode__ctx_batch_execute(commands, queries)` — 首选工具。一键执行代码、自动建立索引，返回高亮搜索结果。一次调用通常能代替你原本需要拆成 30 次的单独调用。
 2. **追问信息 (FOLLOW-UP)**: `mcp__context-mode__ctx_search(queries: ["问题1", "问题2"])` — 查询之前建立的历史索引（网页、日志、命令输出）。支持以数组形式一口气传入所有问题。
 3. **数据加工 (PROCESSING)**: `mcp__context-mode__ctx_execute(language, code)` | `mcp__context-mode__ctx_execute_file` — 执行沙盒化清洗。只有 stdout 会进入上下文。
-4. **抓取网页 (WEB)**: `mcp__context-mode__ctx_fetch_and_index(url, source)` 后接 `mcp__context-mode__ctx_search` — 抓取、分块、索引、查询。长篇 HTML 绝不进入对话。（如果是动态交互型网页，换用 `BrowserTool` 工具）。
-5. **人工标记 (INDEX)**: `mcp__context-mode__ctx_index(content, source)` — 把当前占空间但以后可能需要知道的知识片段，存入后端的 FTS5 知识库中备查。
+4. **多模态回溯 (MEDIA ANALYTICS)**: 当你遇到形如 `[Photo: ... | MediaID: img_17100_x.jpg]` 的历史媒体占位符，并且用户要求你“仔细看看照片里的XX”、“那个视频背景有什么”或“重听一下那段语音”，这是你**回溯看图听声**的唯一途径。直接读取对应的 MediaID 并调用：
+   - `mcp__media__describe_cached_image(mediaId, prompt)` — 调用高级视觉模型重新审视旧图片细节。
+   - `mcp__media__describe_cached_video(mediaId, prompt)` — 重新分析旧视频细节。
+   - `mcp__media__transcribe_cached_audio(mediaId)` — 重新转录旧语音避免遗漏。
+   - `mcp__media__get_cached_media(mediaId)` — 获取物理路径以便自己用 Python 等工具处理（例如：裁剪图片、提取音频特征、图像处理/修改）。
+5. **抓取网页 (WEB)**: `mcp__context-mode__ctx_fetch_and_index(url, source)` 后接 `mcp__context-mode__ctx_search` — 抓取、分块、索引、查询。长篇 HTML 绝不进入对话。（如果是动态交互型网页，换用 `BrowserTool` 工具）。
+6. **人工标记 (INDEX)**: `mcp__context-mode__ctx_index(content, source)` — 把当前占空间但以后可能需要知道的知识片段，存入后端的 FTS5 知识库中备查。
 
 ---
 

@@ -1,6 +1,9 @@
 import { Bot } from 'grammy';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 
-import { ASSISTANT_NAME } from '../config.js';
+import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
@@ -381,11 +384,18 @@ export class TelegramChannel implements Channel {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
+        
+        // Cache media
+        const mediaId = `voice_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.ogg`;
+        const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+        
         const transcript = await transcribeAudioMessage(buffer);
-        finalContent = transcript ? `[Voice: ${transcript}]` : '[Voice Message - transcription unavailable]';
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Voice message transcribed');
+        finalContent = transcript ? `[Voice: ${transcript} | MediaID: ${mediaId}]` : `[Voice Message - transcription unavailable | MediaID: ${mediaId}]`;
+        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Voice message transcribed and cached');
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Voice transcription failed');
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Voice transcription/caching failed');
         finalContent = '[Voice Message - transcription failed]';
       }
 
@@ -505,6 +515,21 @@ export class TelegramChannel implements Channel {
   ): Promise<void> {
     const { chatJid, buffer, timestamp, senderName, sender, msgId, mediaType } = media;
     const label = mediaType === 'photo' ? 'Photo' : 'Video';
+    const group = this.opts.registeredGroups()[chatJid];
+    
+    // Cache media
+    let mediaId = '';
+    if (group) {
+        const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
+        mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+        const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
+        try {
+            fs.mkdirSync(cacheDir, { recursive: true });
+            fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+        } catch (e) {
+            logger.error({ err: e }, 'Failed to cache media buffer');
+        }
+    }
 
     let finalContent: string;
     try {
@@ -517,12 +542,12 @@ export class TelegramChannel implements Channel {
 
       if (description) {
         finalContent = userText
-          ? `[${label}: ${description} | User: ${userText}]`
-          : `[${label}: ${description}]`;
+          ? `[${label}: ${description} | User: ${userText} | MediaID: ${mediaId}]`
+          : `[${label}: ${description} | MediaID: ${mediaId}]`;
       } else {
         finalContent = userText
-          ? `[${label} - description unavailable | User: ${userText}]`
-          : `[${label} - description unavailable]`;
+          ? `[${label} - description unavailable | User: ${userText} | MediaID: ${mediaId}]`
+          : `[${label} - description unavailable | MediaID: ${mediaId}]`;
       }
       logger.info({ chatJid, bytes: buffer.length, mediaType, bot: this.tokenEnvName }, `${label} message processed`);
     } catch (err) {

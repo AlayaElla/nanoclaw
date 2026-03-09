@@ -29,7 +29,7 @@ export const MOUNT_ALLOWLIST_PATH = path.join(
   'mount-allowlist.json',
 );
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
+export const AGENTS_DIR = path.resolve(PROJECT_ROOT, 'agents');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 export const WORKSPACE_DIR = path.resolve(DATA_DIR, 'workspace');
 

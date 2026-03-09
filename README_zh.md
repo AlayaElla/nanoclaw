@@ -135,7 +135,7 @@ claude
 - `src/container-runner.ts` - 生成流式智能体容器
 - `src/task-scheduler.ts` - 运行计划任务
 - `src/db.ts` - SQLite 操作（消息、群组、会话、状态）
-- `groups/*/CLAUDE.md` - 各群组的记忆
+- `agents/*/CLAUDE.md` - 各群组的记忆
 
 ## FAQ
 

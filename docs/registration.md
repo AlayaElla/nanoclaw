@@ -98,7 +98,7 @@ VALUES
 ```bash
 rm -f store/messages.db store/groups.db
 rm -rf data/sessions/ data/ipc/ data/rag/ data/x-browser-profile/
-rm -f groups/*/logs/*.log
+rm -f agents/*/logs/*.log
 ```
 
 然后重新走上面的启动流程。

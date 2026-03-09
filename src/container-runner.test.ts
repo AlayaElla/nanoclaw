@@ -12,8 +12,10 @@ vi.mock('./config.js', () => ({
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
   DATA_DIR: '/tmp/nanoclaw-test-data',
-  GROUPS_DIR: '/tmp/nanoclaw-test-groups',
+  AGENTS_DIR: '/tmp/nanoclaw-test-groups',
+  WORKSPACE_DIR: '/tmp/nanoclaw-test-data/workspace',
   IDLE_TIMEOUT: 1800000, // 30min
+  INSTANCE_ID: 'test',
   TIMEZONE: 'America/Los_Angeles',
 }));
 

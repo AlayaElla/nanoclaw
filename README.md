@@ -138,7 +138,7 @@ Key files:
 - `src/container-runner.ts` - Spawns streaming agent containers
 - `src/task-scheduler.ts` - Runs scheduled tasks
 - `src/db.ts` - SQLite operations (messages, groups, sessions, state)
-- `groups/*/CLAUDE.md` - Per-group memory
+- `agents/*/CLAUDE.md` - Per-group memory
 
 ## FAQ
 

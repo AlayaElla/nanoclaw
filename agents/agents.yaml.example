@@ -1,0 +1,13 @@
+# === Agent (Bot) 配置 ===
+# 每个 bot 的完整配置：token、名字、模型
+# 复制此文件为 agents.yaml 并填入真实的 token
+
+bots:
+  - name: my-agent
+    token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+    model: claude-sonnet-4-20250514
+
+  # 可以添加更多 bot：
+  # - name: another-agent
+  #   token: "ANOTHER_BOT_TOKEN"
+  #   model: gpt-4o

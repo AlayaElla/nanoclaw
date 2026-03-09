@@ -54,8 +54,8 @@
 │  │                                                                │    │
 │  │  工作目录：/workspace/group（从宿主机挂载）                     │    │
 │  │  卷挂载：                                                      │    │
-│  │    • groups/{name}/ → /workspace/group                         │    │
-│  │    • groups/global/ → /workspace/global/（非主群组）            │    │
+│  │    • agents/{name}/ → /workspace/group                         │    │
+│  │    • agents/global/ → /workspace/global/（非主群组）            │    │
 │  │    • data/sessions/{group}/.claude/ → /home/node/.claude/      │    │
 │  │    • 额外目录 → /workspace/extra/*                             │    │
 │  │                                                                │    │
@@ -294,7 +294,7 @@ nanoclaw/
 │       ├── convert-to-apple-container/  # /convert-to-apple-container - Apple Container 运行时
 │       └── add-parallel/SKILL.md       # /add-parallel - 并行 agent
 │
-├── groups/
+├── agents/
 │   ├── CLAUDE.md                  # 全局记忆（所有群组读取）
 │   ├── {channel}_main/             # 主控制渠道（如 whatsapp_main/）
 │   │   ├── CLAUDE.md              # 主渠道记忆
@@ -316,7 +316,7 @@ nanoclaw/
 ├── logs/                          # 运行时日志（gitignored）
 │   ├── nanoclaw.log               # 宿主机 stdout
 │   └── nanoclaw.error.log         # 宿主机 stderr
-│   # 注意：每容器日志在 groups/{folder}/logs/container-*.log
+│   # 注意：每容器日志在 agents/{folder}/logs/container-*.log
 │
 └── launchd/
     └── com.nanoclaw.plist         # macOS 服务配置
@@ -428,14 +428,14 @@ NanoClaw 使用基于 CLAUDE.md 文件的分层记忆系统。
 
 | 级别 | 位置 | 谁读取 | 谁写入 | 用途 |
 |------|------|--------|--------|------|
-| **全局** | `groups/CLAUDE.md` | 所有群组 | 仅主群组 | 跨所有对话共享的偏好、事实、上下文 |
-| **群组** | `groups/{name}/CLAUDE.md` | 该群组 | 该群组 | 群组特定的上下文、对话记忆 |
-| **文件** | `groups/{name}/*.md` | 该群组 | 该群组 | 对话中创建的笔记、研究、文档 |
+| **全局** | `agents/CLAUDE.md` | 所有群组 | 仅主群组 | 跨所有对话共享的偏好、事实、上下文 |
+| **群组** | `agents/{name}/CLAUDE.md` | 该群组 | 该群组 | 群组特定的上下文、对话记忆 |
+| **文件** | `agents/{name}/*.md` | 该群组 | 该群组 | 对话中创建的笔记、研究、文档 |
 
 ### 记忆工作原理
 
 1. **Agent 上下文加载**
-   - Agent 运行时 `cwd` 设为 `groups/{group-name}/`
+   - Agent 运行时 `cwd` 设为 `agents/{group-name}/`
    - 带有 `settingSources: ['project']` 的 Claude Agent SDK 自动加载：
      - `../CLAUDE.md`（父目录 = 全局记忆）
      - `./CLAUDE.md`（当前目录 = 群组记忆）
@@ -495,7 +495,7 @@ NanoClaw 使用基于 CLAUDE.md 文件的分层记忆系统。
    │
    ▼
 7. 路由器调用 Claude Agent SDK：
-   ├── cwd: groups/{group-name}/
+   ├── cwd: agents/{group-name}/
    ├── prompt: 对话历史 + 当前消息
    ├── resume: session_id（用于连续性）
    └── mcpServers: nanoclaw（调度器）
@@ -749,9 +749,9 @@ WhatsApp 消息可能包含试图操纵 Claude 行为的恶意指令。
 
 ### 文件权限
 
-groups/ 文件夹包含个人记忆，应受到保护：
+agents/ 文件夹包含个人记忆，应受到保护：
 ```bash
-chmod 700 groups/
+chmod 700 agents/
 ```
 
 ---

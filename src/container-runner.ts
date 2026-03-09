@@ -11,7 +11,7 @@ import {
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
   DATA_DIR,
-  GROUPS_DIR,
+  AGENTS_DIR,
   IDLE_TIMEOUT,
   INSTANCE_ID,
   TIMEZONE,
@@ -68,8 +68,8 @@ interface VolumeMount {
 
 /**
  * Resolve the per-agent CLAUDE.md file path.
- * Structure: groups/<agentName>/main/CLAUDE.md  (for main sessions)
- *            groups/<agentName>/group/CLAUDE.md (for group sessions)
+ * Structure: agents/<agentName>/main/CLAUDE.md  (for main sessions)
+ *            agents/<agentName>/group/CLAUDE.md (for group sessions)
  * Auto-creates the directory and an empty CLAUDE.md if they don't exist.
  * Returns the path to the CLAUDE.md file itself.
  */
@@ -83,7 +83,7 @@ function resolveAgentClaudeFile(
   if (!botConfig?.name) return null;
 
   const subDir = isMain ? 'main' : 'group';
-  const agentClaudeDir = path.join(GROUPS_DIR, botConfig.name, subDir);
+  const agentClaudeDir = path.join(AGENTS_DIR, botConfig.name, subDir);
   fs.mkdirSync(agentClaudeDir, { recursive: true });
 
   const claudeFile = path.join(agentClaudeDir, 'CLAUDE.md');
@@ -112,10 +112,10 @@ function buildVolumeMounts(
   fs.mkdirSync(agentWorkspaceDir, { recursive: true });
 
   // Auto-create USER.md (master profile) if it doesn't exist
-  // Copy template from groups/USER.md
+  // Copy template from agents/USER.md
   const userProfileFile = path.join(agentWorkspaceDir, 'USER.md');
   if (!fs.existsSync(userProfileFile)) {
-    const userProfileTemplate = path.join(GROUPS_DIR, 'USER.md');
+    const userProfileTemplate = path.join(AGENTS_DIR, 'USER.md');
     if (fs.existsSync(userProfileTemplate)) {
       fs.cpSync(userProfileTemplate, userProfileFile);
     }
@@ -353,7 +353,7 @@ export async function runContainerAgent(
 
   // Read GroupRule.md on host side for group chats (centralized here so callers don't duplicate)
   if (!input.isMain && input.isGroup && !input.teamRuleContent) {
-    const groupRulePath = path.join(GROUPS_DIR, 'GroupRule.md');
+    const groupRulePath = path.join(AGENTS_DIR, 'GroupRule.md');
     try {
       if (fs.existsSync(groupRulePath)) {
         input.teamRuleContent = fs.readFileSync(groupRulePath, 'utf-8');

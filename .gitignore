@@ -9,20 +9,13 @@ store/
 data/
 logs/
 
-# Groups - only track base structure, GroupRule.md, and CLAUDE.md files
-groups/*
-!groups/GroupRule.md
-!groups/main/
-!groups/global/
-!groups/*/
-groups/*/main/*
-groups/*/group/*
-!groups/*/main/CLAUDE.md
-!groups/*/group/CLAUDE.md
-groups/main/*
-groups/global/*
-!groups/main/CLAUDE.md
-!groups/global/CLAUDE.md
+# Agents - ignore all runtime data, only track shared config and examples
+agents/agents.yaml
+agents/*
+!agents/agents.yaml.example
+!agents/example/
+!agents/GroupRule.md
+!agents/USER.md
 
 # Secrets
 *.keys.json

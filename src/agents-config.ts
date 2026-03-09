@@ -22,7 +22,7 @@ let cachedConfig: BotConfig[] | null = null;
 function loadConfig(): BotConfig[] {
     if (cachedConfig) return cachedConfig;
 
-    const configPath = path.join(process.cwd(), 'agents.yaml');
+    const configPath = path.join(process.cwd(), 'agents', 'agents.yaml');
     if (!fs.existsSync(configPath)) {
         logger.debug('agents.yaml not found, using empty config');
         cachedConfig = [];

@@ -65,10 +65,10 @@ for i, line in enumerate(lines):
 grep -E 'Container timeout|timed out' logs/nanoclaw.log | tail -10
 
 # 检查超时容器的日志文件
-ls -lt groups/*/logs/container-*.log | head -10
+ls -lt agents/*/logs/container-*.log | head -10
 
 # 读取最近的容器日志（替换路径）
-cat groups/<group>/logs/container-<timestamp>.log
+cat agents/<group>/logs/container-<timestamp>.log
 
 # 检查是否有重试调度及其结果
 grep -E 'Scheduling retry|retry|Max retries' logs/nanoclaw.log | tail -10

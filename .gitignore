@@ -15,7 +15,7 @@ agents/*
 !agents/agents.yaml.example
 !agents/example/
 !agents/GroupRule.md
-!agents/USER.md
+!agents/USER.md.example
 
 # Secrets
 *.keys.json

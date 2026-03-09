@@ -240,6 +240,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       const { resolve } = await import('node:path');
       const { pathToFileURL } = await import('node:url');
       const { createRequire } = await import('node:module');
+      const { AsyncLocalStorage } = await import('node:async_hooks');
       const req = createRequire(import.meta.url);
       
       // Resolve the actual installation path of context-mode
@@ -252,9 +253,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       const originalStdinOn = process.stdin.on;
       const originalStdinSetEncoding = process.stdin.setEncoding;
       const originalStdinResume = process.stdin.resume;
-      const originalStdoutWrite = process.stdout.write;
       
-      let capturedOutput = '';
       const inputBuffer = Buffer.from(JSON.stringify(input) + '\n', 'utf-8');
       
       // Mock stdin to immediately yield our Input JSON
@@ -265,17 +264,31 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
         if (event === 'end') listener();
         return process.stdin;
       }) as any;
+
+      // Use AsyncLocalStorage to scope the stdout capture to just this execution thread
+      // Global patch is needed since `process.stdout.write` is used globally, but the patch
+      // delegates back to `originalStdoutWrite` if not in the hook context to avoid breaking SDK stream.
+      const originalStdoutWrite = process.stdout.write;
+      const als = new AsyncLocalStorage<string[]>();
       
-      // Mock stdout to capture the Result JSON
-      process.stdout.write = ((chunk: any) => {
-        capturedOutput += chunk.toString();
-        return true;
+      process.stdout.write = (function(this: any, chunk: any, ...args: any[]) {
+        const store = als.getStore();
+        if (store) {
+          store.push(chunk.toString());
+          return true;
+        }
+        return originalStdoutWrite.apply(this, [chunk, ...args] as any) as boolean;
       }) as any;
       
+      let capturedOutput = '';
       try {
-        // Execute the hook script natively
-        // Cache busting allows the script to run multiple times
-        await import(pathToFileURL(scriptPath).href + `?t=${Date.now()}`);
+        const buf: string[] = [];
+        await als.run(buf, async () => {
+          // Execute the hook script natively
+          // Cache busting allows the script to run multiple times
+          await import(pathToFileURL(scriptPath).href + `?t=${Date.now()}`);
+        });
+        capturedOutput = buf.join('');
       } finally {
         // Restore IO
         process.stdin.read = originalStdinRead;

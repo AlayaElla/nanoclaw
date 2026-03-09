@@ -251,15 +251,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastToolName: string | null = null;
 
   const TOOL_DISPLAY_NAMES: Record<string, string> = {
-    Bash: '命令行',
+    Bash: '执行命令行',
     Read: '读取文件',
     Write: '写入文件',
     Edit: '编辑文件',
     Grep: '搜索代码',
     Glob: '查找文件',
-    WebSearch: '网页搜索',
+    WebSearch: '搜索网页',
     WebFetch: '获取网页',
-    Task: '子任务',
+    Task: '执行子任务',
     TaskOutput: '读取任务结果',
     TaskStop: '停止任务',
     TeamCreate: '创建团队',
@@ -269,13 +269,52 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     ToolSearch: '搜索工具',
     Skill: '技能',
     NotebookEdit: '编辑笔记本',
+    // MCP: nanoclaw tools
+    'mcp__nanoclaw__send_message': '发送消息',
+    'mcp__nanoclaw__schedule_task': '安排定时任务',
+    'mcp__nanoclaw__list_tasks': '查询任务列表',
+    'mcp__nanoclaw__pause_task': '暂停任务',
+    'mcp__nanoclaw__resume_task': '恢复任务',
+    'mcp__nanoclaw__cancel_task': '取消任务',
+    'mcp__nanoclaw__register_group': '注册群组',
+    'mcp__nanoclaw__rag_search': '搜索记忆',
+    'mcp__nanoclaw__x_post': '发推文',
+    'mcp__nanoclaw__x_like': '点赞推文',
+    'mcp__nanoclaw__x_reply': '回复推文',
+    'mcp__nanoclaw__x_retweet': '转推',
+    'mcp__nanoclaw__x_quote': '引用推文',
+    'mcp__nanoclaw__x_trends': '获取热门推文',
+    // MCP: media tools
+    'mcp__nanoclaw__mcp__media__get_cached_media': '获取缓存媒体',
+    'mcp__nanoclaw__mcp__media__describe_cached_image': '分析图片',
+    'mcp__nanoclaw__mcp__media__describe_cached_video': '分析视频',
+    'mcp__nanoclaw__mcp__media__transcribe_cached_audio': '转录语音',
+    // MCP: context-mode tools
+    'mcp__context-mode__ctx_read': '读取上下文',
+    'mcp__context-mode__ctx_search': '搜索上下文',
+    'mcp__context-mode__ctx_fetch_and_index': '抓取并索引网页',
+    // MCP: parallel tools
+    'mcp__parallel-search__search': '并行搜索',
+    'mcp__parallel-task__run_task': '执行并行任务',
+  };
+
+  /** Resolve tool display name, with fallback for unknown MCP tools */
+  const getToolDisplayName = (tool: string): string => {
+    if (TOOL_DISPLAY_NAMES[tool]) return TOOL_DISPLAY_NAMES[tool];
+    // For unknown MCP tools: mcp__server__tool_name → "tool_name (server)"
+    if (tool.startsWith('mcp__')) {
+      const parts = tool.split('__');
+      const toolName = parts[parts.length - 1];
+      return toolName;
+    }
+    return tool;
   };
 
   const onToolStatus = async (event: ToolStatusEvent) => {
     if (!channel.sendStatusMessage) return;
 
     if (event.status === 'running' && event.tool) {
-      const displayName = TOOL_DISPLAY_NAMES[event.tool] || event.tool;
+      const displayName = getToolDisplayName(event.tool);
       const statusText = `⏳ 正在${displayName}...`;
       if (statusMessageId) {
         // Edit existing status message (tool changed)

@@ -177,10 +177,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
   logger.info('IPC watcher started (per-group namespaces)');
 }
 
+function writeTaskResult(sourceGroup: string, requestId: string, success: boolean, message: string) {
+  if (!requestId) return;
+  const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'task_results');
+  fs.mkdirSync(resultDir, { recursive: true });
+  const resultPath = path.join(resultDir, `${requestId}.json`);
+  fs.writeFileSync(resultPath, JSON.stringify({ success, message, requestId }));
+}
+
 export async function processTaskIpc(
   data: {
     type: string;
     taskId?: string;
+    requestId?: string;
     prompt?: string | any[];
     schedule_type?: string;
     schedule_value?: string;
@@ -306,12 +315,16 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task paused via IPC',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} paused successfully.`);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task pause attempt',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to pause task ${data.taskId}: unauthorized or not found.`);
         }
+      } else if (data.requestId) {
+        writeTaskResult(sourceGroup, data.requestId, false, `Failed to pause task: missing task_id.`);
       }
       break;
 
@@ -324,12 +337,16 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via IPC',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} resumed successfully.`);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task resume attempt',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to resume task ${data.taskId}: unauthorized or not found.`);
         }
+      } else if (data.requestId) {
+        writeTaskResult(sourceGroup, data.requestId, false, `Failed to resume task: missing task_id.`);
       }
       break;
 
@@ -342,12 +359,16 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via IPC',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} cancelled successfully.`);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task cancel attempt',
           );
+          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to cancel task ${data.taskId}: unauthorized or not found.`);
         }
+      } else if (data.requestId) {
+        writeTaskResult(sourceGroup, data.requestId, false, `Failed to cancel task: missing task_id.`);
       }
       break;
 

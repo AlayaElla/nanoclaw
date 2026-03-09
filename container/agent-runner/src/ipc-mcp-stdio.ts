@@ -14,6 +14,7 @@ import { CronExpressionParser } from 'cron-parser';
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
+const TASK_RESULTS_DIR = path.join(IPC_DIR, 'task_results');
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
@@ -32,6 +33,26 @@ function writeIpcFile(dir: string, data: object): string {
   fs.renameSync(tempPath, filepath);
 
   return filename;
+}
+
+async function waitForTaskResult(requestId: string, maxWaitMs = 10000): Promise<{ success: boolean; message: string }> {
+  const resultFile = path.join(TASK_RESULTS_DIR, `${requestId}.json`);
+  const pollInterval = 200;
+  const start = Date.now();
+
+  while (Date.now() - start < maxWaitMs) {
+    if (fs.existsSync(resultFile)) {
+      try {
+        const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
+        fs.unlinkSync(resultFile);
+        return result;
+      } catch {
+        return { success: false, message: 'Failed to parse task result JSON.' };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  }
+  return { success: false, message: 'Request timed out waiting for the host process.' };
 }
 
 const server = new McpServer({
@@ -192,9 +213,11 @@ server.tool(
   '暂停一个定时任务。在恢复之前不会运行。',
   { task_id: z.string().describe('要暂停的任务 ID') },
   async (args) => {
+    const requestId = `pause-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'pause_task',
       taskId: args.task_id,
+      requestId,
       groupFolder,
       isMain,
       timestamp: new Date().toISOString(),
@@ -202,7 +225,11 @@ server.tool(
 
     writeIpcFile(TASKS_DIR, data);
 
-    return { content: [{ type: 'text' as const, text: `Task ${args.task_id} pause requested.` }] };
+    const result = await waitForTaskResult(requestId);
+    return {
+      content: [{ type: 'text' as const, text: result.message }],
+      isError: !result.success,
+    };
   },
 );
 
@@ -211,9 +238,11 @@ server.tool(
   '恢复一个已暂停的任务。',
   { task_id: z.string().describe('要恢复的任务 ID') },
   async (args) => {
+    const requestId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'resume_task',
       taskId: args.task_id,
+      requestId,
       groupFolder,
       isMain,
       timestamp: new Date().toISOString(),
@@ -221,7 +250,11 @@ server.tool(
 
     writeIpcFile(TASKS_DIR, data);
 
-    return { content: [{ type: 'text' as const, text: `Task ${args.task_id} resume requested.` }] };
+    const result = await waitForTaskResult(requestId);
+    return {
+      content: [{ type: 'text' as const, text: result.message }],
+      isError: !result.success,
+    };
   },
 );
 
@@ -230,9 +263,11 @@ server.tool(
   '取消并删除一个定时任务。',
   { task_id: z.string().describe('要取消的任务 ID') },
   async (args) => {
+    const requestId = `cancel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'cancel_task',
       taskId: args.task_id,
+      requestId,
       groupFolder,
       isMain,
       timestamp: new Date().toISOString(),
@@ -240,7 +275,11 @@ server.tool(
 
     writeIpcFile(TASKS_DIR, data);
 
-    return { content: [{ type: 'text' as const, text: `Task ${args.task_id} cancellation requested.` }] };
+    const result = await waitForTaskResult(requestId);
+    return {
+      content: [{ type: 'text' as const, text: result.message }],
+      isError: !result.success,
+    };
   },
 );
 
@@ -421,6 +460,166 @@ if (isMain) {
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 }
+
+// --- Media Analytics Tools ---
+
+const MEDIA_CACHE_DIR = path.join('/home/node/.claude/media_cache');
+
+function getCachedMediaPath(mediaId: string): string | null {
+  const safeId = path.basename(mediaId); // Prevent directory traversal
+  const filePath = path.join(MEDIA_CACHE_DIR, safeId);
+  return fs.existsSync(filePath) ? filePath : null;
+}
+
+server.tool(
+  'mcp__media__get_cached_media',
+  '获取本地持久化缓存的历史图片、视频或语音的绝对物理路径。你可以使用任何本机 CLI 或 Python 脚本、图像处理工具对获得的绝对路径文件进行处理。',
+  { mediaId: z.string().describe('历史消息中带有的 MediaID (例如 img_171000.._.jpg)') },
+  async (args) => {
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache. It may have expired.` }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: `Media file absolute path:\n${filePath}` }] };
+  }
+);
+
+server.tool(
+  'mcp__media__describe_cached_image',
+  '重新使用云端大视觉模型分析缓存的历史图片。如果原图描述不满足你的需求，可以用这个工具指定特定的 prompt 重新问图片细节。',
+  {
+    mediaId: z.string().describe('图片的 MediaID (例如 xxx.jpg)'),
+    prompt: z.string().describe('特定的分析指令，例如"仔细看看右下角有什么字"')
+  },
+  async (args) => {
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const apiKey = process.env.VISION_API_KEY;
+    if (!apiKey) return { content: [{ type: 'text' as const, text: 'VISION_API_KEY not configured.' }], isError: true };
+
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const dataUri = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+      const url = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: process.env.VISION_MODEL || 'qwen3.5-plus',
+          messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUri } }, { type: 'text', text: args.prompt }] }],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
+      const result = await response.json() as any;
+      const content = result.choices?.[0]?.message?.content;
+      const text = typeof content === 'string' ? content : (Array.isArray(content) ? content.map((i: any) => i.text || '').join('') : 'No description returned');
+
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: `Vision API error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'mcp__media__describe_cached_video',
+  '重新分析缓存的历史视频。',
+  {
+    mediaId: z.string().describe('视频的 MediaID (例如 xxx.mp4)'),
+    prompt: z.string().describe('让模型重点关注的视频分析提示词')
+  },
+  async (args) => {
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const apiKey = process.env.VISION_API_KEY;
+    if (!apiKey) return { content: [{ type: 'text' as const, text: 'VISION_API_KEY not configured.' }], isError: true };
+
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = ext === '.mov' ? 'video/quicktime' : (ext === '.webm' ? 'video/webm' : 'video/mp4');
+      const dataUri = `data:${mime};base64,${buffer.toString('base64')}`;
+      const url = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: process.env.VISION_MODEL || 'qwen3.5-plus',
+          messages: [{ role: 'user', content: [{ type: 'video_url', video_url: { url: dataUri }, fps: 2 }, { type: 'text', text: args.prompt }] }],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
+      const result = await response.json() as any;
+      const content = result.choices?.[0]?.message?.content;
+      const text = typeof content === 'string' ? content : (Array.isArray(content) ? content.map((i: any) => i.text || '').join('') : 'No description returned');
+
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: `Video Vision API error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'mcp__media__transcribe_cached_audio',
+  '重新提取缓存历史语音的文本。可以用于语音遗漏或者听不清的场景。',
+  { mediaId: z.string().describe('语音的 MediaID (例如 xxx.ogg)') },
+  async (args) => {
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const apiKey = process.env.EMBEDDING_API_KEY;
+    if (!apiKey) return { content: [{ type: 'text' as const, text: 'EMBEDDING_API_KEY not configured.' }], isError: true };
+
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const dataUri = `data:audio/ogg;base64,${buffer.toString('base64')}`;
+
+      const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'qwen3-asr-flash',
+          messages: [
+            { role: 'system', content: [{ text: '' }] },
+            { role: 'user', content: [{ audio: dataUri }] }
+          ],
+          stream: false,
+          asr_options: { enable_lid: true, enable_itn: false },
+        }),
+      });
+
+      if (!response.ok) throw new Error(`API error ${response.status}: ${await response.text()}`);
+      const result = await response.json() as any;
+      const content = result.choices?.[0]?.message?.content;
+      const text = typeof content === 'string' ? content : (Array.isArray(content) ? content.map((i: any) => i.text || '').join('') : 'No transcription returned');
+
+      return { content: [{ type: 'text' as const, text }] };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: `Whisper API error: ${err.message}` }], isError: true };
+    }
+  }
+);
 
 // Start the stdio transport
 const transport = new StdioServerTransport();

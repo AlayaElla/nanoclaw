@@ -4,6 +4,7 @@
  */
 import { execSync } from 'child_process';
 
+import { INSTANCE_ID } from './config.js';
 import { logger } from './logger.js';
 
 /** The container runtime binary name. */
@@ -62,9 +63,10 @@ export function ensureContainerRuntimeRunning(): void {
 
 /** Kill orphaned NanoClaw containers from previous runs. */
 export function cleanupOrphans(): void {
+  const prefix = `nanoclaw-${INSTANCE_ID}-`;
   try {
     const output = execSync(
-      `${CONTAINER_RUNTIME_BIN} ps --filter name=nanoclaw- --format '{{.Names}}'`,
+      `${CONTAINER_RUNTIME_BIN} ps --filter name=${prefix} --format '{{.Names}}'`,
       { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     );
     const orphans = output.trim().split('\n').filter(name => name && name !== 'nanoclaw-litellm-proxy');

@@ -3,9 +3,26 @@
 # 启动 LiteLLM 本地代理服务器
 # 请在使用前确保系统安装了 Docker 并且已经启动
 
-# 提示输入 API Keys
-read -p "请输入阿里云百炼 API Key (sk-..., 用于千问模型): " QWEN_API_KEY
-read -p "请输入 WhatAI API Key (sk-..., 用于 Grok 模型): " WHATAI_API_KEY
+# === 从 .env 读取 API Key (如果存在) ===
+# 优先读取当前目录的 .env (LiteLLM 专用配置)
+if [ -f ".env" ]; then
+    echo -e "\e[36m从当前目录 .env 加载环境变量...\e[0m"
+    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY)=' ".env" | xargs)
+elif [ -f "../.env" ]; then
+    echo -e "\e[36m从父目录 .env 加载环境变量...\e[0m"
+    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY)=' "../.env" | xargs)
+fi
+
+# 用 DASHSCOPE_API_KEY 做 QWEN_API_KEY 的后备
+QWEN_API_KEY="${QWEN_API_KEY:-$DASHSCOPE_API_KEY}"
+
+# 如果没有环境变量，则提示输入
+if [ -z "$QWEN_API_KEY" ]; then
+    read -p "请输入阿里云百炼 API Key (sk-..., 用于千问模型): " QWEN_API_KEY
+fi
+if [ -z "$WHATAI_API_KEY" ]; then
+    read -p "请输入 WhatAI API Key (sk-..., 用于 Grok 模型): " WHATAI_API_KEY
+fi
 
 if [ -z "$QWEN_API_KEY" ] && [ -z "$WHATAI_API_KEY" ]; then
     echo -e "\e[31m错误: 至少需要提供一个 API Key\e[0m"
@@ -22,10 +39,15 @@ ENV_ARGS=""
 [ -n "$QWEN_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e QWEN_API_KEY=$QWEN_API_KEY"
 [ -n "$WHATAI_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e WHATAI_API_KEY=$WHATAI_API_KEY"
 
+# 启动容器前确保日志文件存在并可写
+touch $(pwd)/litellm.log
+chmod 666 $(pwd)/litellm.log
+
 # 启动容器并挂载配置文件
 docker run -d \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/raw_logger.py:/app/raw_logger.py \
+  -v $(pwd)/litellm.log:/app/litellm.log \
   $ENV_ARGS \
   -p 4000:4000 \
   --name nanoclaw-litellm-proxy \

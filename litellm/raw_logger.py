@@ -13,10 +13,19 @@ class RawLogger(CustomLogger):
     """Log raw request/response payloads for every LLM call."""
 
     _SEP = "=" * 72
+    _LOG_FILE = "/app/litellm.log"
+
+    def _write_to_file(self, content):
+        try:
+            with open(self._LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(content + "\n")
+        except Exception as e:
+            # Fallback to print if file is not writable
+            print("Error writing to log file: " + str(e))
 
     # ── Helper ──────────────────────────────────────────────────────────
     @staticmethod
-    def _dump(obj):
+    def _dump(obj) -> str:
         try:
             return json.dumps(obj, ensure_ascii=False, indent=2, default=str)
         except Exception:
@@ -24,17 +33,21 @@ class RawLogger(CustomLogger):
 
     # ── Sync hooks (fallback) ───────────────────────────────────────────
     def log_pre_api_call(self, model, messages, kwargs):
-        print(f"\n{self._SEP}")
-        print(f"📤 RAW INPUT  |  model={model}")
-        print(self._SEP)
-        print(self._dump(messages))
+        output = []
+        output.append("\n" + self._SEP)
+        output.append("📤 RAW INPUT  |  model=" + str(model))
+        output.append(self._SEP)
+        output.append(self._dump(messages))
 
         optional = kwargs.get("optional_params", {})
         if optional:
-            print(f"\n── optional_params ──")
-            print(self._dump(optional))
+            output.append("\n── optional_params ──")
+            output.append(self._dump(optional))
 
-        print(self._SEP, flush=True)
+        output.append(self._SEP)
+        final_output = "\n".join(output)
+        print(final_output, flush=True)
+        self._write_to_file(final_output)
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
         self._print_response(kwargs, response_obj, start_time, end_time)
@@ -50,60 +63,67 @@ class RawLogger(CustomLogger):
         self._print_failure(kwargs, response_obj, start_time, end_time)
 
     # ── Printers ────────────────────────────────────────────────────────
-    def _print_response(self, kwargs, response_obj, start_time, end_time):
+    def _print_response(self, kwargs: dict, response_obj, start_time, end_time):
         model = kwargs.get("model", "?")
         messages = kwargs.get("messages", None)
 
-        print(f"\n{self._SEP}")
-        print(f"📥 RAW OUTPUT  |  model={model}  |  ⏱ {end_time - start_time}")
-        print(self._SEP)
+        output = []
+        output.append(f"\n{self._SEP}")
+        output.append(f"📥 RAW OUTPUT  |  model={model}  |  ⏱ {end_time - start_time}")
+        output.append(self._SEP)
 
         # Print input messages
-        print("── input messages ──")
-        print(self._dump(messages))
+        output.append("── input messages ──")
+        output.append(self._dump(messages))
 
         # Find and print system prompt
-        # LiteLLM may store it in 'input' (full API payload) or 'additional_args'
         found_system = False
         for key in ['input', 'additional_args']:
             val = kwargs.get(key, None)
             if val and isinstance(val, dict) and 'system' in val:
-                print(f"\n── system prompt (from kwargs['{key}']['system'], first 3000 chars) ──")
+                output.append(f"\n── system prompt (from kwargs['{key}']['system'], first 3000 chars) ──")
                 s = val['system']
-                print(str(s)[:3000])
+                output.append(str(s)[:3000])
                 found_system = True
                 break
         if not found_system:
             # Try messages[0] with role=system
             if messages and isinstance(messages[0], dict) and messages[0].get("role") == "system":
-                print("\n── system prompt (from messages[0]) ──")
-                print(str(messages[0].get("content", ""))[:3000])
+                output.append("\n── system prompt (from messages[0]) ──")
+                output.append(str(messages[0].get("content", ""))[:3000])
             else:
-                print("\n── system prompt: NOT FOUND ──")
+                output.append("\n── system prompt: NOT FOUND ──")
 
         # Print extra_body (e.g. enable_thinking) if present
         extra_body = kwargs.get("optional_params", {}).get("extra_body", {})
         if extra_body:
-            print("\n── extra_body ──")
-            print(self._dump(extra_body))
+            output.append("\n── extra_body ──")
+            output.append(self._dump(extra_body))
 
         # Print full response
-        print("\n── response ──")
+        output.append("\n── response ──")
         resp = response_obj.model_dump() if hasattr(response_obj, "model_dump") else response_obj
-        print(self._dump(resp))
+        output.append(self._dump(resp))
 
-        print(self._SEP, flush=True)
+        output.append(self._SEP)
+        final_output = "\n".join(output)
+        print(final_output, flush=True)
+        self._write_to_file(final_output)
 
-    def _print_failure(self, kwargs, response_obj, start_time, end_time):
+    def _print_failure(self, kwargs: dict, response_obj, start_time, end_time):
         model = kwargs.get("model", "?")
-        print(f"\n{self._SEP}")
-        print(f"❌ RAW FAILURE  |  model={model}  |  ⏱ {end_time - start_time}")
-        print(self._SEP)
-        print(self._dump({
+        output = []
+        output.append(f"\n{self._SEP}")
+        output.append(f"❌ RAW FAILURE  |  model={model}  |  ⏱ {end_time - start_time}")
+        output.append(self._SEP)
+        output.append(self._dump({
             "error": str(response_obj),
             "exception": str(kwargs.get("exception", "")),
         }))
-        print(self._SEP, flush=True)
+        output.append(self._SEP)
+        final_output = "\n".join(output)
+        print(final_output, flush=True)
+        self._write_to_file(final_output)
 
 
 # Instantiate — referenced in litellm_config.yaml as litellm_raw_logger.raw_logger

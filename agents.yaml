@@ -17,7 +17,3 @@ bots:
   - name: xingshi
     token: "8416759218:AAGyv2HdS-hzbcUBRBZnawu64g7kjvgKqrc"
     model: qwen3.5-plus-non-thinking
-
-  - name: PoemCatBot
-    token: "8675954843:AAGg8D3alpbvOOTIHOLe2XLV5KQaifQYGGU"
-    model: qwen3.5-plus-non-thinking

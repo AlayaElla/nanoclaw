@@ -110,6 +110,17 @@ function buildVolumeMounts(
   const agentName = botConfig?.name || 'default';
   const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
   fs.mkdirSync(agentWorkspaceDir, { recursive: true });
+
+  // Auto-create USER.md (master profile) if it doesn't exist
+  // Copy template from groups/USER.md
+  const userProfileFile = path.join(agentWorkspaceDir, 'USER.md');
+  if (!fs.existsSync(userProfileFile)) {
+    const userProfileTemplate = path.join(GROUPS_DIR, 'USER.md');
+    if (fs.existsSync(userProfileTemplate)) {
+      fs.cpSync(userProfileTemplate, userProfileFile);
+    }
+  }
+
   mounts.push({
     hostPath: agentWorkspaceDir,
     containerPath: '/workspace/group',

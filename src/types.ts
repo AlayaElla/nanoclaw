@@ -111,6 +111,8 @@ export interface Channel {
   sendStatusMessage?(jid: string, text: string): Promise<number | null>;
   editStatusMessage?(jid: string, messageId: number, text: string): Promise<void>;
   deleteMessage?(jid: string, messageId: number): Promise<void>;
+  // Optional: send media files (photos, videos, audio, documents)
+  sendMedia?(jid: string, buffer: Buffer, mediaType: 'photo' | 'video' | 'audio' | 'document', caption?: string): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages

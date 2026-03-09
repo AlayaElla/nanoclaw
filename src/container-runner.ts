@@ -44,6 +44,8 @@ export interface ContainerInput {
   assistantName?: string;
   teamRuleContent?: string;
   contextModeContent?: string;
+  toolsContent?: string;
+  adminToolsContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -362,6 +364,20 @@ export async function runContainerAgent(
       input.contextModeContent = fs.readFileSync(contextModePath, 'utf-8');
     }
     
+    // Read Tools.md (for all chats) — shared tool documentation
+    const toolsPath = path.join(AGENTS_DIR, 'Tools.md');
+    if (fs.existsSync(toolsPath) && !input.toolsContent) {
+      input.toolsContent = fs.readFileSync(toolsPath, 'utf-8');
+    }
+    
+    // Read AdminTools.md (for main chats only) — admin tool documentation
+    if (input.isMain) {
+      const adminToolsPath = path.join(AGENTS_DIR, 'AdminTools.md');
+      if (fs.existsSync(adminToolsPath) && !input.adminToolsContent) {
+        input.adminToolsContent = fs.readFileSync(adminToolsPath, 'utf-8');
+      }
+    }
+
     if (!input.isMain && input.isGroup && !input.teamRuleContent) {
       const groupRulePath = path.join(AGENTS_DIR, 'GroupRule.md');
       if (fs.existsSync(groupRulePath)) {

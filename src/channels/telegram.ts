@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -618,6 +618,37 @@ export class TelegramChannel implements Channel {
       await this.bot.api.deleteMessage(numericId, messageId);
     } catch (err) {
       logger.debug({ jid, messageId, err, bot: this.tokenEnvName }, 'Failed to delete status message');
+    }
+  }
+
+  async sendMedia(jid: string, buffer: Buffer, mediaType: 'photo' | 'video' | 'audio' | 'document', caption?: string): Promise<void> {
+    if (!this.bot) {
+      logger.warn({ bot: this.tokenEnvName }, 'Telegram bot not initialized');
+      return;
+    }
+
+    try {
+      const numericId = TelegramChannel.extractChatId(jid);
+      const file = new InputFile(buffer);
+      const opts = caption ? { caption } : {};
+
+      switch (mediaType) {
+        case 'photo':
+          await this.bot.api.sendPhoto(numericId, file, opts);
+          break;
+        case 'video':
+          await this.bot.api.sendVideo(numericId, file, opts);
+          break;
+        case 'audio':
+          await this.bot.api.sendAudio(numericId, file, opts);
+          break;
+        case 'document':
+          await this.bot.api.sendDocument(numericId, file, opts);
+          break;
+      }
+      logger.info({ jid, mediaType, bytes: buffer.length, bot: this.tokenEnvName }, 'Telegram media sent');
+    } catch (err) {
+      logger.error({ jid, mediaType, err, bot: this.tokenEnvName }, 'Failed to send Telegram media');
     }
   }
 }

@@ -16,6 +16,8 @@ agents/*
 !agents/example/
 !agents/GroupRule.md
 !agents/ContextMode.md
+!agents/Tools.md
+!agents/AdminTools.md
 !agents/USER.md.example
 
 # Secrets

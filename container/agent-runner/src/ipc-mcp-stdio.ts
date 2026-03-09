@@ -84,6 +84,289 @@ server.tool(
 );
 
 server.tool(
+  'send_media',
+  `向用户或群组发送图片、视频、音频或文件。支持三种来源：
+• 本地文件路径（file_path）：发送容器内任意文件，如 AI 生成的图片、脚本输出等
+• 网络 URL（url）：发送网络上的图片、视频、音频链接，会自动下载并发送
+• 缓存媒体 ID（media_id）：发送之前缓存的历史媒体文件
+
+三个来源参数选填一个即可。media_type 可以省略，会根据文件扩展名自动检测。`,
+  {
+    file_path: z.string().optional().describe('容器内文件的绝对路径（例如 /tmp/chart.png）'),
+    url: z.string().optional().describe('网络媒体 URL（例如 https://example.com/photo.jpg）'),
+    media_id: z.string().optional().describe('缓存的历史媒体 MediaID（例如 photo_171000_abc123.jpg）'),
+    media_type: z.enum(['photo', 'video', 'audio', 'document']).optional().describe('媒体类型。省略时根据扩展名自动检测'),
+    caption: z.string().optional().describe('媒体附带的文字说明'),
+  },
+  async (args) => {
+    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
+    fs.mkdirSync(MEDIA_CACHE, { recursive: true });
+
+    // Determine media type from extension
+    const detectType = (filename: string): 'photo' | 'video' | 'audio' | 'document' => {
+      const ext = path.extname(filename).toLowerCase();
+      const photoExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      const videoExts = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
+      const audioExts = ['.mp3', '.ogg', '.wav', '.flac', '.aac', '.m4a', '.opus'];
+      if (photoExts.includes(ext)) return 'photo';
+      if (videoExts.includes(ext)) return 'video';
+      if (audioExts.includes(ext)) return 'audio';
+      return 'document';
+    };
+
+    // Detect from Content-Type header
+    const detectTypeFromMime = (contentType: string): 'photo' | 'video' | 'audio' | 'document' => {
+      if (contentType.startsWith('image/')) return 'photo';
+      if (contentType.startsWith('video/')) return 'video';
+      if (contentType.startsWith('audio/')) return 'audio';
+      return 'document';
+    };
+
+    let buffer: Buffer;
+    let detectedType: 'photo' | 'video' | 'audio' | 'document' = 'document';
+    let ext = '';
+
+    if (args.file_path) {
+      // Source: local file
+      try {
+        buffer = fs.readFileSync(args.file_path);
+        detectedType = detectType(args.file_path);
+        ext = path.extname(args.file_path).toLowerCase() || '.bin';
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Failed to read file: ${err.message}` }], isError: true };
+      }
+    } else if (args.url) {
+      // Source: URL
+      try {
+        const resp = await fetch(args.url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        buffer = Buffer.from(await resp.arrayBuffer());
+        const contentType = resp.headers.get('content-type') || '';
+        detectedType = detectTypeFromMime(contentType);
+        // Try to get extension from URL path
+        try {
+          const urlPath = new URL(args.url).pathname;
+          ext = path.extname(urlPath).toLowerCase();
+        } catch { ext = ''; }
+        if (!ext) {
+          // Fallback extension from mime
+          const mimeExts: Record<string, string> = {
+            'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+            'video/mp4': '.mp4', 'video/webm': '.webm',
+            'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+          };
+          ext = mimeExts[contentType.split(';')[0]] || '.bin';
+        }
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Failed to download URL: ${err.message}` }], isError: true };
+      }
+    } else if (args.media_id) {
+      // Source: cached media — reuse directly, no copy needed
+      const safeId = path.basename(args.media_id);
+      const cachedPath = path.join(MEDIA_CACHE, safeId);
+      if (!fs.existsSync(cachedPath)) {
+        return { content: [{ type: 'text' as const, text: `MediaID ${args.media_id} not found in cache.` }], isError: true };
+      }
+      detectedType = detectType(safeId);
+      const mediaType = args.media_type || detectedType;
+
+      // Write IPC message directly with original mediaId
+      const data = {
+        type: 'media_message',
+        chatJid,
+        mediaId: safeId,
+        mediaType,
+        caption: args.caption || undefined,
+        groupFolder,
+        timestamp: new Date().toISOString(),
+      };
+      writeIpcFile(MESSAGES_DIR, data);
+
+      const fileSize = fs.statSync(cachedPath).size;
+      return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).` }] };
+    } else {
+      return { content: [{ type: 'text' as const, text: 'Must provide one of: file_path, url, or media_id.' }], isError: true };
+    }
+
+    const mediaType = args.media_type || detectedType;
+
+    // Save to media_cache with a unique name so the host can read it
+    const mediaId = `send_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+    const cachePath = path.join(MEDIA_CACHE, mediaId);
+    fs.writeFileSync(cachePath, buffer);
+
+    // Write IPC message for host to pick up
+    const data = {
+      type: 'media_message',
+      chatJid,
+      mediaId,
+      mediaType,
+      caption: args.caption || undefined,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).` }] };
+  },
+);
+
+server.tool(
+  'generate_image',
+  `使用 AI 生成图片。支持两种模式：
+• 文生图（text-to-image）：根据文字描述生成图片。只需提供 prompt。
+• 图生图（image-to-image）：基于已有图片进行修改/编辑。需同时提供 prompt 和 source_image（本地路径或 media_id）。
+生成的图片会自动发送到聊天中。`,
+  {
+    prompt: z.string().describe('图片描述或编辑指令（例如"一只在月光下散步的猫"）'),
+    source_image: z.string().optional().describe('图生图的源图片路径（容器内绝对路径，例如 /tmp/input.png）或缓存的 MediaID'),
+    model: z.enum(['gpt-image-1', 'seedream-3.0', 'imagen4', 'flux-kontext-max', 'flux-kontext-pro']).optional().default('gpt-image-1').describe('模型选择（默认 gpt-image-1）'),
+    size: z.enum(['1024x1024', '1024x1536', '1536x1024']).optional().default('1024x1024').describe('图片尺寸'),
+    caption: z.string().optional().describe('发送时附带的文字说明'),
+  },
+  async (args) => {
+    const apiKey = process.env.WHATAI_API_KEY;
+    if (!apiKey) {
+      return { content: [{ type: 'text' as const, text: 'WHATAI_API_KEY not configured. Cannot generate images.' }], isError: true };
+    }
+
+    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
+    fs.mkdirSync(MEDIA_CACHE, { recursive: true });
+
+    try {
+      let b64Data: string;
+
+      if (args.source_image) {
+        // Image-to-image: use /v1/images/edits with multipart form-data
+        let imageBuffer: Buffer;
+        let imageName: string;
+
+        // Check if it's a media_id (cached) or a file path
+        const safeId = path.basename(args.source_image);
+        const cachedPath = path.join(MEDIA_CACHE, safeId);
+        if (fs.existsSync(cachedPath)) {
+          imageBuffer = fs.readFileSync(cachedPath);
+          imageName = safeId;
+        } else if (fs.existsSync(args.source_image)) {
+          imageBuffer = fs.readFileSync(args.source_image);
+          imageName = path.basename(args.source_image);
+        } else {
+          return { content: [{ type: 'text' as const, text: `Source image not found: ${args.source_image}` }], isError: true };
+        }
+
+        // Build multipart form-data manually
+        const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
+        const parts: Buffer[] = [];
+
+        // prompt field
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${args.prompt}\r\n`));
+
+        // model field
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${args.model || 'gpt-image-1'}\r\n`));
+
+        // size field (optional)
+        if (args.size) {
+          parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${args.size}\r\n`));
+        }
+
+        // image file
+        const mimeType = imageName.match(/\.png$/i) ? 'image/png' : 'image/jpeg';
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${imageName}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
+        parts.push(imageBuffer);
+        parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+        const body = Buffer.concat(parts);
+
+        const resp = await fetch('https://api.whatai.cc/v1/images/edits', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body,
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          return { content: [{ type: 'text' as const, text: `Image edit API error (${resp.status}): ${errText.slice(0, 500)}` }], isError: true };
+        }
+
+        const result = await resp.json() as { data?: { b64_json?: string; url?: string }[] };
+        b64Data = result.data?.[0]?.b64_json || '';
+        if (!b64Data) {
+          // Try URL fallback
+          const imageUrl = result.data?.[0]?.url;
+          if (imageUrl) {
+            const dlResp = await fetch(imageUrl);
+            const dlBuf = Buffer.from(await dlResp.arrayBuffer());
+            b64Data = dlBuf.toString('base64');
+          } else {
+            return { content: [{ type: 'text' as const, text: 'API returned no image data.' }], isError: true };
+          }
+        }
+      } else {
+        // Text-to-image: use /v1/images/generations with JSON body
+        const payload = {
+          prompt: args.prompt,
+          model: args.model || 'gpt-image-1',
+          size: args.size || '1024x1024',
+          n: 1,
+        };
+
+        const resp = await fetch('https://api.whatai.cc/v1/images/generations', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          return { content: [{ type: 'text' as const, text: `Image generation API error (${resp.status}): ${errText.slice(0, 500)}` }], isError: true };
+        }
+
+        const result = await resp.json() as { data?: { b64_json?: string; url?: string }[] };
+        b64Data = result.data?.[0]?.b64_json || '';
+        if (!b64Data) {
+          const imageUrl = result.data?.[0]?.url;
+          if (imageUrl) {
+            const dlResp = await fetch(imageUrl);
+            const dlBuf = Buffer.from(await dlResp.arrayBuffer());
+            b64Data = dlBuf.toString('base64');
+          } else {
+            return { content: [{ type: 'text' as const, text: 'API returned no image data.' }], isError: true };
+          }
+        }
+      }
+
+      // Decode base64 and save to media_cache
+      const imageBuffer = Buffer.from(b64Data, 'base64');
+      const mediaId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`;
+      const cachePath = path.join(MEDIA_CACHE, mediaId);
+      fs.writeFileSync(cachePath, imageBuffer);
+
+      // Auto-send to chat via IPC
+      const ipcData = {
+        type: 'media_message',
+        chatJid,
+        mediaId,
+        mediaType: 'photo',
+        caption: args.caption || undefined,
+        groupFolder,
+        timestamp: new Date().toISOString(),
+      };
+      writeIpcFile(MESSAGES_DIR, ipcData);
+
+      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${imageBuffer.length} bytes). MediaID: ${mediaId}` }] };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: `Image generation failed: ${err.message}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
   'schedule_task',
   `安排定时或一次性任务。任务将作为完整的代理运行，可以使用所有工具。
 

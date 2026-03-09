@@ -7,7 +7,7 @@ import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { handleXIpc } from './x-integration-host.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { createTask, deleteTask, getTaskById, storeMessage, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { searchMemory, isRagEnabled } from './rag.js';
@@ -16,6 +16,7 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMedia: (jid: string, buffer: Buffer, mediaType: 'photo' | 'video' | 'audio' | 'document', caption?: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -77,13 +78,15 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const filePath = path.join(messagesDir, file);
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+              // Authorization: verify this group can send to this chatJid
+              const targetGroup = data.chatJid ? registeredGroups[data.chatJid] : undefined;
+              const authorized = data.chatJid && (
+                isMain ||
+                (targetGroup && targetGroup.folder === sourceGroup)
+              );
+
               if (data.type === 'message' && data.chatJid && data.text) {
-                // Authorization: verify this group can send to this chatJid
-                const targetGroup = registeredGroups[data.chatJid];
-                if (
-                  isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
-                ) {
+                if (authorized) {
                   if (data.sender && data.chatJid.startsWith('tg:')) {
                     const chatNumericId = data.chatJid.replace(/^tg:/, '').replace(/@.*$/, '');
                     const isPrivate = !chatNumericId.startsWith('-');
@@ -113,6 +116,44 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
+                  );
+                }
+              } else if (data.type === 'media_message' && data.chatJid && data.mediaId) {
+                if (authorized) {
+                  const mediaType = data.mediaType || 'document';
+                  // Resolve media file from the group's media_cache on the host
+                  const safeId = path.basename(data.mediaId);
+                  const mediaPath = path.join(DATA_DIR, 'sessions', sourceGroup, '.claude', 'media_cache', safeId);
+                  try {
+                    const buffer = fs.readFileSync(mediaPath);
+                    await deps.sendMedia(data.chatJid, buffer, mediaType, data.caption);
+                    // Store outbound media message in DB (mirrors inbound format)
+                    const labelMap: Record<string, string> = { photo: 'Photo', video: 'Video', audio: 'Audio', document: 'Document' };
+                    const label = labelMap[mediaType] || 'File';
+                    const captionPart = data.caption ? ` | Caption: ${data.caption}` : '';
+                    storeMessage({
+                      id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                      chat_jid: data.chatJid,
+                      sender: 'bot',
+                      sender_name: 'Assistant',
+                      content: `[Sent ${label}${captionPart} | MediaID: ${safeId}]`,
+                      timestamp: new Date().toISOString(),
+                      is_from_me: true,
+                    });
+                    logger.info(
+                      { chatJid: data.chatJid, sourceGroup, mediaType, mediaId: safeId },
+                      'IPC media message sent',
+                    );
+                  } catch (readErr) {
+                    logger.error(
+                      { chatJid: data.chatJid, sourceGroup, mediaId: safeId, err: readErr },
+                      'Failed to read media file for IPC media_message',
+                    );
+                  }
+                } else {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC media_message attempt blocked',
                   );
                 }
               }

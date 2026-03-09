@@ -257,8 +257,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     Edit: '编辑文件',
     Grep: '搜索代码',
     Glob: '查找文件',
-    WebSearch: '搜索网页',
-    WebFetch: '获取网页',
+    // WebSearch: '搜索网页',  // Disabled
+    // WebFetch: '获取网页',   // Disabled
     Task: '执行子任务',
     TaskOutput: '读取任务结果',
     TaskStop: '停止任务',
@@ -271,6 +271,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     NotebookEdit: '编辑笔记本',
     // MCP: nanoclaw tools
     'mcp__nanoclaw__send_message': '发送消息',
+    'mcp__nanoclaw__send_media': '发送媒体',
+    'mcp__nanoclaw__generate_image': '生成图片',
     'mcp__nanoclaw__schedule_task': '安排定时任务',
     'mcp__nanoclaw__list_tasks': '查询任务列表',
     'mcp__nanoclaw__pause_task': '暂停任务',
@@ -714,6 +716,15 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
+    },
+    sendMedia: async (jid, buffer, mediaType, caption) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (!channel.sendMedia) {
+        logger.warn({ jid }, 'Channel does not support sendMedia');
+        return;
+      }
+      await channel.sendMedia(jid, buffer, mediaType, caption);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,

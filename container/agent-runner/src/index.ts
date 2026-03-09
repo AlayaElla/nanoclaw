@@ -30,6 +30,8 @@ interface ContainerInput {
   assistantName?: string;
   teamRuleContent?: string;
   contextModeContent?: string;
+  toolsContent?: string;
+  adminToolsContent?: string;
   secrets?: Record<string, string>;
 }
 
@@ -492,6 +494,14 @@ async function runQuery(
 
   // Inject global rules and group-specific rules
   let additionalContext = '';
+  if (containerInput.toolsContent) {
+    additionalContext += '\n' + containerInput.toolsContent + '\n';
+    log('Injecting Tools.md into system prompt');
+  }
+  if (containerInput.adminToolsContent) {
+    additionalContext += '\n' + containerInput.adminToolsContent + '\n';
+    log('Injecting AdminTools.md into system prompt');
+  }
   if (containerInput.contextModeContent) {
     additionalContext += '\n' + containerInput.contextModeContent + '\n';
     log('Injecting ContextMode.md into system prompt');
@@ -532,7 +542,7 @@ async function runQuery(
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        'WebSearch', 'WebFetch',
+        // 'WebSearch', 'WebFetch', // Disabled: requires native Anthropic API; use mcp__parallel-search__search instead
         'Task', 'TaskOutput', 'TaskStop',
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
@@ -554,22 +564,23 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            ...(sdkEnv.WHATAI_API_KEY ? { WHATAI_API_KEY: sdkEnv.WHATAI_API_KEY } : {}),
           },
         },
         'context-mode': {
           command: 'context-mode',
           args: ['--transport', 'stdio'],
         },
-        ...(process.env.PARALLEL_API_KEY ? {
+        ...(sdkEnv.PARALLEL_API_KEY ? {
           'parallel-search': {
             type: 'http' as const,
             url: 'https://search-mcp.parallel.ai/mcp',
-            headers: { 'Authorization': `Bearer ${process.env.PARALLEL_API_KEY}` },
+            headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
           },
           'parallel-task': {
             type: 'http' as const,
             url: 'https://task-mcp.parallel.ai/mcp',
-            headers: { 'Authorization': `Bearer ${process.env.PARALLEL_API_KEY}` },
+            headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
           },
         } : {}),
       },

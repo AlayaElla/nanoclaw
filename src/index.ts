@@ -5,6 +5,7 @@ import {
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
+  escapeRegex,
 } from './config.js';
 import './channels/index.js';
 import {
@@ -28,6 +29,7 @@ import {
   getAllSessions,
   getAllTasks,
   getChatIsGroup,
+  getMaxRowid,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -51,7 +53,7 @@ import { logger } from './logger.js';
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
 
-let lastTimestamp = '';
+let lastRowid = 0;
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
@@ -61,7 +63,14 @@ const channels: Channel[] = [];
 const queue = new GroupQueue();
 
 function loadState(): void {
-  lastTimestamp = getRouterState('last_timestamp') || '';
+  const rawRowid = getRouterState('last_rowid');
+  if (rawRowid) {
+    lastRowid = parseInt(rawRowid, 10);
+  } else {
+    // First boot after migration: pick up from current end of DB 
+    // to avoid re-replying to thousands of old messages.
+    lastRowid = getMaxRowid();
+  }
   const agentTs = getRouterState('last_agent_timestamp');
   try {
     lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
@@ -78,7 +87,7 @@ function loadState(): void {
 }
 
 function saveState(): void {
-  setRouterState('last_timestamp', lastTimestamp);
+  setRouterState('last_rowid', lastRowid.toString());
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
@@ -204,11 +213,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const triggerLower = group.trigger.toLowerCase();
-    const nameTrigger = `@${(group.assistantName || ASSISTANT_NAME).toLowerCase()}`;
+    const username = group.trigger.startsWith('@') ? group.trigger.slice(1) : group.trigger;
+    const alias = group.assistantName || ASSISTANT_NAME;
+    // Match @username or @alias followed by non-word delimiter or end of string.
+    // \p{P} handles Chinese/Unicode punctuation.
+    const pattern = `@(${escapeRegex(username)}|${escapeRegex(alias)})(?=[\\s\\p{P}]|$)`;
+    const triggerRegex = new RegExp(pattern, 'iu');
+
     const hasTrigger = missedMessages.some((m) => {
-      const text = getTextContent(m.content).trim().toLowerCase();
-      return text.includes(triggerLower) || text.includes(nameTrigger);
+      const text = getTextContent(m.content);
+      return triggerRegex.test(text);
     });
     if (!hasTrigger) return true;
   }
@@ -510,9 +524,9 @@ async function startMessageLoop(): Promise<void> {
   while (true) {
     try {
       const jids = Object.keys(registeredGroups);
-      const { messages, newTimestamp } = getNewMessages(
+      const { messages, newRowid } = getNewMessages(
         jids,
-        lastTimestamp,
+        lastRowid,
         ASSISTANT_NAME,
       );
 
@@ -520,7 +534,7 @@ async function startMessageLoop(): Promise<void> {
         logger.info({ count: messages.length }, 'New messages');
 
         // Advance the "seen" cursor for all messages immediately
-        lastTimestamp = newTimestamp;
+        lastRowid = newRowid;
         saveState();
 
         // Deduplicate by group
@@ -600,7 +614,7 @@ async function startMessageLoop(): Promise<void> {
 
 /**
  * Startup recovery: check for unprocessed messages in registered groups.
- * Handles crash between advancing lastTimestamp and processing messages.
+ * Handles crash between advancing lastRowid and processing messages.
  */
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {

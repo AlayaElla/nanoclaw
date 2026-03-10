@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from './config.js';
+import { ASSISTANT_NAME, escapeRegex } from './config.js';
 import {
   escapeXml,
   formatMessages,
@@ -104,43 +104,7 @@ describe('formatMessages', () => {
   });
 });
 
-// --- TRIGGER_PATTERN ---
 
-describe('TRIGGER_PATTERN', () => {
-  const name = ASSISTANT_NAME;
-  const lower = name.toLowerCase();
-  const upper = name.toUpperCase();
-
-  it('matches @name at start of message', () => {
-    expect(TRIGGER_PATTERN.test(`@${name} hello`)).toBe(true);
-  });
-
-  it('matches case-insensitively', () => {
-    expect(TRIGGER_PATTERN.test(`@${lower} hello`)).toBe(true);
-    expect(TRIGGER_PATTERN.test(`@${upper} hello`)).toBe(true);
-  });
-
-  it('does not match when not at start of message', () => {
-    expect(TRIGGER_PATTERN.test(`hello @${name}`)).toBe(false);
-  });
-
-  it('does not match partial name like @NameExtra (word boundary)', () => {
-    expect(TRIGGER_PATTERN.test(`@${name}extra hello`)).toBe(false);
-  });
-
-  it('matches with word boundary before apostrophe', () => {
-    expect(TRIGGER_PATTERN.test(`@${name}'s thing`)).toBe(true);
-  });
-
-  it('matches @name alone (end of string is a word boundary)', () => {
-    expect(TRIGGER_PATTERN.test(`@${name}`)).toBe(true);
-  });
-
-  it('matches with leading whitespace after trim', () => {
-    // The actual usage trims before testing: TRIGGER_PATTERN.test(m.content.trim())
-    expect(TRIGGER_PATTERN.test(`@${name} hey`.trim())).toBe(true);
-  });
-});
 
 // --- Outbound formatting (internal tag stripping + prefix) ---
 
@@ -200,9 +164,16 @@ describe('trigger gating (requiresTrigger interaction)', () => {
     isMainGroup: boolean,
     requiresTrigger: boolean | undefined,
     messages: NewMessage[],
+    trigger: string = `@${ASSISTANT_NAME}`,
+    assistantName: string = ASSISTANT_NAME,
   ): boolean {
     if (!shouldRequireTrigger(isMainGroup, requiresTrigger)) return true;
-    return messages.some((m) => TRIGGER_PATTERN.test(getTextContent(m.content).trim()));
+    
+    const username = trigger.startsWith('@') ? trigger.slice(1) : trigger;
+    const pattern = `@(${escapeRegex(username)}|${escapeRegex(assistantName)})(?=[\\s\\p{P}]|$)`;
+    const triggerRegex = new RegExp(pattern, 'iu');
+    
+    return messages.some((m) => triggerRegex.test(getTextContent(m.content)));
   }
 
   it('main group always processes (no trigger needed)', () => {
@@ -233,5 +204,30 @@ describe('trigger gating (requiresTrigger interaction)', () => {
   it('non-main group with requiresTrigger=false always processes (no trigger needed)', () => {
     const msgs = [makeMsg({ content: 'hello no trigger' })];
     expect(shouldProcess(false, false, msgs)).toBe(true);
+  });
+
+  it('processes when mentioned by username', () => {
+    const msgs = [makeMsg({ content: '@BotUser hello' })];
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+  });
+
+  it('processes when mentioned by assistant name', () => {
+    const msgs = [makeMsg({ content: '@AssistantName hello' })];
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+  });
+
+  it('processes with punctuation separator', () => {
+    const msgs = [makeMsg({ content: '@AssistantName，你好' })];
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+  });
+
+  it('does not process on partial name match', () => {
+    const msgs = [makeMsg({ content: '@AssistantNameXY' })];
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(false);
+  });
+
+  it('processes when trigger is in the middle of text', () => {
+    const msgs = [makeMsg({ content: 'hey @AssistantName check this' })];
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
   });
 });

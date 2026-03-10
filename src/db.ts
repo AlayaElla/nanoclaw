@@ -320,35 +320,40 @@ export function storeMessageDirect(msg: {
   );
 }
 
+export function getMaxRowid(): number {
+  const row = db.prepare('SELECT MAX(rowid) as maxRowid FROM messages').get() as { maxRowid: number | null };
+  return row?.maxRowid || 0;
+}
+
 export function getNewMessages(
   jids: string[],
-  lastTimestamp: string,
+  lastRowid: number,
   botPrefix: string,
-): { messages: NewMessage[]; newTimestamp: string } {
-  if (jids.length === 0) return { messages: [], newTimestamp: lastTimestamp };
+): { messages: NewMessage[]; newRowid: number } {
+  if (jids.length === 0) return { messages: [], newRowid: lastRowid };
 
   const placeholders = jids.map(() => '?').join(',');
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
     FROM messages
-    WHERE timestamp > ? AND chat_jid IN (${placeholders})
+    WHERE rowid > ? AND chat_jid IN (${placeholders})
       AND is_bot_message = 0 AND content NOT LIKE ?
       AND content != '' AND content IS NOT NULL
-    ORDER BY timestamp
+    ORDER BY rowid
   `;
 
   const rows = db
     .prepare(sql)
-    .all(lastTimestamp, ...jids, `${botPrefix}:%`) as NewMessage[];
+    .all(lastRowid, ...jids, `${botPrefix}:%`) as (NewMessage & { rowid: number })[];
 
-  let newTimestamp = lastTimestamp;
+  let newRowid = lastRowid;
   for (const row of rows) {
-    if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
+    if (row.rowid > newRowid) newRowid = row.rowid;
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages: rows, newRowid };
 }
 
 export function getMessagesSince(

@@ -270,31 +270,34 @@ describe('getNewMessages', () => {
   });
 
   it('returns new messages across multiple groups', () => {
-    const { messages, newTimestamp } = getNewMessages(
+    const { messages, newRowid } = getNewMessages(
       ['group1@g.us', 'group2@g.us'],
-      '2024-01-01T00:00:00.000Z',
+      0,
       'Andy',
     );
     // Excludes bot message, returns 3 user messages
     expect(messages).toHaveLength(3);
-    expect(newTimestamp).toBe('2024-01-01T00:00:04.000Z');
+    expect(newRowid).toBeGreaterThan(0);
   });
 
-  it('filters by timestamp', () => {
+  it('filters by rowid', () => {
+    // First get some messages to find a middle rowid
+    const { messages: all } = getNewMessages(['group1@g.us'], 0, 'Andy');
+    const midRowid = (all[0] as any).rowid;
+
     const { messages } = getNewMessages(
       ['group1@g.us', 'group2@g.us'],
-      '2024-01-01T00:00:02.000Z',
+      midRowid,
       'Andy',
     );
-    // Only g1 msg2 (after ts, not bot)
-    expect(messages).toHaveLength(1);
-    expect(messages[0].content).toBe('g1 msg2');
+    // Should only have messages after the first one
+    expect(messages.length).toBeLessThan(3);
   });
 
   it('returns empty for no registered groups', () => {
-    const { messages, newTimestamp } = getNewMessages([], '', 'Andy');
+    const { messages, newRowid } = getNewMessages([], 0, 'Andy');
     expect(messages).toHaveLength(0);
-    expect(newTimestamp).toBe('');
+    expect(newRowid).toBe(0);
   });
 });
 

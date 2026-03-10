@@ -341,11 +341,23 @@ server.tool(
         }
       }
 
-      // Decode base64 and save to media_cache
-      const imageBuffer = Buffer.from(b64Data, 'base64');
+      // Save to media_cache by streaming base64 decode directly to file
       const mediaId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`;
       const cachePath = path.join(MEDIA_CACHE, mediaId);
-      fs.writeFileSync(cachePath, imageBuffer);
+      // Write in chunks to avoid holding entire decoded buffer in memory
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks strikes a balance between memory and loop overhead
+      const fd = fs.openSync(cachePath, 'w');
+      let totalBytes = 0;
+      try {
+        for (let i = 0; i < b64Data.length; i += CHUNK_SIZE) {
+          const chunk = Buffer.from(b64Data.slice(i, i + CHUNK_SIZE), 'base64');
+          fs.writeSync(fd, chunk);
+          totalBytes += chunk.length;
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+      b64Data = ''; // Release the large base64 string
 
       // Auto-send to chat via IPC
       const ipcData = {
@@ -359,7 +371,7 @@ server.tool(
       };
       writeIpcFile(MESSAGES_DIR, ipcData);
 
-      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${imageBuffer.length} bytes). MediaID: ${mediaId}` }] };
+      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}` }] };
     } catch (err: any) {
       return { content: [{ type: 'text' as const, text: `Image generation failed: ${err.message}` }], isError: true };
     }

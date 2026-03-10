@@ -322,6 +322,17 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Pass proxy settings if they exist in the environment
+  const proxyVars = [
+    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+    'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'
+  ];
+  for (const proxyVar of proxyVars) {
+    if (process.env[proxyVar]) {
+      args.push('-e', `${proxyVar}=${process.env[proxyVar]}`);
+    }
+  }
+
   // Force TMPDIR so context-mode's store.ts uses the hidden persistent mount instead of the ephemeral /tmp
   args.push('-e', 'TMPDIR=/home/node/.claude/.tmp');
 

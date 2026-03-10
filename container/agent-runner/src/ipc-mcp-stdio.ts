@@ -183,7 +183,7 @@ server.tool(
       writeIpcFile(MESSAGES_DIR, data);
 
       const fileSize = fs.statSync(cachedPath).size;
-      return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).` }] };
+      return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
     } else {
       return { content: [{ type: 'text' as const, text: 'Must provide one of: file_path, url, or media_id.' }], isError: true };
     }
@@ -207,7 +207,7 @@ server.tool(
     };
     writeIpcFile(MESSAGES_DIR, data);
 
-    return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).` }] };
+    return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
   },
 );
 
@@ -216,7 +216,7 @@ server.tool(
   `使用 AI 生成图片。支持两种模式：
 • 文生图（text-to-image）：根据文字描述生成图片。只需提供 prompt。
 • 图生图（image-to-image）：基于已有图片进行修改/编辑。需同时提供 prompt 和 source_image（本地路径或 media_id）。
-生成的图片会自动发送到聊天中。`,
+【重要提醒】：生成的图片会自动发送到聊天中。为了避免连续发送两条重复消息，调用此工具后，请**必须**将你的所有后续回复文本（如"图片已生成"）包裹在 <internal>...</internal> 标签中，或者直接结束输出。`,
   {
     prompt: z.string().describe('图片描述或编辑指令（例如"一只在月光下散步的猫"）'),
     source_image: z.string().optional().describe('图生图的源图片路径（容器内绝对路径，例如 /tmp/input.png）或缓存的 MediaID'),
@@ -371,7 +371,7 @@ server.tool(
       };
       writeIpcFile(MESSAGES_DIR, ipcData);
 
-      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}` }] };
+      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，请直接完成任务，或者将你的任何后续回复或思考包裹在 <internal>...</internal> 标签中，避免向用户发送重复无用的确认消息。` }] };
     } catch (err: any) {
       return { content: [{ type: 'text' as const, text: `Image generation failed: ${err.message}` }], isError: true };
     }

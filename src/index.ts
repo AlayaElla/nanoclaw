@@ -346,8 +346,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           ? result.result
           : JSON.stringify(result.result);
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
+      let text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      // Also ignore messages that are just "..." after stripping internal reasoning
+      if (text === '...') {
+        text = '';
+      }
+      logger.debug({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
         // Stop typing indicator before sending — user should see the reply, not "typing..."
         await channel.setTyping?.(chatJid, false);

@@ -528,132 +528,137 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
-  for await (const message of query({
-    prompt: stream,
-    options: {
-      model: sdkEnv.ANTHROPIC_MODEL,
-      cwd: '/workspace/group',
-      additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      resume: sessionId,
-      resumeSessionAt: resumeAt,
-      systemPrompt: finalAdditionalContext
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: finalAdditionalContext }
-        : undefined,
-      allowedTools: [
-        'Bash',
-        'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        // 'WebSearch', 'WebFetch', // Disabled: requires native Anthropic API; use mcp__parallel-search__search instead
-        'Task', 'TaskOutput', 'TaskStop',
-        'TeamCreate', 'TeamDelete', 'SendMessage',
-        'TodoWrite', 'ToolSearch', 'Skill',
-        'NotebookEdit',
-        'mcp__nanoclaw__*',
-        'mcp__context-mode__*',
-        'mcp__parallel-search__*',
-        'mcp__parallel-task__*'
-      ],
-      env: sdkEnv,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      settingSources: ['project', 'user'],
-      mcpServers: {
-        nanoclaw: {
-          command: 'node',
-          args: [mcpServerPath],
-          env: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
-            ...(sdkEnv.WHATAI_API_KEY ? { WHATAI_API_KEY: sdkEnv.WHATAI_API_KEY } : {}),
+  try {
+    for await (const message of query({
+      prompt: stream,
+      options: {
+        model: sdkEnv.ANTHROPIC_MODEL,
+        cwd: '/workspace/group',
+        additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
+        resume: sessionId,
+        resumeSessionAt: resumeAt,
+        systemPrompt: finalAdditionalContext
+          ? { type: 'preset' as const, preset: 'claude_code' as const, append: finalAdditionalContext }
+          : undefined,
+        allowedTools: [
+          'Bash',
+          'Read', 'Write', 'Edit', 'Glob', 'Grep',
+          // 'WebSearch', 'WebFetch', // Disabled: requires native Anthropic API; use mcp__parallel-search__search instead
+          'Task', 'TaskOutput', 'TaskStop',
+          'TeamCreate', 'TeamDelete', 'SendMessage',
+          'TodoWrite', 'ToolSearch', 'Skill',
+          'NotebookEdit',
+          'mcp__nanoclaw__*',
+          'mcp__context-mode__*',
+          'mcp__parallel-search__*',
+          'mcp__parallel-task__*'
+        ],
+        env: sdkEnv,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        settingSources: ['project', 'user'],
+        mcpServers: {
+          nanoclaw: {
+            command: 'node',
+            args: [mcpServerPath],
+            env: {
+              NANOCLAW_CHAT_JID: containerInput.chatJid,
+              NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
+              NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+              ...(sdkEnv.WHATAI_API_KEY ? { WHATAI_API_KEY: sdkEnv.WHATAI_API_KEY } : {}),
+            },
           },
+          'context-mode': {
+            command: 'context-mode',
+            args: ['--transport', 'stdio'],
+          },
+          ...(sdkEnv.PARALLEL_API_KEY ? {
+            'parallel-search': {
+              type: 'http' as const,
+              url: 'https://search-mcp.parallel.ai/mcp',
+              headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
+            },
+            'parallel-task': {
+              type: 'http' as const,
+              url: 'https://task-mcp.parallel.ai/mcp',
+              headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
+            },
+          } : {}),
         },
-        'context-mode': {
-          command: 'context-mode',
-          args: ['--transport', 'stdio'],
+        hooks: {
+          PreCompact: [
+            { hooks: [createPreCompactHook(containerInput.assistantName)] },
+            { hooks: [createContextModeHook('precompact')] }
+          ],
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+            { matcher: '', hooks: [createContextModeHook('pretooluse')] }
+          ],
+          PostToolUse: [
+            { matcher: '', hooks: [createContextModeHook('posttooluse')] }
+          ],
+          SessionStart: [
+            { matcher: '', hooks: [createContextModeHook('sessionstart')] }
+          ],
         },
-        ...(sdkEnv.PARALLEL_API_KEY ? {
-          'parallel-search': {
-            type: 'http' as const,
-            url: 'https://search-mcp.parallel.ai/mcp',
-            headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
-          },
-          'parallel-task': {
-            type: 'http' as const,
-            url: 'https://task-mcp.parallel.ai/mcp',
-            headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
-          },
-        } : {}),
-      },
-      hooks: {
-        PreCompact: [
-          { hooks: [createPreCompactHook(containerInput.assistantName)] },
-          { hooks: [createContextModeHook('precompact')] }
-        ],
-        PreToolUse: [
-          { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-          { matcher: '', hooks: [createContextModeHook('pretooluse')] }
-        ],
-        PostToolUse: [
-          { matcher: '', hooks: [createContextModeHook('posttooluse')] }
-        ],
-        SessionStart: [
-          { matcher: '', hooks: [createContextModeHook('sessionstart')] }
-        ],
-      },
-      includePartialMessages: true,
-    }
-  })) {
-    messageCount++;
-    const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
-    log(`[msg #${messageCount}] type=${msgType}`);
+        includePartialMessages: true,
+      }
+    })) {
+      messageCount++;
+      const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
+      log(`[msg #${messageCount}] type=${msgType}`);
 
-    if (message.type === 'assistant' && 'uuid' in message) {
-      lastAssistantUuid = (message as { uuid: string }).uuid;
-    }
+      if (message.type === 'assistant' && 'uuid' in message) {
+        lastAssistantUuid = (message as { uuid: string }).uuid;
+      }
 
-    if (message.type === 'system' && message.subtype === 'init') {
-      newSessionId = message.session_id;
-      log(`Session initialized: ${newSessionId}`);
-    }
+      if (message.type === 'system' && message.subtype === 'init') {
+        newSessionId = message.session_id;
+        log(`Session initialized: ${newSessionId}`);
+      }
 
-    if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-      const tn = message as { task_id: string; status: string; summary: string };
-      log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
-    }
+      if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
+        const tn = message as { task_id: string; status: string; summary: string };
+        log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+      }
 
-    // Emit tool status events for host-side Telegram updates
-    // stream_event with content_block_start of type tool_use captures ALL tools
-    if (message.type === 'stream_event') {
-      const event = (message as { event: { type: string; content_block?: { type: string; name?: string } } }).event;
-      if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use' && event.content_block.name) {
-        writeToolStatus({ type: 'tool_status', tool: event.content_block.name, status: 'running' });
+      // Emit tool status events for host-side Telegram updates
+      // stream_event with content_block_start of type tool_use captures ALL tools
+      if (message.type === 'stream_event') {
+        const event = (message as { event: { type: string; content_block?: { type: string; name?: string } } }).event;
+        if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use' && event.content_block.name) {
+          writeToolStatus({ type: 'tool_status', tool: event.content_block.name, status: 'running' });
+        }
+      }
+
+      // tool_progress only fires for Bash/PowerShell, keep as secondary source
+      if (message.type === 'tool_progress') {
+        const tp = message as { tool_name: string; elapsed_time_seconds: number };
+        writeToolStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });
+      }
+
+      if (message.type === 'result') {
+        // Signal tool status idle when a result arrives
+        writeToolStatus({ type: 'tool_status', status: 'idle' });
+        resultCount++;
+        const textResult = 'result' in message ? (message as { result?: string }).result : null;
+        const subtype = (message as { subtype?: string }).subtype || '';
+        if (subtype === 'error_during_execution' || subtype === 'error_max_turns') {
+          hadError = true;
+          log(`Result #${resultCount} had error subtype: ${subtype}`);
+        }
+        log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+        writeOutput({
+          status: hadError ? 'error' : 'success',
+          result: textResult || null,
+          newSessionId,
+          ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
+        });
       }
     }
-
-    // tool_progress only fires for Bash/PowerShell, keep as secondary source
-    if (message.type === 'tool_progress') {
-      const tp = message as { tool_name: string; elapsed_time_seconds: number };
-      writeToolStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });
-    }
-
-    if (message.type === 'result') {
-      // Signal tool status idle when a result arrives
-      writeToolStatus({ type: 'tool_status', status: 'idle' });
-      resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      const subtype = (message as { subtype?: string }).subtype || '';
-      if (subtype === 'error_during_execution' || subtype === 'error_max_turns') {
-        hadError = true;
-        log(`Result #${resultCount} had error subtype: ${subtype}`);
-      }
-      log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
-      writeOutput({
-        status: hadError ? 'error' : 'success',
-        result: textResult || null,
-        newSessionId,
-        ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
-      });
-    }
+  } finally {
+    ipcPolling = false;
+    stream.end();
   }
 
   ipcPolling = false;

@@ -221,7 +221,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (!isMainGroup && group.requiresTrigger !== false) {
     const hasTrigger = missedMessages.some((m) => {
       const text = getTextContent(m.content);
-      return isTriggerPresent(text, group.trigger, group.assistantName || ASSISTANT_NAME);
+      return isTriggerPresent(
+        text,
+        group.trigger,
+        group.assistantName || ASSISTANT_NAME,
+      );
     });
     if (!hasTrigger) return true;
   }
@@ -600,10 +604,17 @@ async function startMessageLoop(): Promise<void> {
           if (needsTrigger) {
             const hasTrigger = groupMessages.some((m) => {
               const text = getTextContent(m.content);
-              return isTriggerPresent(text, group.trigger, group.assistantName || ASSISTANT_NAME);
+              return isTriggerPresent(
+                text,
+                group.trigger,
+                group.assistantName || ASSISTANT_NAME,
+              );
             });
             if (!hasTrigger) {
-              logger.info({ chatJid, count: groupMessages.length }, 'Messages ignored: missing trigger');
+              logger.info(
+                { chatJid, count: groupMessages.length },
+                'Messages ignored: missing trigger',
+              );
               continue;
             }
           }
@@ -634,7 +645,10 @@ async function startMessageLoop(): Promise<void> {
                 logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
               );
           } else {
-            logger.info({ chatJid }, 'No active container found or busy, enqueuing for new check');
+            logger.info(
+              { chatJid },
+              'No active container found or busy, enqueuing for new check',
+            );
             // No active container — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
           }

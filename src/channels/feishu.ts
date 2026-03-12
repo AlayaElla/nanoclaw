@@ -861,7 +861,10 @@ export class FeishuChannel implements Channel {
       // we should NOT process it again as a standalone text message.
       const pending = this.pendingMedia.get(chatJid);
       if (pending) {
-        logger.info({ jid: chatJid, msgId: message.id }, 'Feishu message received while media is pending, likely caption/description. Skipping standalone delivery.');
+        logger.info(
+          { jid: chatJid, msgId: message.id },
+          'Feishu message received while media is pending, likely caption/description. Skipping standalone delivery.',
+        );
         return;
       }
 
@@ -1045,16 +1048,26 @@ export class FeishuChannel implements Channel {
             content: JSON.stringify({ text: chunk }),
           },
         });
-        
-        const msgId = (resp as any)?.data?.message_id || (resp as any)?.message_id;
+
+        const msgId =
+          (resp as any)?.data?.message_id || (resp as any)?.message_id;
         if (!msgId) {
-          logger.error({ jid, resp }, 'Feishu message sent but no message_id returned');
+          logger.error(
+            { jid, resp },
+            'Feishu message sent but no message_id returned',
+          );
         } else {
-          logger.info({ jid, msgId, length: chunk.length }, 'Feishu message sent');
+          logger.info(
+            { jid, msgId, length: chunk.length },
+            'Feishu message sent',
+          );
         }
       }
     } catch (err) {
-      logger.error({ jid, err, text: text.slice(0, 100) }, 'Failed to send Feishu message');
+      logger.error(
+        { jid, err, text: text.slice(0, 100) },
+        'Failed to send Feishu message',
+      );
     }
   }
 

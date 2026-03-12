@@ -65,7 +65,10 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingMessages = true;
-      logger.info({ groupJid }, 'Container active, message queued in state.pendingMessages');
+      logger.info(
+        { groupJid },
+        'Container active, message queued in state.pendingMessages',
+      );
       return;
     }
 
@@ -163,7 +166,10 @@ export class GroupQueue {
       return false;
     }
     if (state.isTaskContainer) {
-      logger.info({ groupJid }, 'sendMessage failed: container is running a scheduled task');
+      logger.info(
+        { groupJid },
+        'sendMessage failed: container is running a scheduled task',
+      );
       return false;
     }
     state.idleWaiting = false; // Agent is about to receive work, no longer idle

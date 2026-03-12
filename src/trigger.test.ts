@@ -6,7 +6,9 @@ describe('isTriggerPresent', () => {
   const assistantName = '星梦';
 
   it('matches half-width @ with English name and space', () => {
-    expect(isTriggerPresent('@xingmeng hello', trigger, assistantName)).toBe(true);
+    expect(isTriggerPresent('@xingmeng hello', trigger, assistantName)).toBe(
+      true,
+    );
   });
 
   it('matches half-width @ with Chinese name and space', () => {

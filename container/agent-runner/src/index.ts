@@ -463,21 +463,13 @@ async function runQuery(
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean }> {
   const stream = new MessageStream();
-  log(`Starting query turn with prompt length: ${typeof prompt === 'string' ? prompt.length : 'Array'}`);
   stream.push(prompt);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
   let closedDuringQuery = false;
-  let lastPollLog = Date.now();
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
-
-    if (Date.now() - lastPollLog > 10000) {
-      log('IPC poller during query is still alive and active');
-      lastPollLog = Date.now();
-    }
-
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
@@ -492,7 +484,6 @@ async function runQuery(
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
-  log('Starting query turn IPC poller');
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
   let newSessionId: string | undefined;
@@ -663,12 +654,9 @@ async function runQuery(
           newSessionId,
           ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
         });
-        log(`Result emitted, for-await loop will continue to next iteration...`);
       }
     }
-    log(`for-await loop has exited normally. messageCount=${messageCount}, resultCount=${resultCount}`);
   } finally {
-    log(`runQuery finally block entered. ipcPolling was ${ipcPolling}, setting to false.`);
     ipcPolling = false;
     stream.end();
   }

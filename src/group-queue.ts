@@ -65,10 +65,7 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingMessages = true;
-      logger.info(
-        { groupJid },
-        'Container active, message queued in state.pendingMessages',
-      );
+      logger.debug({ groupJid }, 'Container active, message queued');
       return;
     }
 
@@ -157,21 +154,8 @@ export class GroupQueue {
    */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
-    if (!state.active) {
-      logger.info({ groupJid }, 'sendMessage failed: container not active');
+    if (!state.active || !state.groupFolder || state.isTaskContainer)
       return false;
-    }
-    if (!state.groupFolder) {
-      logger.info({ groupJid }, 'sendMessage failed: groupFolder missing');
-      return false;
-    }
-    if (state.isTaskContainer) {
-      logger.info(
-        { groupJid },
-        'sendMessage failed: container is running a scheduled task',
-      );
-      return false;
-    }
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
 
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');

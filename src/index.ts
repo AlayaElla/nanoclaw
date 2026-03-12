@@ -377,9 +377,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (text === '...') {
           text = '';
         }
-        logger.info(
+        logger.debug(
           { group: group.name },
-          `Agent output: ${raw.slice(0, 200)}${raw.length > 200 ? '...' : ''}`,
+          `Agent output: ${raw.slice(0, 200)}`,
         );
         if (text) {
           // Stop typing indicator before sending — user should see the reply, not "typing..."
@@ -631,7 +631,7 @@ async function startMessageLoop(): Promise<void> {
           const formatted = formatMessages(messagesToSend);
 
           if (queue.sendMessage(chatJid, formatted)) {
-            logger.info(
+            logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
@@ -645,7 +645,7 @@ async function startMessageLoop(): Promise<void> {
                 logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
               );
           } else {
-            logger.info(
+            logger.debug(
               { chatJid },
               'No active container found or busy, enqueuing for new check',
             );

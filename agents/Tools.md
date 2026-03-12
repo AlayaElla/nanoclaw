@@ -33,7 +33,7 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
 创建子代理团队执行复杂任务时，每个团队成员可以通过 `mcp__nanoclaw__send_message` 的 `sender` 参数以独立 bot 身份在 Telegram 群组中发消息。
 
 ### 子代理和队友
-作为子代理或队友时，只在主代理指示的情况下使用 `send_message`。
+作为子代理或队友时，只在主代理指示的情况下使用 `mcp__nanoclaw__send_message`。
 
 ### 规则
 - 严格按用户要求创建团队（角色数量完全一致）
@@ -41,8 +41,8 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
   - ✅ 正确：`researcher`、`developer`、`analyst`
   - ❌ 错误：`研究员`、`开发者`、`分析师`
 - 如果用户指定了中文角色名，使用对应的英文翻译作为成员 ID，`sender` 参数可以用中文显示名
-- 每个成员用 `send_message` 时必须传 `sender` 参数（如 `sender: "研究员"`）
-- 团队成员消息保持简短（2-4句），用多次 `send_message` 拆分长内容
+- 每个成员用 `mcp__nanoclaw__send_message` 时必须传 `sender` 参数（如 `sender: "研究员"`）
+- 团队成员消息保持简短（2-4句），用多次 `mcp__nanoclaw__send_message` 拆分长内容
 - 不使用 markdown，只用 *单星号*、_下划线_、• 项目符号
 - 作为主代理，不需要转述队友的消息（用户已直接看到）
 

@@ -284,7 +284,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     Skill: '技能',
     NotebookEdit: '编辑笔记本',
     // MCP: nanoclaw tools
-    'mcp__nanoclaw__send_message': '发送消息',
+    'mcp__nanoclaw__send_message': '发送MCP消息',
     'mcp__nanoclaw__send_media': '发送媒体',
     'mcp__nanoclaw__generate_image': '生成图片',
     'mcp__nanoclaw__schedule_task': '安排定时任务',

@@ -59,6 +59,36 @@ export function getTextContent(content: string | MultiPartContent[]): string {
     .join('\n');
 }
 
+/**
+ * Check if a trigger/mention is present in the text.
+ * Supports both half-width @ and full-width ＠.
+ * Handles Chinese character boundaries gracefully.
+ */
+export function isTriggerPresent(
+  text: string,
+  trigger: string,
+  assistantName?: string,
+): boolean {
+  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const primary = trigger.startsWith('@') ? trigger.slice(1) : trigger;
+  const alias = assistantName || primary;
+
+  // Pattern: [@＠](primary|alias)(?![\\p{L}\\p{N}])
+  // Supports both @ types.
+  // Negative lookahead (?![\\p{L}\\p{N}]) ensures the mention isn't just a prefix 
+  // of a longer English word (like @xing being a prefix of @xingmeng), 
+  // but allows Chinese characters (which are letters \p{L}) right after.
+  // Actually, we want to allow Chinese characters AFTER the mention, 
+  // BUT we want to avoid partial English word matches.
+  // In Chinese, mentions often have no space: @星梦你好.
+  // So we only want to block if the NEXT character is an English letter or number 
+  // IF the trigger itself ends with an English letter or number.
+  
+  const pattern = `[@＠](${escapeRegex(primary)}|${escapeRegex(alias)})(?![a-zA-Z0-9])`;
+  const regex = new RegExp(pattern, 'iu');
+  return regex.test(text);
+}
+
 export interface NewMessage {
   id: string;
   chat_jid: string;

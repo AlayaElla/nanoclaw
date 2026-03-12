@@ -231,8 +231,11 @@ export class FeishuChannel implements Channel {
     }
     if (!content) return;
 
-    // Strip @mention tags from content (飞书 format: @_user_1 etc.)
-    content = content.replace(/@_user_\d+/g, '').trim();
+    // Normalize @mention tags in content (Feishu format: @_user_1 etc.)
+    // Instead of stripping, replace with standard name to trigger core logic.
+    if (isMentioned) {
+      content = content.replace(/@_user_\d+/g, `@${ASSISTANT_NAME}`).trim();
+    }
 
     // Command handling — check before delivering to agent
     if (content.startsWith('/')) {
@@ -853,6 +856,15 @@ export class FeishuChannel implements Channel {
   ): void {
     const groups = this.opts.registeredGroups();
     if (groups[chatJid]) {
+      // If this message is part of a media merge window, we process it with the media.
+      // If it was already processed as the caption/description for pending media,
+      // we should NOT process it again as a standalone text message.
+      const pending = this.pendingMedia.get(chatJid);
+      if (pending) {
+        logger.info({ jid: chatJid, msgId: message.id }, 'Feishu message received while media is pending, likely caption/description. Skipping standalone delivery.');
+        return;
+      }
+
       this.opts.onMessage(chatJid, message);
     }
   }
@@ -1017,30 +1029,32 @@ export class FeishuChannel implements Channel {
     try {
       // Split long messages
       const MAX = FeishuChannel.MAX_MESSAGE_LENGTH;
-      if (prefixed.length <= MAX) {
-        await this.client.im.v1.message.create({
+      const chunks = prefixed.length <= MAX ? [prefixed] : [];
+      if (prefixed.length > MAX) {
+        for (let i = 0; i < prefixed.length; i += MAX) {
+          chunks.push(prefixed.slice(i, i + MAX));
+        }
+      }
+
+      for (const chunk of chunks) {
+        const resp = await this.client.im.v1.message.create({
           params: { receive_id_type: 'chat_id' },
           data: {
             receive_id: chatId,
             msg_type: 'text',
-            content: JSON.stringify({ text: prefixed }),
+            content: JSON.stringify({ text: chunk }),
           },
         });
-      } else {
-        for (let i = 0; i < prefixed.length; i += MAX) {
-          await this.client.im.v1.message.create({
-            params: { receive_id_type: 'chat_id' },
-            data: {
-              receive_id: chatId,
-              msg_type: 'text',
-              content: JSON.stringify({ text: prefixed.slice(i, i + MAX) }),
-            },
-          });
+        
+        const msgId = (resp as any)?.data?.message_id || (resp as any)?.message_id;
+        if (!msgId) {
+          logger.error({ jid, resp }, 'Feishu message sent but no message_id returned');
+        } else {
+          logger.info({ jid, msgId, length: chunk.length }, 'Feishu message sent');
         }
       }
-      logger.info({ jid, length: prefixed.length }, 'Feishu message sent');
     } catch (err) {
-      logger.error({ jid, err }, 'Failed to send Feishu message');
+      logger.error({ jid, err, text: text.slice(0, 100) }, 'Failed to send Feishu message');
     }
   }
 

@@ -244,20 +244,20 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       const { createRequire } = await import('node:module');
       const { AsyncLocalStorage } = await import('node:async_hooks');
       const req = createRequire(import.meta.url);
-      
+
       // Resolve the actual installation path of context-mode
       const cmRoot = resolve(req.resolve('context-mode/package.json'), '..');
       const scriptPath = resolve(cmRoot, 'hooks', `${hookName}.mjs`);
-      
+
       // Context-mode hook scripts read from stdin and write to stdout.
       // We must mock these for the duration of the dynamic import.
       const originalStdinRead = process.stdin.read;
       const originalStdinOn = process.stdin.on;
       const originalStdinSetEncoding = process.stdin.setEncoding;
       const originalStdinResume = process.stdin.resume;
-      
+
       const inputBuffer = Buffer.from(JSON.stringify(input) + '\n', 'utf-8');
-      
+
       // Mock stdin to immediately yield our Input JSON
       process.stdin.setEncoding = () => process.stdin;
       process.stdin.resume = () => process.stdin;
@@ -272,8 +272,8 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       // delegates back to `originalStdoutWrite` if not in the hook context to avoid breaking SDK stream.
       const originalStdoutWrite = process.stdout.write;
       const als = new AsyncLocalStorage<string[]>();
-      
-      process.stdout.write = (function(this: any, chunk: any, ...args: any[]) {
+
+      process.stdout.write = (function (this: any, chunk: any, ...args: any[]) {
         const store = als.getStore();
         if (store) {
           store.push(chunk.toString());
@@ -281,7 +281,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
         }
         return originalStdoutWrite.apply(this, [chunk, ...args] as any) as boolean;
       }) as any;
-      
+
       let capturedOutput = '';
       try {
         const buf: string[] = [];
@@ -299,7 +299,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
         process.stdin.resume = originalStdinResume;
         process.stdout.write = originalStdoutWrite;
       }
-      
+
       if (!capturedOutput.trim()) return {};
       return JSON.parse(capturedOutput);
     } catch (err) {
@@ -463,13 +463,21 @@ async function runQuery(
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean }> {
   const stream = new MessageStream();
+  log(`Starting query turn with prompt length: ${typeof prompt === 'string' ? prompt.length : 'Array'}`);
   stream.push(prompt);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
   let closedDuringQuery = false;
+  let lastPollLog = Date.now();
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
+
+    if (Date.now() - lastPollLog > 10000) {
+      log('IPC poller during query is still alive and active');
+      lastPollLog = Date.now();
+    }
+
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
@@ -484,6 +492,7 @@ async function runQuery(
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
+  log('Starting query turn IPC poller');
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
   let newSessionId: string | undefined;
@@ -638,10 +647,6 @@ async function runQuery(
       }
 
       if (message.type === 'result') {
-        // Stop polling IMMEDIATELY — the Claude process is about to exit.
-        // If we don't, the 500ms poller timer may fire and push a new message
-        // to a processTransport that is already closing, causing a crash.
-        ipcPolling = false;
         // Signal tool status idle when a result arrives
         writeToolStatus({ type: 'tool_status', status: 'idle' });
         resultCount++;
@@ -658,9 +663,12 @@ async function runQuery(
           newSessionId,
           ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
         });
+        log(`Result emitted, for-await loop will continue to next iteration...`);
       }
     }
+    log(`for-await loop has exited normally. messageCount=${messageCount}, resultCount=${resultCount}`);
   } finally {
+    log(`runQuery finally block entered. ipcPolling was ${ipcPolling}, setting to false.`);
     ipcPolling = false;
     stream.end();
   }

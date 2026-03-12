@@ -52,6 +52,7 @@ import {
   NewMessage,
   RegisteredGroup,
   getTextContent,
+  isTriggerPresent,
 } from './types.js';
 import { logger } from './logger.js';
 
@@ -218,18 +219,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const username = group.trigger.startsWith('@')
-      ? group.trigger.slice(1)
-      : group.trigger;
-    const alias = group.assistantName || ASSISTANT_NAME;
-    // Match @username or @alias followed by non-word delimiter or end of string.
-    // \p{P} handles Chinese/Unicode punctuation.
-    const pattern = `@(${escapeRegex(username)}|${escapeRegex(alias)})(?=[\\s\\p{P}]|$)`;
-    const triggerRegex = new RegExp(pattern, 'iu');
-
     const hasTrigger = missedMessages.some((m) => {
       const text = getTextContent(m.content);
-      return triggerRegex.test(text);
+      return isTriggerPresent(text, group.trigger, group.assistantName || ASSISTANT_NAME);
     });
     if (!hasTrigger) return true;
   }
@@ -381,15 +373,28 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (text === '...') {
           text = '';
         }
-        logger.debug(
+        logger.info(
           { group: group.name },
-          `Agent output: ${raw.slice(0, 200)}`,
+          `Agent output: ${raw.slice(0, 200)}${raw.length > 200 ? '...' : ''}`,
         );
         if (text) {
           // Stop typing indicator before sending — user should see the reply, not "typing..."
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
+
+          // Store bot message in DB so it's included in future context
+          storeMessage({
+            id: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            chat_jid: chatJid,
+            sender: 'assistant',
+            sender_name: group.assistantName || ASSISTANT_NAME,
+            content: text,
+            timestamp: new Date().toISOString(),
+            is_bot_message: true,
+            is_from_me: true,
+          });
+
           // Cross-post to sibling agents in same Telegram group
           crossPostToSiblingAgents(
             chatJid,
@@ -593,13 +598,14 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const triggerLower = group.trigger.toLowerCase();
-            const nameTrigger = `@${(group.assistantName || ASSISTANT_NAME).toLowerCase()}`;
             const hasTrigger = groupMessages.some((m) => {
-              const text = getTextContent(m.content).trim().toLowerCase();
-              return text.includes(triggerLower) || text.includes(nameTrigger);
+              const text = getTextContent(m.content);
+              return isTriggerPresent(text, group.trigger, group.assistantName || ASSISTANT_NAME);
             });
-            if (!hasTrigger) continue;
+            if (!hasTrigger) {
+              logger.info({ chatJid, count: groupMessages.length }, 'Messages ignored: missing trigger');
+              continue;
+            }
           }
 
           // Pull all messages since lastAgentTimestamp so non-trigger
@@ -614,7 +620,7 @@ async function startMessageLoop(): Promise<void> {
           const formatted = formatMessages(messagesToSend);
 
           if (queue.sendMessage(chatJid, formatted)) {
-            logger.debug(
+            logger.info(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
@@ -628,6 +634,7 @@ async function startMessageLoop(): Promise<void> {
                 logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
               );
           } else {
+            logger.info({ chatJid }, 'No active container found or busy, enqueuing for new check');
             // No active container — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
           }

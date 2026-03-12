@@ -80,9 +80,7 @@ function resolveAgentClaudeFile(
   botToken: string | undefined,
   isMain: boolean,
 ): string | null {
-  const botConfig = botToken
-    ? getBotConfig(botToken)
-    : getBotConfigByIndex(0);
+  const botConfig = botToken ? getBotConfig(botToken) : getBotConfigByIndex(0);
   if (!botConfig?.name) return null;
 
   const subDir = isMain ? 'main' : 'group';
@@ -322,7 +320,6 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-
   // Force TMPDIR so context-mode's store.ts uses the hidden persistent mount instead of the ephemeral /tmp
   args.push('-e', 'TMPDIR=/home/node/.claude/.tmp');
 
@@ -364,13 +361,13 @@ export async function runContainerAgent(
     if (fs.existsSync(contextModePath) && !input.contextModeContent) {
       input.contextModeContent = fs.readFileSync(contextModePath, 'utf-8');
     }
-    
+
     // Read Tools.md (for all chats) — shared tool documentation
     const toolsPath = path.join(AGENTS_DIR, 'Tools.md');
     if (fs.existsSync(toolsPath) && !input.toolsContent) {
       input.toolsContent = fs.readFileSync(toolsPath, 'utf-8');
     }
-    
+
     // Read AdminTools.md (for main chats only, and only for telegram) — admin tool documentation
     if (input.isMain && input.chatJid.startsWith('tg:')) {
       const adminToolsPath = path.join(AGENTS_DIR, 'AdminTools.md');
@@ -455,23 +452,34 @@ export async function runContainerAgent(
     const pollToolStatus = () => {
       if (!statusPolling || !onToolStatus) return;
       try {
-        const files = fs.readdirSync(statusDir)
+        const files = fs
+          .readdirSync(statusDir)
           .filter((f: string) => f.endsWith('.json'))
           .sort();
         for (const file of files) {
           const filePath = path.join(statusDir, file);
           try {
-            const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ToolStatusEvent;
+            const data = JSON.parse(
+              fs.readFileSync(filePath, 'utf-8'),
+            ) as ToolStatusEvent;
             fs.unlinkSync(filePath);
             statusQueue.push(data);
           } catch {
-            try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+            try {
+              fs.unlinkSync(filePath);
+            } catch {
+              /* ignore */
+            }
           }
         }
         if (statusQueue.length > 0) {
-          processStatusQueue().catch(() => { /* handled inside */ });
+          processStatusQueue().catch(() => {
+            /* handled inside */
+          });
         }
-      } catch { /* status dir may not exist yet */ }
+      } catch {
+        /* status dir may not exist yet */
+      }
       setTimeout(pollToolStatus, 500);
     };
     if (onToolStatus) {
@@ -487,7 +495,9 @@ export async function runContainerAgent(
     input.secrets = readSecrets();
     // Look up per-bot config from agents.yaml
     // Main group has no botToken, so it falls back to the first bot (index 0)
-    const botConfig = group.botToken ? getBotConfig(group.botToken) : getBotConfigByIndex(0);
+    const botConfig = group.botToken
+      ? getBotConfig(group.botToken)
+      : getBotConfigByIndex(0);
 
     if (botConfig?.model) {
       input.secrets.ANTHROPIC_MODEL = botConfig.model;

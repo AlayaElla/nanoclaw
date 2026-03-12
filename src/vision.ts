@@ -8,7 +8,11 @@ interface VisionConfig {
 }
 
 function loadConfig(): VisionConfig {
-  const env = readEnvFile(['VISION_API_KEY', 'VISION_BASE_URL', 'VISION_MODEL']);
+  const env = readEnvFile([
+    'VISION_API_KEY',
+    'VISION_BASE_URL',
+    'VISION_MODEL',
+  ]);
   const apiKey = env.VISION_API_KEY || '';
 
   return {
@@ -182,4 +186,3 @@ export async function describeVideo(
     return '[Video - description unavailable]';
   }
 }
-

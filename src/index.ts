@@ -47,7 +47,12 @@ import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { resolveAgentName } from './agents-config.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { Channel, NewMessage, RegisteredGroup, getTextContent } from './types.js';
+import {
+  Channel,
+  NewMessage,
+  RegisteredGroup,
+  getTextContent,
+} from './types.js';
 import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
@@ -67,7 +72,7 @@ function loadState(): void {
   if (rawRowid) {
     lastRowid = parseInt(rawRowid, 10);
   } else {
-    // First boot after migration: pick up from current end of DB 
+    // First boot after migration: pick up from current end of DB
     // to avoid re-replying to thousands of old messages.
     lastRowid = getMaxRowid();
   }
@@ -213,7 +218,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const username = group.trigger.startsWith('@') ? group.trigger.slice(1) : group.trigger;
+    const username = group.trigger.startsWith('@')
+      ? group.trigger.slice(1)
+      : group.trigger;
     const alias = group.assistantName || ASSISTANT_NAME;
     // Match @username or @alias followed by non-word delimiter or end of string.
     // \p{P} handles Chinese/Unicode punctuation.
@@ -284,27 +291,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     Skill: '技能',
     NotebookEdit: '编辑笔记本',
     // MCP: nanoclaw tools
-    'mcp__nanoclaw__send_message': '发送MCP消息',
-    'mcp__nanoclaw__send_media': '发送媒体',
-    'mcp__nanoclaw__generate_image': '生成图片',
-    'mcp__nanoclaw__schedule_task': '安排定时任务',
-    'mcp__nanoclaw__list_tasks': '查询任务列表',
-    'mcp__nanoclaw__pause_task': '暂停任务',
-    'mcp__nanoclaw__resume_task': '恢复任务',
-    'mcp__nanoclaw__cancel_task': '取消任务',
-    'mcp__nanoclaw__register_group': '注册群组',
-    'mcp__nanoclaw__rag_search': '搜索记忆',
-    'mcp__nanoclaw__x_post': '发推文',
-    'mcp__nanoclaw__x_like': '点赞推文',
-    'mcp__nanoclaw__x_reply': '回复推文',
-    'mcp__nanoclaw__x_retweet': '转推',
-    'mcp__nanoclaw__x_quote': '引用推文',
-    'mcp__nanoclaw__x_trends': '获取热门推文',
+    mcp__nanoclaw__send_message: '发送MCP消息',
+    mcp__nanoclaw__send_media: '发送媒体',
+    mcp__nanoclaw__generate_image: '生成图片',
+    mcp__nanoclaw__schedule_task: '安排定时任务',
+    mcp__nanoclaw__list_tasks: '查询任务列表',
+    mcp__nanoclaw__pause_task: '暂停任务',
+    mcp__nanoclaw__resume_task: '恢复任务',
+    mcp__nanoclaw__cancel_task: '取消任务',
+    mcp__nanoclaw__register_group: '注册群组',
+    mcp__nanoclaw__rag_search: '搜索记忆',
+    mcp__nanoclaw__x_post: '发推文',
+    mcp__nanoclaw__x_like: '点赞推文',
+    mcp__nanoclaw__x_reply: '回复推文',
+    mcp__nanoclaw__x_retweet: '转推',
+    mcp__nanoclaw__x_quote: '引用推文',
+    mcp__nanoclaw__x_trends: '获取热门推文',
     // MCP: media tools
-    'mcp__nanoclaw__mcp__media__get_cached_media': '获取缓存媒体',
-    'mcp__nanoclaw__mcp__media__describe_cached_image': '分析图片',
-    'mcp__nanoclaw__mcp__media__describe_cached_video': '分析视频',
-    'mcp__nanoclaw__mcp__media__transcribe_cached_audio': '转录语音',
+    mcp__nanoclaw__mcp__media__get_cached_media: '获取缓存媒体',
+    mcp__nanoclaw__mcp__media__describe_cached_image: '分析图片',
+    mcp__nanoclaw__mcp__media__describe_cached_video: '分析视频',
+    mcp__nanoclaw__mcp__media__transcribe_cached_audio: '转录语音',
     // MCP: context-mode tools
     'mcp__context-mode__ctx_read': '读取上下文',
     'mcp__context-mode__ctx_search': '搜索上下文',
@@ -335,7 +342,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (statusMessageId) {
         // Edit existing status message (tool changed)
         if (lastToolName !== event.tool) {
-          await channel.editStatusMessage?.(chatJid, statusMessageId, statusText);
+          await channel.editStatusMessage?.(
+            chatJid,
+            statusMessageId,
+            statusText,
+          );
         }
       } else {
         // First tool — send status message (typing stays active)
@@ -353,48 +364,64 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
   };
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      let text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      // Also ignore messages that are just "..." after stripping internal reasoning
-      if (text === '...') {
-        text = '';
-      }
-      logger.debug({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        // Stop typing indicator before sending — user should see the reply, not "typing..."
-        await channel.setTyping?.(chatJid, false);
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
-        // Cross-post to sibling agents in same Telegram group
-        crossPostToSiblingAgents(chatJid, text, group.assistantName || ASSISTANT_NAME);
-        // Auto-index agent output for RAG (fire-and-forget)
-        if (isRagEnabled()) {
-          indexMessage(resolveAgentName(group.botToken), text, {
-            role: 'assistant',
-            chat_source: (getChatIsGroup(chatJid) ?? false) ? `群聊:${group.name}` : '私聊',
-            timestamp: new Date().toISOString(),
-          }).catch(() => { });
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        let text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        // Also ignore messages that are just "..." after stripping internal reasoning
+        if (text === '...') {
+          text = '';
         }
+        logger.debug(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
+        if (text) {
+          // Stop typing indicator before sending — user should see the reply, not "typing..."
+          await channel.setTyping?.(chatJid, false);
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+          // Cross-post to sibling agents in same Telegram group
+          crossPostToSiblingAgents(
+            chatJid,
+            text,
+            group.assistantName || ASSISTANT_NAME,
+          );
+          // Auto-index agent output for RAG (fire-and-forget)
+          if (isRagEnabled()) {
+            indexMessage(resolveAgentName(group.botToken), text, {
+              role: 'assistant',
+              chat_source:
+                (getChatIsGroup(chatJid) ?? false)
+                  ? `群聊:${group.name}`
+                  : '私聊',
+              timestamp: new Date().toISOString(),
+            }).catch(() => {});
+          }
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  }, onToolStatus);
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+    onToolStatus,
+  );
 
   await channel.setTyping?.(chatJid, false);
   // Clean up status message if still present
@@ -465,16 +492,16 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
-      if (output.newSessionId) {
-        sessions[group.folder] = output.newSessionId;
-        setSession(group.folder, output.newSessionId);
+        if (output.newSessionId) {
+          sessions[group.folder] = output.newSessionId;
+          setSession(group.folder, output.newSessionId);
+        }
+        await onOutput(output);
       }
-      await onOutput(output);
-    }
     : undefined;
 
   try {
-    const isGroup = getChatIsGroup(chatJid) ?? (group.requiresTrigger !== false);
+    const isGroup = getChatIsGroup(chatJid) ?? group.requiresTrigger !== false;
 
     const output = await runContainerAgent(
       group,
@@ -661,13 +688,22 @@ async function main(): Promise<void> {
       if (isRagEnabled()) {
         const group = registeredGroups[msg.chat_jid];
         if (group) {
-          indexMessage(resolveAgentName(group.botToken), typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content), {
-            role: 'user',
-            sender_name: msg.sender_name,
-            message_id: msg.id,
-            chat_source: (getChatIsGroup(msg.chat_jid) ?? false) ? `群聊:${group.name}` : '私聊',
-            timestamp: msg.timestamp,
-          }).catch(() => { });
+          indexMessage(
+            resolveAgentName(group.botToken),
+            typeof msg.content === 'string'
+              ? msg.content
+              : JSON.stringify(msg.content),
+            {
+              role: 'user',
+              sender_name: msg.sender_name,
+              message_id: msg.id,
+              chat_source:
+                (getChatIsGroup(msg.chat_jid) ?? false)
+                  ? `群聊:${group.name}`
+                  : '私聊',
+              timestamp: msg.timestamp,
+            },
+          ).catch(() => {});
         }
       }
     },
@@ -771,7 +807,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-  new URL(`file://${process.argv[1]}`).pathname;
+    new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

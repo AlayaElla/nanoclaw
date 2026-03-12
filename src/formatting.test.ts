@@ -62,8 +62,8 @@ describe('formatMessages', () => {
     const result = formatMessages([makeMsg()]);
     expect(result).toBe(
       '<messages>\n' +
-      '<message sender="Alice" time="2024-01-01T00:00:00.000Z">hello</message>\n' +
-      '</messages>',
+        '<message sender="Alice" time="2024-01-01T00:00:00.000Z">hello</message>\n' +
+        '</messages>',
     );
   });
 
@@ -103,8 +103,6 @@ describe('formatMessages', () => {
     expect(result).toBe('<messages>\n\n</messages>');
   });
 });
-
-
 
 // --- Outbound formatting (internal tag stripping + prefix) ---
 
@@ -168,11 +166,11 @@ describe('trigger gating (requiresTrigger interaction)', () => {
     assistantName: string = ASSISTANT_NAME,
   ): boolean {
     if (!shouldRequireTrigger(isMainGroup, requiresTrigger)) return true;
-    
+
     const username = trigger.startsWith('@') ? trigger.slice(1) : trigger;
     const pattern = `@(${escapeRegex(username)}|${escapeRegex(assistantName)})(?=[\\s\\p{P}]|$)`;
     const triggerRegex = new RegExp(pattern, 'iu');
-    
+
     return messages.some((m) => triggerRegex.test(getTextContent(m.content)));
   }
 
@@ -208,26 +206,36 @@ describe('trigger gating (requiresTrigger interaction)', () => {
 
   it('processes when mentioned by username', () => {
     const msgs = [makeMsg({ content: '@BotUser hello' })];
-    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(
+      true,
+    );
   });
 
   it('processes when mentioned by assistant name', () => {
     const msgs = [makeMsg({ content: '@AssistantName hello' })];
-    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(
+      true,
+    );
   });
 
   it('processes with punctuation separator', () => {
     const msgs = [makeMsg({ content: '@AssistantName，你好' })];
-    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(
+      true,
+    );
   });
 
   it('does not process on partial name match', () => {
     const msgs = [makeMsg({ content: '@AssistantNameXY' })];
-    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(false);
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(
+      false,
+    );
   });
 
   it('processes when trigger is in the middle of text', () => {
     const msgs = [makeMsg({ content: 'hey @AssistantName check this' })];
-    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(true);
+    expect(shouldProcess(false, true, msgs, '@BotUser', 'AssistantName')).toBe(
+      true,
+    );
   });
 });

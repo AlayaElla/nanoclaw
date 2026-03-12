@@ -39,22 +39,29 @@ export class TelegramChannel implements Channel {
   /** Per-JID intervals that refresh the Telegram typing indicator every 4s */
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
   /** Buffered media waiting for a possible follow-up text (key: chatJid) */
-  private pendingMedia = new Map<string, {
-    timer: ReturnType<typeof setTimeout>;
-    chatJid: string;
-    fileUrl: string;
-    buffer: Buffer;
-    timestamp: string;
-    senderName: string;
-    sender: string;
-    msgId: string;
-    mediaType: 'photo' | 'video';
-    mimeType?: string;
-  }>();
+  private pendingMedia = new Map<
+    string,
+    {
+      timer: ReturnType<typeof setTimeout>;
+      chatJid: string;
+      fileUrl: string;
+      buffer: Buffer;
+      timestamp: string;
+      senderName: string;
+      sender: string;
+      msgId: string;
+      mediaType: 'photo' | 'video';
+      mimeType?: string;
+    }
+  >();
   /** How long to wait for a follow-up text after receiving media (ms) */
   private static readonly MEDIA_MERGE_WINDOW = 1000;
 
-  constructor(botToken: string, tokenEnvName: string, opts: TelegramChannelOpts) {
+  constructor(
+    botToken: string,
+    tokenEnvName: string,
+    opts: TelegramChannelOpts,
+  ) {
     this.botToken = botToken;
     this.tokenEnvName = tokenEnvName;
     this.botId = botToken.split(':')[0];
@@ -97,7 +104,7 @@ export class TelegramChannel implements Channel {
   private _getFirstTokenEnvName(): string {
     // Scan env vars in order to find the first TELEGRAM_BOT_TOKEN*
     const envKeys = Object.keys(process.env)
-      .filter(k => k.startsWith('TELEGRAM_BOT_TOKEN'))
+      .filter((k) => k.startsWith('TELEGRAM_BOT_TOKEN'))
       .sort();
     return envKeys[0] || this.tokenEnvName;
   }
@@ -135,7 +142,8 @@ export class TelegramChannel implements Channel {
 
       // In group chats, only react when the command explicitly targets this bot
       // e.g. /clear@BotName — avoids reacting to bare /clear from other bots
-      const isGroupChat = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      const isGroupChat =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       if (isGroupChat) {
         const cmdText = ctx.message?.text || '';
         const botUsername = ctx.me.username;
@@ -146,11 +154,7 @@ export class TelegramChannel implements Channel {
       if (!this.ownsJid(chatJid)) return;
 
       try {
-        const groupSessionsDir = path.join(
-          DATA_DIR,
-          'sessions',
-          group.folder
-        );
+        const groupSessionsDir = path.join(DATA_DIR, 'sessions', group.folder);
 
         let clearedOptions = false;
         if (fs.existsSync(groupSessionsDir)) {
@@ -159,18 +163,29 @@ export class TelegramChannel implements Channel {
         }
 
         if (clearedOptions) {
-          logger.info({ chatJid, bot: this.tokenEnvName }, 'Workspace data cleared');
+          logger.info(
+            { chatJid, bot: this.tokenEnvName },
+            'Workspace data cleared',
+          );
         } else {
-          logger.info({ chatJid, bot: this.tokenEnvName }, 'No workspace data found to clear');
+          logger.info(
+            { chatJid, bot: this.tokenEnvName },
+            'No workspace data found to clear',
+          );
         }
 
         // Clear Database Data (Tasks, Messages) for this JID
         const { clearChatData } = await import('../db.js');
         clearChatData(chatJid);
 
-        ctx.reply('✅ 清理成功！您的工作区和所有历史对话已完全清空，可以直接开始全新的会话。');
+        ctx.reply(
+          '✅ 清理成功！您的工作区和所有历史对话已完全清空，可以直接开始全新的会话。',
+        );
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Failed to clear session data');
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Failed to clear session data',
+        );
         ctx.reply('❌ 清理失败，请检查服务器日志。');
       }
     });
@@ -185,7 +200,8 @@ export class TelegramChannel implements Channel {
       }
 
       // In group chats, only react when the command explicitly targets this bot
-      const isGroupChat = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      const isGroupChat =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       if (isGroupChat) {
         const cmdText = ctx.message?.text || '';
         const botUsername = ctx.me.username;
@@ -195,27 +211,41 @@ export class TelegramChannel implements Channel {
       if (!this.ownsJid(chatJid)) return;
 
       try {
-        ctx.reply('Compacting session... 正在读取数据库并生成对话总结，随后将重置短期记忆。');
+        ctx.reply(
+          'Compacting session... 正在读取数据库并生成对话总结，随后将重置短期记忆。',
+        );
 
         // 1. Fetch recent history from DB
         const { getRecentMessages } = await import('../db.js');
         const recentMessages = getRecentMessages(chatJid, 20);
         let historyBlock = '';
         if (recentMessages && recentMessages.length > 0) {
-          for (const msg of recentMessages.reverse()) { // Chronological order
+          for (const msg of recentMessages.reverse()) {
+            // Chronological order
             historyBlock += `[${msg.timestamp}] ${msg.sender_name}: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}\n`;
           }
         }
 
         // 2. Generate summary using LLM API
-        let summary = "目前没有先前的上下文可以总结。";
+        let summary = '目前没有先前的上下文可以总结。';
         if (historyBlock) {
           try {
             const { readEnvFile } = await import('../env.js');
-            const envVars = readEnvFile(['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL']);
-            const apiKey = envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-            let apiUrl = envVars.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'http://localhost:4000';
-            const modelName = envVars.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+            const envVars = readEnvFile([
+              'ANTHROPIC_API_KEY',
+              'ANTHROPIC_BASE_URL',
+              'ANTHROPIC_MODEL',
+            ]);
+            const apiKey =
+              envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+            let apiUrl =
+              envVars.ANTHROPIC_BASE_URL ||
+              process.env.ANTHROPIC_BASE_URL ||
+              'http://localhost:4000';
+            const modelName =
+              envVars.ANTHROPIC_MODEL ||
+              process.env.ANTHROPIC_MODEL ||
+              'claude-3-5-sonnet-20241022';
 
             // Format URL to LiteLLM/OpenAI Messages API standard
             // LiteLLM router uses /v1/chat/completions, not /v1/messages (Anthropic native)
@@ -230,7 +260,7 @@ export class TelegramChannel implements Channel {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${apiKey}`,  // LiteLLM uses Bearer token
+                  Authorization: `Bearer ${apiKey}`, // LiteLLM uses Bearer token
                 },
                 body: JSON.stringify({
                   model: modelName,
@@ -238,29 +268,42 @@ export class TelegramChannel implements Channel {
                   messages: [
                     {
                       role: 'user',
-                      content: `请帮我总结以下这段近期对话的内容上下文。提取出所有的Active Tasks（当前正在进行的任务、未完成的），以及目前最新的定论、意图和关键信息。请保持简短扼要，使用列表的形式。回复请直接输出总结，不要包含任何寒暄废话。\n\n对话记录：\n${historyBlock}`
-                    }
-                  ]
-                })
+                      content: `请帮我总结以下这段近期对话的内容上下文。提取出所有的Active Tasks（当前正在进行的任务、未完成的），以及目前最新的定论、意图和关键信息。请保持简短扼要，使用列表的形式。回复请直接输出总结，不要包含任何寒暄废话。\n\n对话记录：\n${historyBlock}`,
+                    },
+                  ],
+                }),
               });
 
               if (fetchResponse.ok) {
-                const data = await fetchResponse.json() as any;
+                const data = (await fetchResponse.json()) as any;
                 // LiteLLM returns OpenAI-compatible format: choices[0].message.content
                 // Anthropic native format: content[0].text
-                summary = data?.choices?.[0]?.message?.content
-                  || data?.content?.[0]?.text
-                  || "概括生成的文本为空";
+                summary =
+                  data?.choices?.[0]?.message?.content ||
+                  data?.content?.[0]?.text ||
+                  '概括生成的文本为空';
               } else {
                 const errText = await fetchResponse.text();
-                logger.error({ chatJid, status: fetchResponse.status, errText, apiUrl, modelName }, 'Failed to fetch summary from LLM API');
+                logger.error(
+                  {
+                    chatJid,
+                    status: fetchResponse.status,
+                    errText,
+                    apiUrl,
+                    modelName,
+                  },
+                  'Failed to fetch summary from LLM API',
+                );
                 summary = `由于摘要生成失败，这是您的原始对话记录：\n${historyBlock}`; // Fallback
               }
             } else {
               summary = `由于未配置API密钥，这是您的原始对话记录：\n${historyBlock}`; // Fallback if no API key
             }
           } catch (e) {
-            logger.error({ chatJid, err: e }, 'Error during summary generation');
+            logger.error(
+              { chatJid, err: e },
+              'Error during summary generation',
+            );
             summary = `由于执行报错，这是您的原始对话记录：\n${historyBlock}`; // Fallback
           }
         }
@@ -272,18 +315,26 @@ export class TelegramChannel implements Channel {
           try {
             this.opts.groupQueue.closeStdin(chatJid);
             // Wait briefly to allow the _close sentinel to be processed by the container
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise((r) => setTimeout(r, 1000));
 
             // Forcibly terminate the container before ripping out the file system
             await this.opts.groupQueue.killContainer(chatJid);
             // Give the OS time to release file handles
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise((r) => setTimeout(r, 2000));
           } catch (e) {
-            logger.warn({ chatJid, err: e }, 'Failed to gracefully close container before compact, continuing anyway');
+            logger.warn(
+              { chatJid, err: e },
+              'Failed to gracefully close container before compact, continuing anyway',
+            );
           }
         }
 
-        const baseClaudeDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude');
+        const baseClaudeDir = path.join(
+          DATA_DIR,
+          'sessions',
+          group.folder,
+          '.claude',
+        );
         const dirsToClear = ['sessions', 'session-env', 'projects'];
         for (const dirName of dirsToClear) {
           const dirPath = path.join(baseClaudeDir, dirName);
@@ -292,7 +343,10 @@ export class TelegramChannel implements Channel {
               fs.rmSync(dirPath, { recursive: true, force: true });
             }
           } catch (e) {
-            logger.warn({ dirPath, e }, "Failed to clear claude state directory");
+            logger.warn(
+              { dirPath, e },
+              'Failed to clear claude state directory',
+            );
           }
         }
 
@@ -303,15 +357,19 @@ export class TelegramChannel implements Channel {
             fs.rmSync(ipcDir, { recursive: true, force: true });
           }
         } catch (e) {
-          logger.warn({ ipcDir, e }, "Failed to clear IPC directory");
+          logger.warn({ ipcDir, e }, 'Failed to clear IPC directory');
         }
 
         // Give extra time for the file system to settle before the new request triggers the container boot
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 1000));
 
         // 4. Inject system message with history
-        ctx.reply('✅ 总结与清理完成！最新提示词与上下文摘要已就绪，正在唤醒新会话...');
-        const timestamp = ctx.message ? new Date(ctx.message.date * 1000).toISOString() : new Date().toISOString();
+        ctx.reply(
+          '✅ 总结与清理完成！最新提示词与上下文摘要已就绪，正在唤醒新会话...',
+        );
+        const timestamp = ctx.message
+          ? new Date(ctx.message.date * 1000).toISOString()
+          : new Date().toISOString();
         const content = `[System Status: Session has been compacted to load new system prompts. Your short-term memory was cleared, but your tasks and RAG memory remain intact. The following is a summary of the recent conversational context precisely crafted for you to continue working smoothly:\n\n${summary}\n\nPlease acknowledge this reset and review your active tasks. Respond with "会话已软重置，最新提示词与上下文摘要已自动继承。"]`;
 
         this.opts.onMessage(chatJid, {
@@ -324,9 +382,15 @@ export class TelegramChannel implements Channel {
           is_from_me: false,
         });
 
-        logger.info({ chatJid, bot: this.tokenEnvName }, 'Session compacted and summary injected');
+        logger.info(
+          { chatJid, bot: this.tokenEnvName },
+          'Session compacted and summary injected',
+        );
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Failed to compact session');
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Failed to compact session',
+        );
         ctx.reply('❌ 软重置失败，请检查服务器日志。');
       }
     });
@@ -352,11 +416,16 @@ export class TelegramChannel implements Channel {
           ? senderName
           : (ctx.chat as any).title || chatJid;
 
-
-
       // Store chat metadata for discovery
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, chatName, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        chatName,
+        'telegram',
+        isGroup,
+      );
 
       // Only deliver full message for registered groups owned by this bot
       const group = this.opts.registeredGroups()[chatJid];
@@ -421,8 +490,15 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
 
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
         chat_jid: chatJid,
@@ -440,12 +516,23 @@ export class TelegramChannel implements Channel {
       if (!group || !this.ownsJid(chatJid)) return;
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
       const sender = ctx.from?.id?.toString() || '';
       const msgId = ctx.message.message_id.toString();
       const caption = ctx.message.caption || undefined;
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       // Show typing indicator while downloading the image
       await this.setTyping(chatJid, true);
@@ -460,11 +547,21 @@ export class TelegramChannel implements Channel {
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         buffer = Buffer.from(await resp.arrayBuffer());
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Photo download failed');
-        const errorContent = caption ? `[Photo - download failed | Caption: ${caption}]` : '[Photo - download failed]';
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Photo download failed',
+        );
+        const errorContent = caption
+          ? `[Photo - download failed | Caption: ${caption}]`
+          : '[Photo - download failed]';
         this.opts.onMessage(chatJid, {
-          id: msgId, chat_jid: chatJid, sender, sender_name: senderName,
-          content: errorContent, timestamp, is_from_me: false,
+          id: msgId,
+          chat_jid: chatJid,
+          sender,
+          sender_name: senderName,
+          content: errorContent,
+          timestamp,
+          is_from_me: false,
         });
         return;
       }
@@ -472,8 +569,15 @@ export class TelegramChannel implements Channel {
       if (caption) {
         // Has caption — process immediately, no need to wait for follow-up text
         const pending = {
-          chatJid, fileUrl: '', buffer, timestamp, senderName, sender, msgId,
-          mediaType: 'photo' as const, timer: setTimeout(() => { }, 0),
+          chatJid,
+          fileUrl: '',
+          buffer,
+          timestamp,
+          senderName,
+          sender,
+          msgId,
+          mediaType: 'photo' as const,
+          timer: setTimeout(() => {}, 0),
         };
         await this.processAndStoreMedia(pending, caption);
         await this.setTyping(chatJid, false);
@@ -491,21 +595,37 @@ export class TelegramChannel implements Channel {
           const entry = this.pendingMedia.get(chatJid);
           if (entry && entry.msgId === msgId) {
             this.pendingMedia.delete(chatJid);
-            logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing photo with generic prompt');
+            logger.info(
+              { chatJid, bot: this.tokenEnvName },
+              'No follow-up text, processing photo with generic prompt',
+            );
             this.processAndStoreMedia(entry, undefined)
               .then(() => this.setTyping(chatJid, false))
               .catch((err) => {
-                logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred photo processing failed');
-                this.setTyping(chatJid, false).catch(() => { });
+                logger.error(
+                  { chatJid, err, bot: this.tokenEnvName },
+                  'Deferred photo processing failed',
+                );
+                this.setTyping(chatJid, false).catch(() => {});
               });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
 
         this.pendingMedia.set(chatJid, {
-          timer, chatJid, fileUrl: '', buffer, timestamp,
-          senderName, sender, msgId, mediaType: 'photo',
+          timer,
+          chatJid,
+          fileUrl: '',
+          buffer,
+          timestamp,
+          senderName,
+          sender,
+          msgId,
+          mediaType: 'photo',
         });
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Photo buffered, waiting for follow-up text');
+        logger.info(
+          { chatJid, bytes: buffer.length, bot: this.tokenEnvName },
+          'Photo buffered, waiting for follow-up text',
+        );
       }
     });
     this.bot.on('message:video', async (ctx) => {
@@ -514,12 +634,23 @@ export class TelegramChannel implements Channel {
       if (!group || !this.ownsJid(chatJid)) return;
 
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || 'Unknown';
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
       const sender = ctx.from?.id?.toString() || '';
       const msgId = ctx.message.message_id.toString();
       const caption = ctx.message.caption || undefined;
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       await this.setTyping(chatJid, true);
 
@@ -533,19 +664,37 @@ export class TelegramChannel implements Channel {
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         buffer = Buffer.from(await resp.arrayBuffer());
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Video download failed');
-        const errorContent = caption ? `[Video - download failed | Caption: ${caption}]` : '[Video - download failed]';
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Video download failed',
+        );
+        const errorContent = caption
+          ? `[Video - download failed | Caption: ${caption}]`
+          : '[Video - download failed]';
         this.opts.onMessage(chatJid, {
-          id: msgId, chat_jid: chatJid, sender, sender_name: senderName,
-          content: errorContent, timestamp, is_from_me: false,
+          id: msgId,
+          chat_jid: chatJid,
+          sender,
+          sender_name: senderName,
+          content: errorContent,
+          timestamp,
+          is_from_me: false,
         });
         return;
       }
 
       if (caption) {
         const pending = {
-          chatJid, fileUrl: '', buffer, timestamp, senderName, sender, msgId,
-          mediaType: 'video' as const, mimeType, timer: setTimeout(() => { }, 0),
+          chatJid,
+          fileUrl: '',
+          buffer,
+          timestamp,
+          senderName,
+          sender,
+          msgId,
+          mediaType: 'video' as const,
+          mimeType,
+          timer: setTimeout(() => {}, 0),
         };
         await this.processAndStoreMedia(pending, caption);
         await this.setTyping(chatJid, false);
@@ -560,21 +709,38 @@ export class TelegramChannel implements Channel {
           const entry = this.pendingMedia.get(chatJid);
           if (entry && entry.msgId === msgId) {
             this.pendingMedia.delete(chatJid);
-            logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing video with generic prompt');
+            logger.info(
+              { chatJid, bot: this.tokenEnvName },
+              'No follow-up text, processing video with generic prompt',
+            );
             this.processAndStoreMedia(entry, undefined)
               .then(() => this.setTyping(chatJid, false))
               .catch((err) => {
-                logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred video processing failed');
-                this.setTyping(chatJid, false).catch(() => { });
+                logger.error(
+                  { chatJid, err, bot: this.tokenEnvName },
+                  'Deferred video processing failed',
+                );
+                this.setTyping(chatJid, false).catch(() => {});
               });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
 
         this.pendingMedia.set(chatJid, {
-          timer, chatJid, fileUrl: '', buffer, timestamp,
-          senderName, sender, msgId, mediaType: 'video', mimeType,
+          timer,
+          chatJid,
+          fileUrl: '',
+          buffer,
+          timestamp,
+          senderName,
+          sender,
+          msgId,
+          mediaType: 'video',
+          mimeType,
         });
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Video buffered, waiting for follow-up text');
+        logger.info(
+          { chatJid, bytes: buffer.length, bot: this.tokenEnvName },
+          'Video buffered, waiting for follow-up text',
+        );
       }
     });
     this.bot.on('message:voice', async (ctx) => {
@@ -589,8 +755,15 @@ export class TelegramChannel implements Channel {
         ctx.from?.username ||
         ctx.from?.id?.toString() ||
         'Unknown';
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       // Show typing indicator while downloading & transcribing the voice message
       await this.setTyping(chatJid, true);
@@ -605,21 +778,35 @@ export class TelegramChannel implements Channel {
 
         // Cache media
         const mediaId = `voice_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.ogg`;
-        const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
+        const cacheDir = path.join(
+          DATA_DIR,
+          'sessions',
+          group.folder,
+          '.claude',
+          'media_cache',
+        );
         fs.mkdirSync(cacheDir, { recursive: true });
         fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
 
         const transcript = await transcribeAudioMessage(buffer);
-        finalContent = transcript ? `[Voice: ${transcript} | MediaID: ${mediaId}]` : `[Voice Message - transcription unavailable | MediaID: ${mediaId}]`;
-        logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Voice message transcribed and cached');
+        finalContent = transcript
+          ? `[Voice: ${transcript} | MediaID: ${mediaId}]`
+          : `[Voice Message - transcription unavailable | MediaID: ${mediaId}]`;
+        logger.info(
+          { chatJid, bytes: buffer.length, bot: this.tokenEnvName },
+          'Voice message transcribed and cached',
+        );
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Voice transcription/caching failed');
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Voice transcription/caching failed',
+        );
         finalContent = '[Voice Message - transcription failed]';
       }
 
       // Don't stop typing here — let it flow seamlessly into processGroupMessages
       // Actually, we must stop it here because if the agent doesn't respond (no trigger),
-      // the typing indicator will stay on indefinitely. The message loop will re-enable it 
+      // the typing indicator will stay on indefinitely. The message loop will re-enable it
       // if it does decide to process the message.
       await this.setTyping(chatJid, false);
 
@@ -647,7 +834,10 @@ export class TelegramChannel implements Channel {
 
     // Handle errors gracefully
     this.bot.catch((err) => {
-      logger.error({ err: err.message, bot: this.tokenEnvName }, 'Telegram bot error');
+      logger.error(
+        { err: err.message, bot: this.tokenEnvName },
+        'Telegram bot error',
+      );
     });
 
     // Start polling — returns a Promise that resolves when started
@@ -655,10 +845,16 @@ export class TelegramChannel implements Channel {
       this.bot!.start({
         onStart: (botInfo) => {
           logger.info(
-            { username: botInfo.username, id: botInfo.id, tokenEnvName: this.tokenEnvName },
+            {
+              username: botInfo.username,
+              id: botInfo.id,
+              tokenEnvName: this.tokenEnvName,
+            },
             'Telegram bot connected',
           );
-          console.log(`\n  Telegram bot: @${botInfo.username} (${this.tokenEnvName})`);
+          console.log(
+            `\n  Telegram bot: @${botInfo.username} (${this.tokenEnvName})`,
+          );
           console.log(
             `  Send /chatid to the bot to get a chat's registration ID\n`,
           );
@@ -692,9 +888,15 @@ export class TelegramChannel implements Channel {
           );
         }
       }
-      logger.info({ jid, length: text.length, bot: this.tokenEnvName }, 'Telegram message sent');
+      logger.info(
+        { jid, length: text.length, bot: this.tokenEnvName },
+        'Telegram message sent',
+      );
     } catch (err) {
-      logger.error({ jid, err, bot: this.tokenEnvName }, 'Failed to send Telegram message');
+      logger.error(
+        { jid, err, bot: this.tokenEnvName },
+        'Failed to send Telegram message',
+      );
     }
   }
 
@@ -738,7 +940,8 @@ export class TelegramChannel implements Channel {
     },
     userText: string | undefined,
   ): Promise<void> {
-    const { chatJid, buffer, timestamp, senderName, sender, msgId, mediaType } = media;
+    const { chatJid, buffer, timestamp, senderName, sender, msgId, mediaType } =
+      media;
     const label = mediaType === 'photo' ? 'Photo' : 'Video';
     const group = this.opts.registeredGroups()[chatJid];
 
@@ -747,7 +950,13 @@ export class TelegramChannel implements Channel {
     if (group) {
       const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
       mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-      const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
+      const cacheDir = path.join(
+        DATA_DIR,
+        'sessions',
+        group.folder,
+        '.claude',
+        'media_cache',
+      );
       try {
         fs.mkdirSync(cacheDir, { recursive: true });
         fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
@@ -774,9 +983,15 @@ export class TelegramChannel implements Channel {
           ? `[${label} - description unavailable | User: ${userText} | MediaID: ${mediaId}]`
           : `[${label} - description unavailable | MediaID: ${mediaId}]`;
       }
-      logger.info({ chatJid, bytes: buffer.length, mediaType, bot: this.tokenEnvName }, `${label} message processed`);
+      logger.info(
+        { chatJid, bytes: buffer.length, mediaType, bot: this.tokenEnvName },
+        `${label} message processed`,
+      );
     } catch (err) {
-      logger.error({ chatJid, err, mediaType, bot: this.tokenEnvName }, `${label} description failed`);
+      logger.error(
+        { chatJid, err, mediaType, bot: this.tokenEnvName },
+        `${label} description failed`,
+      );
       finalContent = userText
         ? `[${label} - description failed | User: ${userText}]`
         : `[${label} - description failed]`;
@@ -821,18 +1036,28 @@ export class TelegramChannel implements Channel {
       const msg = await this.bot.api.sendMessage(numericId, text);
       return msg.message_id;
     } catch (err) {
-      logger.debug({ jid, err, bot: this.tokenEnvName }, 'Failed to send status message');
+      logger.debug(
+        { jid, err, bot: this.tokenEnvName },
+        'Failed to send status message',
+      );
       return null;
     }
   }
 
-  async editStatusMessage(jid: string, messageId: number, text: string): Promise<void> {
+  async editStatusMessage(
+    jid: string,
+    messageId: number,
+    text: string,
+  ): Promise<void> {
     if (!this.bot) return;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       await this.bot.api.editMessageText(numericId, messageId, text);
     } catch (err) {
-      logger.debug({ jid, messageId, err, bot: this.tokenEnvName }, 'Failed to edit status message');
+      logger.debug(
+        { jid, messageId, err, bot: this.tokenEnvName },
+        'Failed to edit status message',
+      );
     }
   }
 
@@ -842,11 +1067,19 @@ export class TelegramChannel implements Channel {
       const numericId = TelegramChannel.extractChatId(jid);
       await this.bot.api.deleteMessage(numericId, messageId);
     } catch (err) {
-      logger.debug({ jid, messageId, err, bot: this.tokenEnvName }, 'Failed to delete status message');
+      logger.debug(
+        { jid, messageId, err, bot: this.tokenEnvName },
+        'Failed to delete status message',
+      );
     }
   }
 
-  async sendMedia(jid: string, buffer: Buffer, mediaType: 'photo' | 'video' | 'audio' | 'document', caption?: string): Promise<void> {
+  async sendMedia(
+    jid: string,
+    buffer: Buffer,
+    mediaType: 'photo' | 'video' | 'audio' | 'document',
+    caption?: string,
+  ): Promise<void> {
     if (!this.bot) {
       logger.warn({ bot: this.tokenEnvName }, 'Telegram bot not initialized');
       return;
@@ -875,9 +1108,15 @@ export class TelegramChannel implements Channel {
           await this.bot.api.sendDocument(numericId, file, opts);
           break;
       }
-      logger.info({ jid, mediaType, bytes: buffer.length, bot: this.tokenEnvName }, 'Telegram media sent');
+      logger.info(
+        { jid, mediaType, bytes: buffer.length, bot: this.tokenEnvName },
+        'Telegram media sent',
+      );
     } catch (err) {
-      logger.error({ jid, mediaType, err, bot: this.tokenEnvName }, 'Failed to send Telegram media');
+      logger.error(
+        { jid, mediaType, err, bot: this.tokenEnvName },
+        'Failed to send Telegram media',
+      );
     }
   }
 }
@@ -973,9 +1212,10 @@ registerChannel('telegram', (opts: ChannelOpts) => {
   }
 
   // Fallback: env vars
-  const envVars = readEnvFile(
-    ['TELEGRAM_BOT_TOKEN', ...Array.from({ length: 10 }, (_, i) => `TELEGRAM_BOT_TOKEN_${i + 1}`)],
-  );
+  const envVars = readEnvFile([
+    'TELEGRAM_BOT_TOKEN',
+    ...Array.from({ length: 10 }, (_, i) => `TELEGRAM_BOT_TOKEN_${i + 1}`),
+  ]);
   const allEnv: Record<string, string> = { ...envVars };
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('TELEGRAM_BOT_TOKEN') && process.env[key]) {
@@ -993,14 +1233,16 @@ registerChannel('telegram', (opts: ChannelOpts) => {
   if (tokenEntries.length === 0) {
     const legacyToken = allEnv.TELEGRAM_BOT_TOKEN || '';
     if (!legacyToken) {
-      logger.warn('Telegram: no bot tokens configured (check agents.yaml or .env)');
+      logger.warn(
+        'Telegram: no bot tokens configured (check agents.yaml or .env)',
+      );
       return null;
     }
     return new TelegramChannel(legacyToken, 'TELEGRAM_BOT_TOKEN', opts);
   }
 
   tokenEntries.sort((a, b) => a.envName.localeCompare(b.envName));
-  return tokenEntries.map(({ envName, token }) =>
-    new TelegramChannel(token, envName, opts),
+  return tokenEntries.map(
+    ({ envName, token }) => new TelegramChannel(token, envName, opts),
   );
 });

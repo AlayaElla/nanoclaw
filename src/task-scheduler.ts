@@ -98,7 +98,16 @@ async function runTask(
     tasks.map((t) => ({
       id: t.id,
       groupFolder: t.group_folder,
-      prompt: (typeof t.prompt === 'string' && t.prompt.trim().startsWith('[')) ? (() => { try { return JSON.parse(t.prompt); } catch { return t.prompt; } })() : t.prompt,
+      prompt:
+        typeof t.prompt === 'string' && t.prompt.trim().startsWith('[')
+          ? (() => {
+              try {
+                return JSON.parse(t.prompt);
+              } catch {
+                return t.prompt;
+              }
+            })()
+          : t.prompt,
       schedule_type: t.schedule_type,
       schedule_value: t.schedule_value,
       status: t.status,
@@ -138,7 +147,8 @@ async function runTask(
   }
 
   try {
-    const isGroup = getChatIsGroup(task.chat_jid) ?? (group.requiresTrigger !== false);
+    const isGroup =
+      getChatIsGroup(task.chat_jid) ?? group.requiresTrigger !== false;
 
     const output = await runContainerAgent(
       group,

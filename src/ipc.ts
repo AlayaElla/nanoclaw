@@ -7,7 +7,13 @@ import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { handleXIpc } from './x-integration-host.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, storeMessage, updateTask } from './db.js';
+import {
+  createTask,
+  deleteTask,
+  getTaskById,
+  storeMessage,
+  updateTask,
+} from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { searchMemory, isRagEnabled } from './rag.js';
@@ -16,7 +22,12 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  sendMedia: (jid: string, buffer: Buffer, mediaType: 'photo' | 'video' | 'audio' | 'document', caption?: string) => Promise<void>;
+  sendMedia: (
+    jid: string,
+    buffer: Buffer,
+    mediaType: 'photo' | 'video' | 'audio' | 'document',
+    caption?: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -79,26 +90,40 @@ export function startIpcWatcher(deps: IpcDeps): void {
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               // Authorization: verify this group can send to this chatJid
-              const targetGroup = data.chatJid ? registeredGroups[data.chatJid] : undefined;
-              const authorized = data.chatJid && (
-                isMain ||
-                (targetGroup && targetGroup.folder === sourceGroup)
-              );
+              const targetGroup = data.chatJid
+                ? registeredGroups[data.chatJid]
+                : undefined;
+              const authorized =
+                data.chatJid &&
+                (isMain || (targetGroup && targetGroup.folder === sourceGroup));
 
               if (data.type === 'message' && data.chatJid && data.text) {
                 if (authorized) {
                   if (data.sender && data.chatJid.startsWith('tg:')) {
-                    const chatNumericId = data.chatJid.replace(/^tg:/, '').replace(/@.*$/, '');
+                    const chatNumericId = data.chatJid
+                      .replace(/^tg:/, '')
+                      .replace(/@.*$/, '');
                     const isPrivate = !chatNumericId.startsWith('-');
 
                     if (isPrivate) {
                       // Private chat: use main bot with sender prefix
-                      await deps.sendMessage(data.chatJid, `*${data.sender}*:\n${data.text}`);
+                      await deps.sendMessage(
+                        data.chatJid,
+                        `*${data.sender}*:\n${data.text}`,
+                      );
                     } else {
                       // Group chat: try pool bot, fallback to main bot
-                      const sent = await sendPoolMessage(data.chatJid, data.text, data.sender, sourceGroup);
+                      const sent = await sendPoolMessage(
+                        data.chatJid,
+                        data.text,
+                        data.sender,
+                        sourceGroup,
+                      );
                       if (!sent) {
-                        await deps.sendMessage(data.chatJid, `*${data.sender}*:\n${data.text}`);
+                        await deps.sendMessage(
+                          data.chatJid,
+                          `*${data.sender}*:\n${data.text}`,
+                        );
                         logger.info(
                           { chatJid: data.chatJid, sender: data.sender },
                           'Pool message failed, sent via main bot fallback',
@@ -118,19 +143,42 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     'Unauthorized IPC message attempt blocked',
                   );
                 }
-              } else if (data.type === 'media_message' && data.chatJid && data.mediaId) {
+              } else if (
+                data.type === 'media_message' &&
+                data.chatJid &&
+                data.mediaId
+              ) {
                 if (authorized) {
                   const mediaType = data.mediaType || 'document';
                   // Resolve media file from the group's media_cache on the host
                   const safeId = path.basename(data.mediaId);
-                  const mediaPath = path.join(DATA_DIR, 'sessions', sourceGroup, '.claude', 'media_cache', safeId);
+                  const mediaPath = path.join(
+                    DATA_DIR,
+                    'sessions',
+                    sourceGroup,
+                    '.claude',
+                    'media_cache',
+                    safeId,
+                  );
                   try {
                     const buffer = fs.readFileSync(mediaPath);
-                    await deps.sendMedia(data.chatJid, buffer, mediaType, data.caption);
+                    await deps.sendMedia(
+                      data.chatJid,
+                      buffer,
+                      mediaType,
+                      data.caption,
+                    );
                     // Store outbound media message in DB (mirrors inbound format)
-                    const labelMap: Record<string, string> = { photo: 'Photo', video: 'Video', audio: 'Audio', document: 'Document' };
+                    const labelMap: Record<string, string> = {
+                      photo: 'Photo',
+                      video: 'Video',
+                      audio: 'Audio',
+                      document: 'Document',
+                    };
                     const label = labelMap[mediaType] || 'File';
-                    const captionPart = data.caption ? ` | Caption: ${data.caption}` : '';
+                    const captionPart = data.caption
+                      ? ` | Caption: ${data.caption}`
+                      : '';
                     storeMessage({
                       id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                       chat_jid: data.chatJid,
@@ -141,12 +189,22 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       is_from_me: true,
                     });
                     logger.info(
-                      { chatJid: data.chatJid, sourceGroup, mediaType, mediaId: safeId },
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        mediaType,
+                        mediaId: safeId,
+                      },
                       'IPC media message sent',
                     );
                   } catch (readErr) {
                     logger.error(
-                      { chatJid: data.chatJid, sourceGroup, mediaId: safeId, err: readErr },
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        mediaId: safeId,
+                        err: readErr,
+                      },
                       'Failed to read media file for IPC media_message',
                     );
                   }
@@ -218,7 +276,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
   logger.info('IPC watcher started (per-group namespaces)');
 }
 
-function writeTaskResult(sourceGroup: string, requestId: string, success: boolean, message: string) {
+function writeTaskResult(
+  sourceGroup: string,
+  requestId: string,
+  success: boolean,
+  message: string,
+) {
   if (!requestId) return;
   const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'task_results');
   fs.mkdirSync(resultDir, { recursive: true });
@@ -332,7 +395,10 @@ export async function processTaskIpc(
           id: taskId,
           group_folder: targetFolder,
           chat_jid: targetJid,
-          prompt: typeof data.prompt === 'string' ? data.prompt : JSON.stringify(data.prompt),
+          prompt:
+            typeof data.prompt === 'string'
+              ? data.prompt
+              : JSON.stringify(data.prompt),
           schedule_type: scheduleType,
           schedule_value: data.schedule_value,
           context_mode: contextMode,
@@ -356,16 +422,33 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task paused via IPC',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} paused successfully.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              true,
+              `Task ${data.taskId} paused successfully.`,
+            );
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task pause attempt',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to pause task ${data.taskId}: unauthorized or not found.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              false,
+              `Failed to pause task ${data.taskId}: unauthorized or not found.`,
+            );
         }
       } else if (data.requestId) {
-        writeTaskResult(sourceGroup, data.requestId, false, `Failed to pause task: missing task_id.`);
+        writeTaskResult(
+          sourceGroup,
+          data.requestId,
+          false,
+          `Failed to pause task: missing task_id.`,
+        );
       }
       break;
 
@@ -378,16 +461,33 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via IPC',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} resumed successfully.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              true,
+              `Task ${data.taskId} resumed successfully.`,
+            );
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task resume attempt',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to resume task ${data.taskId}: unauthorized or not found.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              false,
+              `Failed to resume task ${data.taskId}: unauthorized or not found.`,
+            );
         }
       } else if (data.requestId) {
-        writeTaskResult(sourceGroup, data.requestId, false, `Failed to resume task: missing task_id.`);
+        writeTaskResult(
+          sourceGroup,
+          data.requestId,
+          false,
+          `Failed to resume task: missing task_id.`,
+        );
       }
       break;
 
@@ -400,16 +500,33 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via IPC',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, true, `Task ${data.taskId} cancelled successfully.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              true,
+              `Task ${data.taskId} cancelled successfully.`,
+            );
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task cancel attempt',
           );
-          if (data.requestId) writeTaskResult(sourceGroup, data.requestId, false, `Failed to cancel task ${data.taskId}: unauthorized or not found.`);
+          if (data.requestId)
+            writeTaskResult(
+              sourceGroup,
+              data.requestId,
+              false,
+              `Failed to cancel task ${data.taskId}: unauthorized or not found.`,
+            );
         }
       } else if (data.requestId) {
-        writeTaskResult(sourceGroup, data.requestId, false, `Failed to cancel task: missing task_id.`);
+        writeTaskResult(
+          sourceGroup,
+          data.requestId,
+          false,
+          `Failed to cancel task: missing task_id.`,
+        );
       }
       break;
 
@@ -481,32 +598,61 @@ export async function processTaskIpc(
       }
       const ragQuery = (data as any).query as string;
       const ragRequestId = (data as any).requestId as string;
-      const ragTopK = (data as any).topK as number || 5;
+      const ragTopK = ((data as any).topK as number) || 5;
       if (!ragQuery || !ragRequestId) {
         logger.warn({ data }, 'Invalid rag_search request');
         break;
       }
       try {
         // Resolve agent name for per-agent RAG table
-        const ragGroup = Object.values(registeredGroups).find(g => g.folder === sourceGroup);
+        const ragGroup = Object.values(registeredGroups).find(
+          (g) => g.folder === sourceGroup,
+        );
         const ragAgentName = resolveAgentName(ragGroup?.botToken);
         const results = await searchMemory(ragAgentName, ragQuery, ragTopK);
         // Write result file for the agent to read
-        const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'rag_results');
+        const resultDir = path.join(
+          DATA_DIR,
+          'ipc',
+          sourceGroup,
+          'rag_results',
+        );
         fs.mkdirSync(resultDir, { recursive: true });
         const resultPath = path.join(resultDir, `${ragRequestId}.json`);
-        fs.writeFileSync(resultPath, JSON.stringify({ results, requestId: ragRequestId }));
+        fs.writeFileSync(
+          resultPath,
+          JSON.stringify({ results, requestId: ragRequestId }),
+        );
         logger.info(
-          { sourceGroup, query: ragQuery.slice(0, 50), results: results.length },
+          {
+            sourceGroup,
+            query: ragQuery.slice(0, 50),
+            results: results.length,
+          },
           'RAG search completed via IPC',
         );
       } catch (err) {
-        logger.error({ err, sourceGroup, ragQuery }, 'RAG search failed via IPC');
+        logger.error(
+          { err, sourceGroup, ragQuery },
+          'RAG search failed via IPC',
+        );
         // Write empty result so agent doesn't hang
-        const resultDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'rag_results');
+        const resultDir = path.join(
+          DATA_DIR,
+          'ipc',
+          sourceGroup,
+          'rag_results',
+        );
         fs.mkdirSync(resultDir, { recursive: true });
         const resultPath = path.join(resultDir, `${ragRequestId}.json`);
-        fs.writeFileSync(resultPath, JSON.stringify({ results: [], requestId: ragRequestId, error: String(err) }));
+        fs.writeFileSync(
+          resultPath,
+          JSON.stringify({
+            results: [],
+            requestId: ragRequestId,
+            error: String(err),
+          }),
+        );
       }
       break;
     }

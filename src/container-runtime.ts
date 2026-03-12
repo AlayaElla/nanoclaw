@@ -69,7 +69,10 @@ export function cleanupOrphans(): void {
       `${CONTAINER_RUNTIME_BIN} ps --filter name=${prefix} --format '{{.Names}}'`,
       { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     );
-    const orphans = output.trim().split('\n').filter(name => name && name !== 'nanoclaw-litellm-proxy');
+    const orphans = output
+      .trim()
+      .split('\n')
+      .filter((name) => name && name !== 'nanoclaw-litellm-proxy');
     for (const name of orphans) {
       try {
         execSync(stopContainer(name), { stdio: 'pipe' });

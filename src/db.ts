@@ -99,8 +99,6 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
-
-
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
     database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
@@ -321,7 +319,9 @@ export function storeMessageDirect(msg: {
 }
 
 export function getMaxRowid(): number {
-  const row = db.prepare('SELECT MAX(rowid) as maxRowid FROM messages').get() as { maxRowid: number | null };
+  const row = db
+    .prepare('SELECT MAX(rowid) as maxRowid FROM messages')
+    .get() as { maxRowid: number | null };
   return row?.maxRowid || 0;
 }
 
@@ -346,7 +346,9 @@ export function getNewMessages(
 
   const rows = db
     .prepare(sql)
-    .all(lastRowid, ...jids, `${botPrefix}:%`) as (NewMessage & { rowid: number })[];
+    .all(lastRowid, ...jids, `${botPrefix}:%`) as (NewMessage & {
+    rowid: number;
+  })[];
 
   let newRowid = lastRowid;
   for (const row of rows) {
@@ -379,9 +381,11 @@ export function getMessagesSince(
 export function clearChatData(chatJid: string): void {
   // Delete all messages
   db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(chatJid);
-  
+
   // Find all scheduled tasks for this chat
-  const tasks = db.prepare('SELECT id FROM scheduled_tasks WHERE chat_jid = ?').all(chatJid) as { id: string }[];
+  const tasks = db
+    .prepare('SELECT id FROM scheduled_tasks WHERE chat_jid = ?')
+    .all(chatJid) as { id: string }[];
   for (const task of tasks) {
     db.prepare('DELETE FROM task_run_logs WHERE task_id = ?').run(task.id);
   }
@@ -401,9 +405,7 @@ export function getRecentMessages(
     ORDER BY timestamp DESC
     LIMIT ?
   `;
-  return db
-    .prepare(sql)
-    .all(chatJid, limit) as NewMessage[];
+  return db.prepare(sql).all(chatJid, limit) as NewMessage[];
 }
 
 export function createTask(
@@ -589,17 +591,17 @@ export function getRegisteredGroup(
     .prepare('SELECT * FROM registered_groups WHERE jid = ?')
     .get(jid) as
     | {
-      jid: string;
-      name: string;
-      folder: string;
-      trigger_pattern: string;
-      added_at: string;
-      container_config: string | null;
-      requires_trigger: number | null;
-      is_main: number | null;
-      bot_token: string | null;
-      assistant_name: string | null;
-    }
+        jid: string;
+        name: string;
+        folder: string;
+        trigger_pattern: string;
+        added_at: string;
+        container_config: string | null;
+        requires_trigger: number | null;
+        is_main: number | null;
+        bot_token: string | null;
+        assistant_name: string | null;
+      }
     | undefined;
   if (!row) return undefined;
   if (!isValidGroupFolder(row.folder)) {
@@ -630,25 +632,29 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
-  groupsDb.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, bot_token, assistant_name)
+  groupsDb
+    .prepare(
+      `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, bot_token, assistant_name)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    jid,
-    group.name,
-    group.folder,
-    group.trigger,
-    group.added_at,
-    group.containerConfig ? JSON.stringify(group.containerConfig) : null,
-    group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
-    group.isMain ? 1 : 0,
-    group.botToken || null,
-    group.assistantName || null,
-  );
+    )
+    .run(
+      jid,
+      group.name,
+      group.folder,
+      group.trigger,
+      group.added_at,
+      group.containerConfig ? JSON.stringify(group.containerConfig) : null,
+      group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
+      group.isMain ? 1 : 0,
+      group.botToken || null,
+      group.assistantName || null,
+    );
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = groupsDb.prepare('SELECT * FROM registered_groups').all() as Array<{
+  const rows = groupsDb
+    .prepare('SELECT * FROM registered_groups')
+    .all() as Array<{
     jid: string;
     name: string;
     folder: string;

@@ -195,12 +195,18 @@ export class GroupQueue {
   async killContainer(groupJid: string): Promise<void> {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.containerName) return;
-    
+
     return new Promise((resolve) => {
-      logger.info({ groupJid, containerName: state.containerName }, 'Force killing container');
+      logger.info(
+        { groupJid, containerName: state.containerName },
+        'Force killing container',
+      );
       exec(stopContainer(state.containerName!), { timeout: 10000 }, (err) => {
         if (err) {
-          logger.warn({ groupJid, err }, 'Failed to stop container or container already dead');
+          logger.warn(
+            { groupJid, err },
+            'Failed to stop container or container already dead',
+          );
           if (state.process && !state.process.killed) {
             state.process.kill('SIGKILL');
           }

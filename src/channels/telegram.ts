@@ -133,7 +133,16 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      // Message isolation: skip if this group belongs to a different bot
+      // In group chats, only react when the command explicitly targets this bot
+      // e.g. /clear@BotName — avoids reacting to bare /clear from other bots
+      const isGroupChat = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      if (isGroupChat) {
+        const cmdText = ctx.message?.text || '';
+        const botUsername = ctx.me.username;
+        if (!cmdText.includes(`@${botUsername}`)) return;
+      }
+
+      // Message isolation: skip if JID belongs to a different bot
       if (!this.ownsJid(chatJid)) return;
 
       try {
@@ -173,6 +182,14 @@ export class TelegramChannel implements Channel {
       if (!group) {
         ctx.reply('This chat is not registered. Cannot compact session.');
         return;
+      }
+
+      // In group chats, only react when the command explicitly targets this bot
+      const isGroupChat = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      if (isGroupChat) {
+        const cmdText = ctx.message?.text || '';
+        const botUsername = ctx.me.username;
+        if (!cmdText.includes(`@${botUsername}`)) return;
       }
 
       if (!this.ownsJid(chatJid)) return;
@@ -229,9 +246,6 @@ export class TelegramChannel implements Channel {
 
               if (fetchResponse.ok) {
                 const data = await fetchResponse.json() as any;
-                // [DEBUG] log raw to find correct parse path
-                logger.info({ chatJid, rawData: JSON.stringify(data).slice(0, 500) }, '[DEBUG] Raw LLM response for summary');
-                ctx.reply(`🔍 [DEBUG] Raw keys: ${Object.keys(data).join(', ')}\nchoices[0]: ${JSON.stringify(data?.choices?.[0])?.slice(0,300)}`);
                 // LiteLLM returns OpenAI-compatible format: choices[0].message.content
                 // Anthropic native format: content[0].text
                 summary = data?.choices?.[0]?.message?.content
@@ -251,9 +265,6 @@ export class TelegramChannel implements Channel {
           }
         }
 
-        // [DEBUG] Preview summary before injecting into session
-        ctx.reply(`📋 [DEBUG] 总结内容如下：\n\n${summary.slice(0, 4000)}`);
-
         // 3. Clear Session directories
         // Before clearing, gracefully shut down any active container for this group
         // to prevent the Claude SDK from crashing with ENOENT or ProcessTransport errors
@@ -262,7 +273,7 @@ export class TelegramChannel implements Channel {
             this.opts.groupQueue.closeStdin(chatJid);
             // Wait briefly to allow the _close sentinel to be processed by the container
             await new Promise(r => setTimeout(r, 1000));
-            
+
             // Forcibly terminate the container before ripping out the file system
             await this.opts.groupQueue.killContainer(chatJid);
             // Give the OS time to release file handles
@@ -292,7 +303,7 @@ export class TelegramChannel implements Channel {
             fs.rmSync(ipcDir, { recursive: true, force: true });
           }
         } catch (e) {
-            logger.warn({ ipcDir, e }, "Failed to clear IPC directory");
+          logger.warn({ ipcDir, e }, "Failed to clear IPC directory");
         }
 
         // Give extra time for the file system to settle before the new request triggers the container boot

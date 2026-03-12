@@ -371,8 +371,8 @@ export async function runContainerAgent(
       input.toolsContent = fs.readFileSync(toolsPath, 'utf-8');
     }
     
-    // Read AdminTools.md (for main chats only) — admin tool documentation
-    if (input.isMain) {
+    // Read AdminTools.md (for main chats only, and only for telegram) — admin tool documentation
+    if (input.isMain && input.chatJid.startsWith('tg:')) {
       const adminToolsPath = path.join(AGENTS_DIR, 'AdminTools.md');
       if (fs.existsSync(adminToolsPath) && !input.adminToolsContent) {
         input.adminToolsContent = fs.readFileSync(adminToolsPath, 'utf-8');

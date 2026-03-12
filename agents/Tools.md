@@ -84,10 +84,6 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
 
 `<internal>` 标签内的文本会被记录但不发送。如果已经通过 `send_message` 发送了关键信息，可以将复述部分用 `<internal>` 包裹以避免重复发送。
 
-### 队友
-
-作为队友工作时，使用 `send_message` 需要@对方名字，对方才会收到消息。
-
 ## 📝 记忆
 
 `conversations/` 文件夹有过去的对话历史。用来回忆之前聊过什么。

@@ -677,6 +677,9 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = TelegramChannel.extractChatId(jid);
 
+      // Clear typing indicator before sending
+      await this.setTyping(jid, false);
+
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
@@ -851,6 +854,10 @@ export class TelegramChannel implements Channel {
 
     try {
       const numericId = TelegramChannel.extractChatId(jid);
+
+      // Clear typing indicator before sending
+      await this.setTyping(jid, false);
+
       const file = new InputFile(buffer);
       const opts = caption ? { caption } : {};
 

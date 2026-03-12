@@ -343,7 +343,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
       lastToolName = event.tool;
     } else if (event.status === 'idle') {
-      // Agent finished — delete status message
+      // Agent finished — delete status message and stop typing indicator
+      await channel.setTyping?.(chatJid, false);
       if (statusMessageId) {
         await channel.deleteMessage?.(chatJid, statusMessageId);
         statusMessageId = null;

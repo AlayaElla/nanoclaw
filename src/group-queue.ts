@@ -1,9 +1,10 @@
-import { ChildProcess } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { ChildProcess, exec } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
+import { stopContainer } from './container-runtime.js';
 
 interface QueuedTask {
   id: string;
@@ -185,6 +186,28 @@ export class GroupQueue {
     } catch {
       // ignore
     }
+  }
+
+  /**
+   * Forcibly stop the container runtime if it's currently active.
+   * Useful when abruptly wiping the underlying session files.
+   */
+  async killContainer(groupJid: string): Promise<void> {
+    const state = this.getGroup(groupJid);
+    if (!state.active || !state.containerName) return;
+    
+    return new Promise((resolve) => {
+      logger.info({ groupJid, containerName: state.containerName }, 'Force killing container');
+      exec(stopContainer(state.containerName!), { timeout: 10000 }, (err) => {
+        if (err) {
+          logger.warn({ groupJid, err }, 'Failed to stop container or container already dead');
+          if (state.process && !state.process.killed) {
+            state.process.kill('SIGKILL');
+          }
+        }
+        resolve();
+      });
+    });
   }
 
   private async runForGroup(

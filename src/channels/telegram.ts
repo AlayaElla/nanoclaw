@@ -17,10 +17,13 @@ import {
   RegisteredGroup,
 } from '../types.js';
 
+import { GroupQueue } from '../group-queue.js';
+
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  groupQueue: GroupQueue;
 }
 
 export class TelegramChannel implements Channel {
@@ -119,6 +122,202 @@ export class TelegramChannel implements Channel {
     // Command to check bot status
     this.bot.command('ping', (ctx) => {
       ctx.reply(`${ASSISTANT_NAME} is online. (${this.tokenEnvName})`);
+    });
+
+    // Command to clear session data
+    this.bot.command('clear', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) {
+        ctx.reply('This chat is not registered. Cannot clear session.');
+        return;
+      }
+
+      // Message isolation: skip if this group belongs to a different bot
+      if (!this.ownsJid(chatJid)) return;
+
+      try {
+        const groupSessionsDir = path.join(
+          DATA_DIR,
+          'sessions',
+          group.folder
+        );
+
+        let clearedOptions = false;
+        if (fs.existsSync(groupSessionsDir)) {
+          fs.rmSync(groupSessionsDir, { recursive: true, force: true });
+          clearedOptions = true;
+        }
+
+        if (clearedOptions) {
+          logger.info({ chatJid, bot: this.tokenEnvName }, 'Workspace data cleared');
+        } else {
+          logger.info({ chatJid, bot: this.tokenEnvName }, 'No workspace data found to clear');
+        }
+
+        // Clear Database Data (Tasks, Messages) for this JID
+        const { clearChatData } = await import('../db.js');
+        clearChatData(chatJid);
+
+        ctx.reply('✅ 清理成功！您的工作区和所有历史对话已完全清空，可以直接开始全新的会话。');
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Failed to clear session data');
+        ctx.reply('❌ 清理失败，请检查服务器日志。');
+      }
+    });
+
+    // Command to compact session (Soft Reset)
+    this.bot.command('compact', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) {
+        ctx.reply('This chat is not registered. Cannot compact session.');
+        return;
+      }
+
+      if (!this.ownsJid(chatJid)) return;
+
+      try {
+        ctx.reply('Compacting session... 正在读取数据库并生成对话总结，随后将重置短期记忆。');
+
+        // 1. Fetch recent history from DB
+        const { getRecentMessages } = await import('../db.js');
+        const recentMessages = getRecentMessages(chatJid, 20);
+        let historyBlock = '';
+        if (recentMessages && recentMessages.length > 0) {
+          for (const msg of recentMessages.reverse()) { // Chronological order
+            historyBlock += `[${msg.timestamp}] ${msg.sender_name}: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}\n`;
+          }
+        }
+
+        // 2. Generate summary using LLM API
+        let summary = "目前没有先前的上下文可以总结。";
+        if (historyBlock) {
+          try {
+            const { readEnvFile } = await import('../env.js');
+            const envVars = readEnvFile(['ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL']);
+            const apiKey = envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+            let apiUrl = envVars.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL || 'http://localhost:4000';
+            const modelName = envVars.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+
+            // Format URL to LiteLLM/OpenAI Messages API standard
+            // LiteLLM router uses /v1/chat/completions, not /v1/messages (Anthropic native)
+            if (!apiUrl.endsWith('/v1/chat/completions')) {
+              // Strip trailing /v1/messages if present (we replace with openai format)
+              apiUrl = apiUrl.replace(/\/v1\/messages$/, '').replace(/\/$/, '');
+              apiUrl = apiUrl + '/v1/chat/completions';
+            }
+
+            if (apiKey) {
+              const fetchResponse = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`,  // LiteLLM uses Bearer token
+                },
+                body: JSON.stringify({
+                  model: modelName,
+                  max_tokens: 1024,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: `请帮我总结以下这段近期对话的内容上下文。提取出所有的Active Tasks（当前正在进行的任务、未完成的），以及目前最新的定论、意图和关键信息。请保持简短扼要，使用列表的形式。回复请直接输出总结，不要包含任何寒暄废话。\n\n对话记录：\n${historyBlock}`
+                    }
+                  ]
+                })
+              });
+
+              if (fetchResponse.ok) {
+                const data = await fetchResponse.json() as any;
+                // [DEBUG] log raw to find correct parse path
+                logger.info({ chatJid, rawData: JSON.stringify(data).slice(0, 500) }, '[DEBUG] Raw LLM response for summary');
+                ctx.reply(`🔍 [DEBUG] Raw keys: ${Object.keys(data).join(', ')}\nchoices[0]: ${JSON.stringify(data?.choices?.[0])?.slice(0,300)}`);
+                // LiteLLM returns OpenAI-compatible format: choices[0].message.content
+                // Anthropic native format: content[0].text
+                summary = data?.choices?.[0]?.message?.content
+                  || data?.content?.[0]?.text
+                  || "概括生成的文本为空";
+              } else {
+                const errText = await fetchResponse.text();
+                logger.error({ chatJid, status: fetchResponse.status, errText, apiUrl, modelName }, 'Failed to fetch summary from LLM API');
+                summary = `由于摘要生成失败，这是您的原始对话记录：\n${historyBlock}`; // Fallback
+              }
+            } else {
+              summary = `由于未配置API密钥，这是您的原始对话记录：\n${historyBlock}`; // Fallback if no API key
+            }
+          } catch (e) {
+            logger.error({ chatJid, err: e }, 'Error during summary generation');
+            summary = `由于执行报错，这是您的原始对话记录：\n${historyBlock}`; // Fallback
+          }
+        }
+
+        // [DEBUG] Preview summary before injecting into session
+        ctx.reply(`📋 [DEBUG] 总结内容如下：\n\n${summary.slice(0, 4000)}`);
+
+        // 3. Clear Session directories
+        // Before clearing, gracefully shut down any active container for this group
+        // to prevent the Claude SDK from crashing with ENOENT or ProcessTransport errors
+        if (this.opts.groupQueue) {
+          try {
+            this.opts.groupQueue.closeStdin(chatJid);
+            // Wait briefly to allow the _close sentinel to be processed by the container
+            await new Promise(r => setTimeout(r, 1000));
+            
+            // Forcibly terminate the container before ripping out the file system
+            await this.opts.groupQueue.killContainer(chatJid);
+            // Give the OS time to release file handles
+            await new Promise(r => setTimeout(r, 2000));
+          } catch (e) {
+            logger.warn({ chatJid, err: e }, 'Failed to gracefully close container before compact, continuing anyway');
+          }
+        }
+
+        const baseClaudeDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude');
+        const dirsToClear = ['sessions', 'session-env', 'projects'];
+        for (const dirName of dirsToClear) {
+          const dirPath = path.join(baseClaudeDir, dirName);
+          try {
+            if (fs.existsSync(dirPath)) {
+              fs.rmSync(dirPath, { recursive: true, force: true });
+            }
+          } catch (e) {
+            logger.warn({ dirPath, e }, "Failed to clear claude state directory");
+          }
+        }
+
+        // 3.5 Clear IPC state so the newly spawned container doesn't slurp up stale messages intended for the old session
+        const ipcDir = path.join(DATA_DIR, 'ipc', group.folder, 'input');
+        try {
+          if (fs.existsSync(ipcDir)) {
+            fs.rmSync(ipcDir, { recursive: true, force: true });
+          }
+        } catch (e) {
+            logger.warn({ ipcDir, e }, "Failed to clear IPC directory");
+        }
+
+        // Give extra time for the file system to settle before the new request triggers the container boot
+        await new Promise(r => setTimeout(r, 1000));
+
+        // 4. Inject system message with history
+        ctx.reply('✅ 总结与清理完成！最新提示词与上下文摘要已就绪，正在唤醒新会话...');
+        const timestamp = ctx.message ? new Date(ctx.message.date * 1000).toISOString() : new Date().toISOString();
+        const content = `[System Status: Session has been compacted to load new system prompts. Your short-term memory was cleared, but your tasks and RAG memory remain intact. The following is a summary of the recent conversational context precisely crafted for you to continue working smoothly:\n\n${summary}\n\nPlease acknowledge this reset and review your active tasks. Respond with "会话已软重置，最新提示词与上下文摘要已自动继承。"]`;
+
+        this.opts.onMessage(chatJid, {
+          id: `compact-${Date.now()}`,
+          chat_jid: chatJid,
+          sender: 'system',
+          sender_name: 'SystemAdmin',
+          content,
+          timestamp,
+          is_from_me: false,
+        });
+
+        logger.info({ chatJid, bot: this.tokenEnvName }, 'Session compacted and summary injected');
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Failed to compact session');
+        ctx.reply('❌ 软重置失败，请检查服务器日志。');
+      }
     });
 
     this.bot.on('message:text', async (ctx) => {
@@ -266,6 +465,7 @@ export class TelegramChannel implements Channel {
           mediaType: 'photo' as const, timer: setTimeout(() => { }, 0),
         };
         await this.processAndStoreMedia(pending, caption);
+        await this.setTyping(chatJid, false);
       } else {
         // No caption — buffer and wait for possible follow-up text
         // Cancel any existing pending media for this chat
@@ -281,9 +481,12 @@ export class TelegramChannel implements Channel {
           if (entry && entry.msgId === msgId) {
             this.pendingMedia.delete(chatJid);
             logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing photo with generic prompt');
-            this.processAndStoreMedia(entry, undefined).catch((err) => {
-              logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred photo processing failed');
-            });
+            this.processAndStoreMedia(entry, undefined)
+              .then(() => this.setTyping(chatJid, false))
+              .catch((err) => {
+                logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred photo processing failed');
+                this.setTyping(chatJid, false).catch(() => { });
+              });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
 
@@ -334,6 +537,7 @@ export class TelegramChannel implements Channel {
           mediaType: 'video' as const, mimeType, timer: setTimeout(() => { }, 0),
         };
         await this.processAndStoreMedia(pending, caption);
+        await this.setTyping(chatJid, false);
       } else {
         const existing = this.pendingMedia.get(chatJid);
         if (existing) {
@@ -346,9 +550,12 @@ export class TelegramChannel implements Channel {
           if (entry && entry.msgId === msgId) {
             this.pendingMedia.delete(chatJid);
             logger.info({ chatJid, bot: this.tokenEnvName }, 'No follow-up text, processing video with generic prompt');
-            this.processAndStoreMedia(entry, undefined).catch((err) => {
-              logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred video processing failed');
-            });
+            this.processAndStoreMedia(entry, undefined)
+              .then(() => this.setTyping(chatJid, false))
+              .catch((err) => {
+                logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Deferred video processing failed');
+                this.setTyping(chatJid, false).catch(() => { });
+              });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
 
@@ -384,13 +591,13 @@ export class TelegramChannel implements Channel {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
-        
+
         // Cache media
         const mediaId = `voice_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.ogg`;
         const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
         fs.mkdirSync(cacheDir, { recursive: true });
         fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
-        
+
         const transcript = await transcribeAudioMessage(buffer);
         finalContent = transcript ? `[Voice: ${transcript} | MediaID: ${mediaId}]` : `[Voice Message - transcription unavailable | MediaID: ${mediaId}]`;
         logger.info({ chatJid, bytes: buffer.length, bot: this.tokenEnvName }, 'Voice message transcribed and cached');
@@ -400,6 +607,10 @@ export class TelegramChannel implements Channel {
       }
 
       // Don't stop typing here — let it flow seamlessly into processGroupMessages
+      // Actually, we must stop it here because if the agent doesn't respond (no trigger),
+      // the typing indicator will stay on indefinitely. The message loop will re-enable it 
+      // if it does decide to process the message.
+      await this.setTyping(chatJid, false);
 
       this.opts.onMessage(chatJid, {
         id: ctx.message.message_id.toString(),
@@ -516,19 +727,19 @@ export class TelegramChannel implements Channel {
     const { chatJid, buffer, timestamp, senderName, sender, msgId, mediaType } = media;
     const label = mediaType === 'photo' ? 'Photo' : 'Video';
     const group = this.opts.registeredGroups()[chatJid];
-    
+
     // Cache media
     let mediaId = '';
     if (group) {
-        const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
-        mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-        const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
-        try {
-            fs.mkdirSync(cacheDir, { recursive: true });
-            fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
-        } catch (e) {
-            logger.error({ err: e }, 'Failed to cache media buffer');
-        }
+      const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
+      mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+      const cacheDir = path.join(DATA_DIR, 'sessions', group.folder, '.claude', 'media_cache');
+      try {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+      } catch (e) {
+        logger.error({ err: e }, 'Failed to cache media buffer');
+      }
     }
 
     let finalContent: string;
@@ -640,7 +851,7 @@ export class TelegramChannel implements Channel {
           await this.bot.api.sendVideo(numericId, file, opts);
           break;
         case 'audio':
-          await this.bot.api.sendAudio(numericId, file, opts);
+          await this.bot.api.sendVoice(numericId, file, opts);
           break;
         case 'document':
           await this.bot.api.sendDocument(numericId, file, opts);

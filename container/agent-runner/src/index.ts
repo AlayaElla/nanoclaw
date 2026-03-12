@@ -638,6 +638,10 @@ async function runQuery(
       }
 
       if (message.type === 'result') {
+        // Stop polling IMMEDIATELY — the Claude process is about to exit.
+        // If we don't, the 500ms poller timer may fire and push a new message
+        // to a processTransport that is already closing, causing a crash.
+        ipcPolling = false;
         // Signal tool status idle when a result arrives
         writeToolStatus({ type: 'tool_status', status: 'idle' });
         resultCount++;
@@ -761,11 +765,16 @@ async function main(): Promise<void> {
       }
 
       // When query ended with an error result, don't try to resume from the
-      // error point — the SDK will crash. Start fresh on next message.
+      // error point — the SDK will crash. Restart the container cleanly.
       if (queryResult.hadError) {
-        log('Query ended with error result, resetting resume state for clean restart');
-        resumeAt = undefined;
-        sessionId = undefined;
+        log('Query ended with error result, exiting for clean container restart');
+        writeOutput({
+          status: 'error',
+          result: null,
+          newSessionId: sessionId,
+          error: 'Query ended with error, container will restart',
+        });
+        process.exit(1);
       } else if (queryResult.lastAssistantUuid) {
         resumeAt = queryResult.lastAssistantUuid;
       }

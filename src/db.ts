@@ -376,6 +376,36 @@ export function getMessagesSince(
     .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
 }
 
+export function clearChatData(chatJid: string): void {
+  // Delete all messages
+  db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(chatJid);
+  
+  // Find all scheduled tasks for this chat
+  const tasks = db.prepare('SELECT id FROM scheduled_tasks WHERE chat_jid = ?').all(chatJid) as { id: string }[];
+  for (const task of tasks) {
+    db.prepare('DELETE FROM task_run_logs WHERE task_id = ?').run(task.id);
+  }
+  // Delete the tasks
+  db.prepare('DELETE FROM scheduled_tasks WHERE chat_jid = ?').run(chatJid);
+}
+
+export function getRecentMessages(
+  chatJid: string,
+  limit: number,
+): NewMessage[] {
+  const sql = `
+    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    FROM messages
+    WHERE chat_jid = ?
+      AND content != '' AND content IS NOT NULL
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `;
+  return db
+    .prepare(sql)
+    .all(chatJid, limit) as NewMessage[];
+}
+
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {

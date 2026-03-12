@@ -5,10 +5,13 @@ import {
   RegisteredGroup,
 } from '../types.js';
 
+import { GroupQueue } from '../group-queue.js';
+
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  groupQueue: GroupQueue;
 }
 
 export type ChannelFactory = (opts: ChannelOpts) => Channel | Channel[] | null;

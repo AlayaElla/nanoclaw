@@ -1,4 +1,4 @@
-import * as lark from '@larksuiteoapi/node-sdk';
+import * as Lark from '@larksuiteoapi/node-sdk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -7,14 +7,229 @@ import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 import {
   Channel,
-  OnInboundMessage,
-  OnChatMetadata,
-  RegisteredGroup,
+  NewMessage,
 } from '../types.js';
 import { readEnvFile } from '../env.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
 import { describeImage, describeVideo } from '../vision.js';
+
+// --- Types for Feishu Advanced Support ---
+
+export interface MediaResource {
+  fileKey: string;
+  type: 'image' | 'file';
+  fileName?: string;
+}
+
+export interface FeishuMessageContext {
+  content: string;
+  resources: MediaResource[];
+  mentions: { id: string; name: string }[];
+  quoted?: {
+    messageId: string;
+    content: string;
+    senderName: string;
+  };
+}
+
+/**
+ * Handles conversion of various Feishu message types into internal Markdown-like format.
+ * Inspired by openclaw-lark.
+ */
+export class FeishuContentConverter {
+  constructor(
+    private client: Lark.Client,
+    private resolveSenderName: (openId: string) => Promise<string>,
+  ) {}
+
+  async convert(
+    msg: any,
+    mentions: { id: string; name: string }[],
+  ): Promise<FeishuMessageContext> {
+    const type = msg.message_type;
+    const rawContent = JSON.parse(msg.content);
+
+    let context: FeishuMessageContext = {
+      content: '',
+      resources: [],
+      mentions,
+    };
+
+    switch (type) {
+      case 'text':
+        context.content = this.convertText(rawContent.text, mentions);
+        break;
+      case 'post':
+        context = this.convertPost(rawContent, mentions);
+        break;
+      case 'interactive':
+        context.content = this.convertInteractive(rawContent);
+        break;
+      case 'merge_forward':
+        context = await this.convertMergeForward(msg.message_id, mentions);
+        break;
+      default:
+        context.content = `[Unsupported message type: ${type}]`;
+    }
+
+    return context;
+  }
+
+  private convertText(
+    text: string,
+    mentions: { id: string; name: string }[],
+  ): string {
+    let result = text;
+    for (const mention of mentions) {
+      // Feishu text mentions are often in the form of <at user_id="ou_xxx">@Name</at>
+      const regex = new RegExp(`<at user_id="${mention.id}">[^<]*</at>`, 'g');
+      result = result.replace(regex, `@${mention.name}`);
+    }
+    return result;
+  }
+
+  private convertPost(
+    post: any,
+    mentions: { id: string; name: string }[],
+  ): FeishuMessageContext {
+    const resources: MediaResource[] = [];
+    let content = '';
+
+    // Feishu posts can be locale-wrapped or flat
+    const title = post.title || '';
+    if (title) content += `**${title}**\n\n`;
+
+    const contentArray = post.content || [];
+    for (const section of contentArray) {
+      for (const element of section) {
+        switch (element.tag) {
+          case 'text':
+            content += element.un_escape
+              ? element.text
+              : this.unescapeFeishu(element.text);
+            break;
+          case 'a':
+            content += `[${element.text}](${element.href})`;
+            break;
+          case 'at':
+            const mention = mentions.find((m) => m.id === element.user_id);
+            content += `@${mention ? mention.name : element.user_id}`;
+            break;
+          case 'img':
+            content += `\n![Image](feishu://${element.image_key})\n`;
+            resources.push({ fileKey: element.image_key, type: 'image' });
+            break;
+          case 'hr':
+            content += '\n---\n';
+            break;
+        }
+      }
+      content += '\n';
+    }
+
+    return { content: content.trim(), resources, mentions };
+  }
+
+  private convertInteractive(card: any): string {
+    // Extract textual content from interactive cards (v1/v2)
+    // For simplicity, we look for 'text' fields in common card structures
+    let text = '';
+    const traverse = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return;
+      if (obj.tag === 'plain_text' || obj.tag === 'lark_md' || obj.tag === 'markdown') {
+        if (obj.content) text += obj.content + '\n';
+      }
+      for (const key in obj) {
+        traverse(obj[key]);
+      }
+    };
+
+    if (card.header?.title?.content) {
+      text += `**${card.header.title.content}**\n\n`;
+    }
+    traverse(card);
+    return text.trim() || '[Interactive Card]';
+  }
+
+  private async convertMergeForward(
+    messageId: string,
+    mentions: { id: string; name: string }[],
+  ): Promise<FeishuMessageContext> {
+    try {
+      // Fetch sub-messages. Feishu returns ALL nested messages in a single flat list.
+      const resp = await this.client.im.v1.message.get({
+        path: { message_id: messageId },
+      });
+      const items = (resp as any).data.items || [];
+      if (items.length === 0) {
+        return { content: '<forwarded_messages/>', resources: [], mentions };
+      }
+
+      // Build a map of parent -> children
+      const childrenMap = new Map<string, any[]>();
+      for (const item of items) {
+        const parentId = item.upper_message_id || messageId;
+        if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
+        childrenMap.get(parentId)!.push(item);
+      }
+
+      const formatted = await this.formatSubTree(messageId, childrenMap);
+      return {
+        content: `<forwarded_messages>\n${formatted}\n</forwarded_messages>`,
+        resources: [],
+        mentions,
+      };
+    } catch (err) {
+      logger.error({ messageId, err }, 'Failed to parse merged messages');
+      return {
+        content: '[Error parsing merged messages]',
+        resources: [],
+        mentions,
+      };
+    }
+  }
+
+  private async formatSubTree(
+    parentId: string,
+    childrenMap: Map<string, any[]>,
+  ): Promise<string> {
+    const children = childrenMap.get(parentId) || [];
+    let result = '';
+
+    for (const child of children) {
+      const senderOpenId = child.sender?.id || 'unknown';
+      const senderName = await this.resolveSenderName(senderOpenId);
+      const timestamp = new Date(Number(child.create_time)).toISOString();
+      
+      const context = await this.convert(child, []); // We don't resolve mentions for sub-messages for now
+      const content = context.content;
+
+      result += `[${timestamp}] ${senderName}:\n`;
+      // Indent content
+      result += content.split('\n').map(line => '    ' + line).join('\n');
+      result += '\n';
+
+      // If it's another merge_forward, it will be expanded by the recursive convert call above
+      // if we had structured it that way, but since ALL items are in childrenMap,
+      // we only need to recurse if there ARE children for this child.
+      if (childrenMap.has(child.message_id)) {
+        result += await this.formatSubTree(child.message_id, childrenMap);
+      }
+    }
+
+    return result.trim();
+  }
+
+  private unescapeFeishu(text: string): string {
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+}
 
 export interface FeishuChannelOpts extends ChannelOpts {
   appId: string;
@@ -24,9 +239,26 @@ export interface FeishuChannelOpts extends ChannelOpts {
 export class FeishuChannel implements Channel {
   name = 'feishu';
 
-  private client!: lark.Client;
+  private client!: Lark.Client;
   private connected = false;
   private botOpenId: string | undefined;
+  private converter!: FeishuContentConverter;
+
+  /**
+   * Track the last user message ID for each chat.
+   * Feishu doesn't have a typing indicator API, so we add a "Typing" reaction
+   * to the last user message to simulate one.
+   */
+  private lastUserMessageId = new Map<string, string>();
+
+  /**
+   * Track the reaction ID and target message ID for the "Typing" reaction
+   * to delete it correctly even if lastUserMessageId has changed.
+   */
+  private typingReactions = new Map<
+    string,
+    { reactionId: string; targetMessageId: string }
+  >();
 
   private opts: FeishuChannelOpts;
 
@@ -60,7 +292,11 @@ export class FeishuChannel implements Channel {
   async connect(): Promise<void> {
     const { appId, appSecret } = this.opts;
 
-    this.client = new lark.Client({ appId, appSecret });
+    this.client = new Lark.Client({ appId, appSecret });
+    this.converter = new FeishuContentConverter(
+      this.client,
+      this.resolveSenderName.bind(this),
+    );
 
     // Fetch bot's own open_id so we can detect our own messages
     try {
@@ -77,21 +313,78 @@ export class FeishuChannel implements Channel {
       );
     }
 
-    const wsClient = new lark.WSClient({
+    const wsClient = new Lark.WSClient({
       appId,
       appSecret,
-      loggerLevel: lark.LoggerLevel.warn,
+      loggerLevel: Lark.LoggerLevel.warn,
     });
 
-    const eventDispatcher = new lark.EventDispatcher({}).register({
+    const eventDispatcher = new Lark.EventDispatcher({}).register({
       'im.message.receive_v1': async (data: any) => {
         await this.handleMessage(data);
+      },
+      'im.message.reaction.created_v1': async (data: any) => {
+        await this.handleReaction(data);
       },
     });
 
     wsClient.start({ eventDispatcher });
     this.connected = true;
     logger.info('Connected to Feishu via WebSocket');
+  }
+
+  // ─── Reactions ────────────────────────────────────────────────────
+
+  private async handleReaction(data: any): Promise<void> {
+    const event = data.event;
+    const messageId = event.message_id;
+    const emojiType = event.reaction_type.emoji_type;
+    const userId = event.user_id.open_id;
+    const actionTime = event.action_time;
+
+    // Ignore bot's own reactions
+    if (this.botOpenId && userId === this.botOpenId) return;
+    // Ignore Typing indicator reactions
+    if (emojiType === 'Typing') return;
+
+    try {
+      // Fetch the original message to get chat_id and snippet
+      const msgResp = await this.client.im.v1.message.get({
+        path: { message_id: messageId },
+      });
+      const msg = (msgResp as any).data.items?.[0];
+      if (!msg) return;
+
+      const chatJid = `${msg.chat_id}@feishu`;
+      const senderName = await this.resolveSenderName(userId);
+      const timestamp = new Date(parseInt(actionTime)).toISOString();
+
+      // Create a synthetic notification message for the AI
+      const rawContent = JSON.parse(msg.content);
+      const textSnippet = rawContent.text || '[Media]';
+      const snippet =
+        textSnippet.length > 50 ? textSnippet.slice(0, 50) + '...' : textSnippet;
+
+      const content = `[用户对消息 "${snippet}" 做出了 ${emojiType} 反应]`;
+
+      this.deliverIfRegistered(chatJid, {
+        id: `reaction-${messageId}-${emojiType}-${Date.now()}`,
+        chat_jid: chatJid,
+        sender: userId,
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+        is_bot_message: false,
+      });
+
+      logger.info(
+        { chatJid, emojiType, messageId },
+        'Feishu reaction processed',
+      );
+    } catch (err) {
+      logger.error({ messageId, err }, 'Failed to process Feishu reaction');
+    }
   }
 
   // ─── Inbound Message Handling ──────────────────────────────────────
@@ -117,6 +410,9 @@ export class FeishuChannel implements Channel {
     const senderOpenId = sender?.sender_id?.open_id || 'unknown';
     const senderName = await this.resolveSenderName(senderOpenId);
 
+    // Track last user message for typing indicator
+    this.lastUserMessageId.set(chatJid, msg.message_id);
+
     // Notify chat metadata
     const isGroup = msg.chat_type === 'group';
     this.opts.onChatMetadata(chatJid, timestamp, undefined, 'feishu', isGroup);
@@ -127,20 +423,24 @@ export class FeishuChannel implements Channel {
     // Check for @mention in groups — extract from mentions array
     const isMentioned = this.isBotMentioned(msg);
 
-    // Route by message type
+    // Handle advanced/standard types via converter
+    if (
+      ['text', 'post', 'interactive', 'merge_forward'].includes(messageType)
+    ) {
+      await this.handleAdvancedMessage(
+        msg,
+        chatJid,
+        timestamp,
+        senderName,
+        senderOpenId,
+        messageId,
+        isMentioned,
+      );
+      return;
+    }
+
+    // Route by message type for legacy media
     switch (messageType) {
-      case 'text':
-        await this.handleTextMessage(
-          msg,
-          chatJid,
-          timestamp,
-          senderName,
-          senderOpenId,
-          messageId,
-          isGroup,
-          isMentioned,
-        );
-        break;
       case 'image':
         await this.handleImageMessage(
           msg,
@@ -212,33 +512,38 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  private async handleTextMessage(
+  private async handleAdvancedMessage(
     msg: any,
     chatJid: string,
     timestamp: string,
     senderName: string,
-    sender: string,
-    msgId: string,
-    isGroup: boolean,
+    senderOpenId: string,
+    messageId: string,
     isMentioned: boolean,
   ): Promise<void> {
-    let content = '';
-    try {
-      const parsed = JSON.parse(msg.content || '{}');
-      content = parsed.text || '';
-    } catch {
-      return;
+    // 1. Resolve mentions
+    const mentions: { id: string; name: string }[] = [];
+    if (Array.isArray(msg.mentions)) {
+      for (const m of msg.mentions) {
+        mentions.push({ id: m.id?.open_id, name: m.name });
+      }
     }
-    if (!content) return;
 
-    // Normalize @mention tags in content (Feishu format: @_user_1 etc.)
-    // Instead of stripping, replace with standard name to trigger core logic.
+    // 2. Convert content
+    const context = await this.converter.convert(msg, mentions);
+    let content = context.content;
+
+    // 3. Normalize mentions for core logic
     if (isMentioned) {
-      content = content.replace(/@_user_\d+/g, `@${ASSISTANT_NAME}`).trim();
+      // If mentioned, ensure text contains @ASSISTANT_NAME for trigger logic
+      if (!content.includes(`@${ASSISTANT_NAME}`)) {
+        content = `@${ASSISTANT_NAME} ${content}`;
+      }
     }
 
-    // Command handling — check before delivering to agent
+    // 4. Check for commands
     if (content.startsWith('/')) {
+      const isGroup = msg.chat_type === 'group';
       const handled = await this.handleCommand(
         content,
         chatJid,
@@ -248,7 +553,15 @@ export class FeishuChannel implements Channel {
       if (handled) return;
     }
 
-    // Check if there's pending media waiting for a follow-up text
+    // 5. Handle quoted message
+    if (msg.parent_id) {
+      const quoted = await this.resolveQuotedContent(msg.parent_id);
+      if (quoted) {
+        content = `[引用: "${quoted.content}" | 发送者: ${quoted.senderName}]\n${content}`;
+      }
+    }
+
+    // 6. Check for pending media waiting for follow-up text
     const pending = this.pendingMedia.get(chatJid);
     if (pending) {
       clearTimeout(pending.timer);
@@ -258,13 +571,15 @@ export class FeishuChannel implements Channel {
         'Merging follow-up text with pending media',
       );
       await this.processAndStoreMedia(pending, content);
-      // Also store the text message itself
+      // We don't return here because we want the text message to be delivered too?
+      // Actually, the original code DID keep going to deliverIfRegistered.
     }
 
+    // 7. Deliver
     this.deliverIfRegistered(chatJid, {
-      id: msgId,
+      id: messageId,
       chat_jid: chatJid,
-      sender,
+      sender: senderOpenId,
       sender_name: senderName,
       content,
       timestamp,
@@ -272,6 +587,35 @@ export class FeishuChannel implements Channel {
       is_bot_message: false,
     });
   }
+
+  private async resolveQuotedContent(
+    parentId: string,
+  ): Promise<{ content: string; senderName: string } | null> {
+    try {
+      const resp = await this.client.im.v1.message.get({
+        path: { message_id: parentId },
+      });
+      const parent = (resp as any).data.items?.[0];
+      if (!parent) return null;
+
+      const senderOpenId = parent.sender?.id || 'unknown';
+      const senderName = await this.resolveSenderName(senderOpenId);
+
+      // Simple text-only summary of the parent message
+      const mentions: any[] = [];
+      const context = await this.converter.convert(parent, mentions);
+      return {
+        content:
+          context.content.length > 100
+            ? context.content.slice(0, 100) + '...'
+            : context.content,
+        senderName,
+      };
+    } catch (err) {
+      return null;
+    }
+  }
+
 
   private async handleImageMessage(
     msg: any,
@@ -1027,25 +1371,58 @@ export class FeishuChannel implements Channel {
 
   async sendMessage(jid: string, text: string): Promise<void> {
     const chatId = jid.replace(/@feishu$/, '');
-    const prefixed = `${ASSISTANT_NAME}: ${text}`;
 
     try {
       // Split long messages
       const MAX = FeishuChannel.MAX_MESSAGE_LENGTH;
-      const chunks = prefixed.length <= MAX ? [prefixed] : [];
-      if (prefixed.length > MAX) {
-        for (let i = 0; i < prefixed.length; i += MAX) {
-          chunks.push(prefixed.slice(i, i + MAX));
+      const chunks = text.length <= MAX ? [text] : [];
+      if (text.length > MAX) {
+        for (let i = 0; i < text.length; i += MAX) {
+          chunks.push(text.slice(i, i + MAX));
         }
       }
 
       for (const chunk of chunks) {
+        // Simple card detection: if it starts with { and ends with }, try parsing as JSON
+        let msgType = 'text';
+        let content = JSON.stringify({ text: chunk });
+
+        if (chunk.trim().startsWith('{') && chunk.trim().endsWith('}')) {
+          try {
+            JSON.parse(chunk); // Validate JSON
+            msgType = 'interactive';
+            content = chunk;
+          } catch {
+            // Not JSON, stick with text
+          }
+        }
+
+        // If not a card, use 'post' to allow better Markdown rendering if we wanted,
+        // but for now we'll stick with 'text' or 'post' based on content.
+        // openclaw-lark often uses 'post' for outbound messages.
+        if (msgType === 'text') {
+          msgType = 'post';
+          content = JSON.stringify({
+            zh_cn: {
+              title: '',
+              content: [
+                [
+                  {
+                    tag: 'text',
+                    text: chunk,
+                  },
+                ],
+              ],
+            },
+          });
+        }
+
         const resp = await this.client.im.v1.message.create({
           params: { receive_id_type: 'chat_id' },
           data: {
             receive_id: chatId,
-            msg_type: 'text',
-            content: JSON.stringify({ text: chunk }),
+            msg_type: msgType as any,
+            content,
           },
         });
 
@@ -1190,15 +1567,19 @@ export class FeishuChannel implements Channel {
         params: { receive_id_type: 'chat_id' },
         data: {
           receive_id: chatId,
-          msg_type: 'text',
-          content: JSON.stringify({ text }),
+          msg_type: 'post',
+          content: JSON.stringify({
+            zh_cn: {
+              title: '',
+              content: [[{ tag: 'text', text }]],
+            },
+          }),
         },
       });
       const messageId =
         (resp as any)?.data?.message_id || (resp as any)?.message_id;
       if (!messageId) return null;
 
-      // Map a numeric hash to the string message_id
       const numericId = this.hashStringToNumber(messageId);
       this.statusIdMap.set(numericId, messageId);
       return numericId;
@@ -1220,8 +1601,13 @@ export class FeishuChannel implements Channel {
       await this.client.im.v1.message.update({
         path: { message_id: feishuMsgId },
         data: {
-          msg_type: 'text',
-          content: JSON.stringify({ text }),
+          msg_type: 'post',
+          content: JSON.stringify({
+            zh_cn: {
+              title: '',
+              content: [[{ tag: 'text', text }]],
+            },
+          }),
         },
       });
     } catch (err) {
@@ -1251,8 +1637,42 @@ export class FeishuChannel implements Channel {
 
   // ─── Typing indicator (no-op for Feishu) ──────────────────────────
 
-  async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
-    // Feishu does not have a typing indicator API — no-op
+  async setTyping(jid: string, isTyping: boolean): Promise<void> {
+    const currentMessageId = this.lastUserMessageId.get(jid);
+    if (!currentMessageId && isTyping) return;
+
+    try {
+      if (isTyping && currentMessageId) {
+        const resp = await this.client.im.v1.messageReaction.create({
+          path: { message_id: currentMessageId },
+          data: { reaction_type: { emoji_type: 'Typing' } },
+        });
+        const reactionId = (resp as any).data?.reaction_id;
+        if (reactionId) {
+          this.typingReactions.set(jid, {
+            reactionId,
+            targetMessageId: currentMessageId,
+          });
+        }
+      } else {
+        const reaction = this.typingReactions.get(jid);
+        if (reaction) {
+          await this.client.im.v1.messageReaction.delete({
+            path: {
+              message_id: reaction.targetMessageId,
+              reaction_id: reaction.reactionId,
+            },
+          });
+          this.typingReactions.delete(jid);
+        }
+      }
+    } catch (err) {
+      // Silently ignore errors - typing indicator is non-critical
+      logger.debug(
+        { jid, isTyping, err },
+        'Failed to set Feishu typing indicator',
+      );
+    }
   }
 
   // ─── Connection lifecycle ──────────────────────────────────────────

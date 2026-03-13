@@ -98,7 +98,6 @@ function resolveAgentClaudeFile(
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
-  chatJid: string,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
@@ -231,9 +230,7 @@ function buildVolumeMounts(
   syncFrom(skillsSrc, ['platform']);
 
   // 2. Sync platform-specific skills
-  let platform = '';
-  if (chatJid.includes('@feishu')) platform = 'feishu';
-  else if (chatJid.startsWith('tg:')) platform = 'telegram';
+  const platform = botConfig?.channel;
 
   if (platform) {
     const platformSkillsSrc = path.join(skillsSrc, 'platform', platform);
@@ -408,7 +405,7 @@ export async function runContainerAgent(
   fs.mkdirSync(groupDir, { recursive: true });
   fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain, input.chatJid);
+  const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${INSTANCE_ID}-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName);

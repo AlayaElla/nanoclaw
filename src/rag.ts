@@ -68,7 +68,8 @@ export function initRag(): void {
 
   // Force multimodal endpoint if using multimodal models, as they don't support compatible-mode
   if (model.includes('vl-embedding') || model.includes('vision')) {
-    baseUrl = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
+    baseUrl =
+      'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
   }
 
   if (!apiKey) {
@@ -144,7 +145,9 @@ export interface EmbeddingInput {
   video?: string;
 }
 
-export async function getEmbedding(input: string | EmbeddingInput): Promise<number[]> {
+export async function getEmbedding(
+  input: string | EmbeddingInput,
+): Promise<number[]> {
   if (!embeddingConfig) {
     throw new Error('RAG not initialized: EMBEDDING_API_KEY not set');
   }

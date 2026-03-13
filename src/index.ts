@@ -758,20 +758,16 @@ async function main(): Promise<void> {
       if (isRagEnabled()) {
         const group = registeredGroups[msg.chat_jid];
         if (group) {
-          indexMessage(
-            resolveAgentName(group.botToken),
-            msg.content,
-            {
-              role: 'user',
-              sender_name: msg.sender_name,
-              message_id: msg.id,
-              chat_source:
-                (getChatIsGroup(msg.chat_jid) ?? false)
-                  ? `群聊:${group.name}`
-                  : '私聊',
-              timestamp: msg.timestamp,
-            },
-          ).catch(() => {});
+          indexMessage(resolveAgentName(group.botToken), msg.content, {
+            role: 'user',
+            sender_name: msg.sender_name,
+            message_id: msg.id,
+            chat_source:
+              (getChatIsGroup(msg.chat_jid) ?? false)
+                ? `群聊:${group.name}`
+                : '私聊',
+            timestamp: msg.timestamp,
+          }).catch(() => {});
         }
       }
     },

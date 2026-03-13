@@ -58,13 +58,17 @@ describe('escapeXml', () => {
 // --- formatMessages ---
 
 describe('formatMessages', () => {
-  it('formats a single message as XML', () => {
-    const result = formatMessages([makeMsg()]);
-    expect(result).toBe(
-      '<messages>\n' +
-        '<message sender="Alice" time="2024-01-01T00:00:00.000Z">hello</message>\n' +
-        '</messages>',
-    );
+  it('formats a single message as JSON', () => {
+    const msg = makeMsg();
+    const result = JSON.parse(formatMessages([msg]));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      sender: 'Alice',
+      sender_id: '123@s.whatsapp.net',
+      message_id: '1',
+      time: '2024-01-01T00:00:00.000Z',
+      content: 'hello',
+    });
   });
 
   it('formats multiple messages', () => {
@@ -75,32 +79,26 @@ describe('formatMessages', () => {
         content: 'hi',
         timestamp: 't1',
       }),
-      makeMsg({ id: '2', sender_name: 'Bob', content: 'hey', timestamp: 't2' }),
+      makeMsg({
+        id: '2',
+        sender: '456@s.whatsapp.net',
+        sender_name: 'Bob',
+        content: 'hey',
+        timestamp: 't2',
+      }),
     ];
-    const result = formatMessages(msgs);
-    expect(result).toContain('sender="Alice"');
-    expect(result).toContain('sender="Bob"');
-    expect(result).toContain('>hi</message>');
-    expect(result).toContain('>hey</message>');
-  });
-
-  it('escapes special characters in sender names', () => {
-    const result = formatMessages([makeMsg({ sender_name: 'A & B <Co>' })]);
-    expect(result).toContain('sender="A &amp; B &lt;Co&gt;"');
-  });
-
-  it('escapes special characters in content', () => {
-    const result = formatMessages([
-      makeMsg({ content: '<script>alert("xss")</script>' }),
-    ]);
-    expect(result).toContain(
-      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
-    );
+    const result = JSON.parse(formatMessages(msgs));
+    expect(result).toHaveLength(2);
+    expect(result[0].sender).toBe('Alice');
+    expect(result[1].sender).toBe('Bob');
+    expect(result[0].message_id).toBe('1');
+    expect(result[1].message_id).toBe('2');
+    expect(result[1].sender_id).toBe('456@s.whatsapp.net');
   });
 
   it('handles empty array', () => {
     const result = formatMessages([]);
-    expect(result).toBe('<messages>\n\n</messages>');
+    expect(result).toBe('[]');
   });
 });
 

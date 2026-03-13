@@ -10,11 +10,14 @@ export function escapeXml(s: string): string {
 }
 
 export function formatMessages(messages: NewMessage[]): string {
-  const lines = messages.map(
-    (m) =>
-      `<message sender="${escapeXml(m.sender_name)}" time="${m.timestamp}">${escapeXml(getTextContent(m.content))}</message>`,
-  );
-  return `<messages>\n${lines.join('\n')}\n</messages>`;
+  const formatted = messages.map((m) => ({
+    sender: m.sender_name,
+    sender_id: m.sender, // Internal JID/ID
+    message_id: m.id,
+    time: m.timestamp,
+    content: getTextContent(m.content),
+  }));
+  return JSON.stringify(formatted, null, 2);
 }
 
 export function stripInternalTags(text: string): string {

@@ -460,6 +460,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
+  // If the agent completed successfully but produced no visible output,
+  // roll back the cursor so these messages will be re-processed on next check.
+  // This handles the SDK v2.1.72 resume bug where piped messages on fresh
+  // sessions produce empty results. The next check will spawn a fresh container.
+  if (!outputSentToUser) {
+    lastAgentTimestamp[chatJid] = previousCursor;
+    saveState();
+    logger.warn(
+      { group: group.name },
+      'Agent produced no output, rolled back message cursor for re-processing',
+    );
+  }
+
   return true;
 }
 
@@ -635,9 +648,10 @@ async function startMessageLoop(): Promise<void> {
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
-            lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
-            saveState();
+            // DO NOT advance the cursor here. The actual cursor advancement
+            // is governed by processGroupMessages once the agent emits its result.
+            // If we advance here, an empty response from the agent means the
+            // messages are lost because the active query loop won't roll back.
             // Show typing indicator while the container processes the piped message
             channel
               .setTyping?.(chatJid, true)

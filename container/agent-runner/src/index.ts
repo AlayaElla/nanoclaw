@@ -771,8 +771,6 @@ async function main(): Promise<void> {
           error: 'Query ended with error, container will restart',
         });
         process.exit(1);
-      } else if (queryResult.lastAssistantUuid) {
-        resumeAt = queryResult.lastAssistantUuid;
       }
 
       // If _close was consumed during the query, exit immediately.

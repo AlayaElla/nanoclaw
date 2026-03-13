@@ -760,9 +760,7 @@ async function main(): Promise<void> {
         if (group) {
           indexMessage(
             resolveAgentName(group.botToken),
-            typeof msg.content === 'string'
-              ? msg.content
-              : JSON.stringify(msg.content),
+            msg.content,
             {
               role: 'user',
               sender_name: msg.sender_name,

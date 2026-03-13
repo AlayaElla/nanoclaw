@@ -1,17 +1,18 @@
 /**
  * RAG (Retrieval Augmented Generation) module for NanoClaw.
- * Uses DashScope text-embedding-v4 for embeddings and LanceDB for vector storage.
- * Each group has its own table for message isolation.
+ * Uses DashScope multimodal-embedding for embeddings and LanceDB for vector storage.
+ * Supports text, image, and video fusion embeddings.
  */
 
 import * as lancedb from '@lancedb/lancedb';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import { MultiPartContent } from './types.js';
 
 // --- Configuration ---
 
 const CHUNK_SIZE = 1000; // Max characters per chunk
-const EMBEDDING_DIM = 1024; // text-embedding-v4 dimension
+const EMBEDDING_DIM = 2560; // qwen3-vl-embedding default dimension
 
 interface EmbeddingConfig {
   apiKey: string;
@@ -27,6 +28,8 @@ interface RagMetadata {
   chat_source?: string;
   chunk_index?: number;
   total_chunks?: number;
+  image_url?: string;
+  video_url?: string;
 }
 
 export interface SearchResult {
@@ -54,14 +57,19 @@ export function initRag(): void {
 
   const apiKey =
     process.env.EMBEDDING_API_KEY || envVars.EMBEDDING_API_KEY || '';
-  const baseUrl =
+  let baseUrl =
     process.env.EMBEDDING_BASE_URL ||
     envVars.EMBEDDING_BASE_URL ||
-    'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
   const model =
     process.env.EMBEDDING_MODEL ||
     envVars.EMBEDDING_MODEL ||
-    'text-embedding-v4';
+    'qwen3-vl-embedding';
+
+  // Force multimodal endpoint if using multimodal models, as they don't support compatible-mode
+  if (model.includes('vl-embedding') || model.includes('vision')) {
+    baseUrl = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
+  }
 
   if (!apiKey) {
     logger.warn('RAG: EMBEDDING_API_KEY not set, RAG disabled');
@@ -69,7 +77,7 @@ export function initRag(): void {
   }
 
   embeddingConfig = { apiKey, baseUrl, model };
-  logger.info({ model, baseUrl }, 'RAG initialized with DashScope embedding');
+  logger.info({ model, baseUrl }, 'RAG initialized with Multimodal embedding');
 }
 
 async function getDb(): Promise<lancedb.Connection> {
@@ -130,12 +138,20 @@ export function chunkText(
 
 // --- Embedding ---
 
-export async function getEmbedding(text: string): Promise<number[]> {
+export interface EmbeddingInput {
+  text?: string;
+  image?: string;
+  video?: string;
+}
+
+export async function getEmbedding(input: string | EmbeddingInput): Promise<number[]> {
   if (!embeddingConfig) {
     throw new Error('RAG not initialized: EMBEDDING_API_KEY not set');
   }
 
-  const response = await fetch(`${embeddingConfig.baseUrl}/embeddings`, {
+  const inputObj = typeof input === 'string' ? { text: input } : input;
+
+  const response = await fetch(embeddingConfig.baseUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -143,7 +159,9 @@ export async function getEmbedding(text: string): Promise<number[]> {
     },
     body: JSON.stringify({
       model: embeddingConfig.model,
-      input: text,
+      input: {
+        contents: [inputObj],
+      },
     }),
   });
 
@@ -153,9 +171,16 @@ export async function getEmbedding(text: string): Promise<number[]> {
   }
 
   const result = (await response.json()) as {
-    data: Array<{ embedding: number[] }>;
+    output: {
+      embeddings: Array<{ embedding: number[] }>;
+    };
   };
-  return result.data[0].embedding;
+
+  if (!result.output?.embeddings?.[0]?.embedding) {
+    throw new Error('Malformed embedding response');
+  }
+
+  return result.output.embeddings[0].embedding;
 }
 
 // --- Table helpers ---
@@ -187,6 +212,8 @@ async function getOrCreateTable(groupFolder: string): Promise<lancedb.Table> {
       chat_source: '',
       chunk_index: 0,
       total_chunks: 0,
+      image_url: '',
+      video_url: '',
     },
   ]);
 
@@ -198,39 +225,75 @@ async function getOrCreateTable(groupFolder: string): Promise<lancedb.Table> {
 
 export async function indexMessage(
   groupFolder: string,
-  text: string,
+  content: string | MultiPartContent[],
   metadata: RagMetadata,
 ): Promise<void> {
   if (!embeddingConfig) return; // RAG disabled
 
   try {
-    const chunks = chunkText(text);
     const table = await getOrCreateTable(groupFolder);
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      if (!chunk.trim()) continue;
+    if (typeof content === 'string') {
+      const chunks = chunkText(content);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (!chunk.trim()) continue;
 
-      const vector = await getEmbedding(chunk);
+        const vector = await getEmbedding({ text: chunk });
+
+        await table.add([
+          {
+            vector,
+            text: chunk,
+            role: metadata.role,
+            sender_name: metadata.sender_name || '',
+            message_id: metadata.message_id || '',
+            timestamp: metadata.timestamp || new Date().toISOString(),
+            chat_source: metadata.chat_source || '',
+            chunk_index: i,
+            total_chunks: chunks.length,
+            image_url: '',
+            video_url: '',
+          },
+        ]);
+      }
+    } else {
+      // Multimodal fusion indexing
+      const text = content
+        .filter((p) => p.type === 'text')
+        .map((p) => p.text)
+        .join('\n');
+      const image = content.find((p) => p.type === 'image_url')?.image_url?.url;
+      const video = content.find((p) => p.type === 'video_url')?.video_url?.url;
+
+      if (!text && !image && !video) return;
+
+      const vector = await getEmbedding({
+        text: text || undefined,
+        image,
+        video,
+      });
 
       await table.add([
         {
           vector,
-          text: chunk,
+          text: text || '',
           role: metadata.role,
           sender_name: metadata.sender_name || '',
           message_id: metadata.message_id || '',
           timestamp: metadata.timestamp || new Date().toISOString(),
           chat_source: metadata.chat_source || '',
-          chunk_index: i,
-          total_chunks: chunks.length,
+          chunk_index: 0,
+          total_chunks: 1,
+          image_url: image || '',
+          video_url: video || '',
         },
       ]);
     }
 
     logger.debug(
-      { groupFolder, role: metadata.role, chunks: chunks.length },
-      'Indexed message',
+      { groupFolder, role: metadata.role },
+      'Indexed multimodal message',
     );
   } catch (err) {
     logger.error({ err, groupFolder }, 'Failed to index message');
@@ -253,7 +316,7 @@ export async function searchMemory(
     const table = await getOrCreateTable(groupFolder);
     const queryVector = await getEmbedding(query);
 
-    let search = table.search(queryVector).limit(topK + 5); // Over-fetch for filtering
+    const search = table.search(queryVector).limit(topK + 5); // Over-fetch for filtering
 
     const rawResults = await search.toArray();
 
@@ -264,8 +327,8 @@ export async function searchMemory(
       if (row.message_id === '__init__') continue;
       // Role filter
       if (roleFilter && row.role !== roleFilter) continue;
-      // Skip empty text
-      if (!row.text?.trim()) continue;
+      // Skip empty text (unless it's an image/video only entry, but those usually have text from indexing)
+      if (!row.text?.trim() && !row.image_url && !row.video_url) continue;
 
       results.push({
         text: row.text,

@@ -45,9 +45,10 @@ export interface RegisteredGroup {
 }
 
 export interface MultiPartContent {
-  type: 'text' | 'image_url';
+  type: 'text' | 'image_url' | 'video_url';
   text?: string;
   image_url?: { url: string };
+  video_url?: { url: string };
 }
 
 /** Extract text content from string or MultiPartContent[] */

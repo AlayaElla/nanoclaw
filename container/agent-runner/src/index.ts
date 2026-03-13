@@ -249,6 +249,63 @@ function createPostToolUseHook(): HookCallback {
   };
 }
 
+function createSelfImprovementSessionStartHook(): HookCallback {
+  return async () => {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: `
+<self-improvement-reminder>
+任务开始。在此会话结束时，请评估是否出现了可提取的知识：
+- 是否通过调查发现了非直观的解决方案？
+- 是否发现了应对意外行为的变通方法？
+- 是否学习到了本项目特有的模式？
+- 是否有错误需要调试才能解决？
+
+若是，请按照 Tools.md 中的指南将其记录到 .learnings/ 目录中。
+</self-improvement-reminder>
+`.trim(),
+      },
+    };
+  };
+}
+
+function createSelfImprovementPostToolUseHook(): HookCallback {
+  return async (input) => {
+    const postToolUseInput = input as any; // PostToolUseHookInput is not exported from sdk but present in type defs
+    const toolOutput = postToolUseInput.tool_response;
+
+    if (!toolOutput) return {};
+
+    const outputStr = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
+    const ERROR_PATTERNS = [
+      "error:", "Error:", "ERROR:", "failed", "FAILED",
+      "command not found", "No such file", "Permission denied",
+      "fatal:", "Exception", "Traceback", "npm ERR!",
+      "ModuleNotFoundError", "SyntaxError", "TypeError",
+      "exit code", "non-zero"
+    ];
+
+    const containsError = ERROR_PATTERNS.some(pattern => outputStr.includes(pattern));
+
+    if (containsError) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `
+<error-detected>
+检测到命令错误。如果该错误是非预期的、非直观的，或者需要调查才能解决，请考虑将其记录到 .learnings/ERRORS.md 中。
+使用格式：[ERR-YYYYMMDD-XXX]
+</error-detected>
+`.trim(),
+        },
+      };
+    }
+
+    return {};
+  };
+}
+
 /**
  * Native, single-process hook adapter for context-mode.
  * Instead of spawning CLI processes, this intercepts stdout and dynamically
@@ -319,7 +376,16 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       }
 
       if (!capturedOutput.trim()) return {};
-      return JSON.parse(capturedOutput);
+      const result = JSON.parse(capturedOutput);
+
+      // Map old property name to new one for SDK compatibility
+      if (result && result.hookSpecificOutput) {
+        if (result.hookSpecificOutput.additionalSystemContext && !result.hookSpecificOutput.additionalContext) {
+          result.hookSpecificOutput.additionalContext = result.hookSpecificOutput.additionalSystemContext;
+        }
+      }
+
+      return result;
     } catch (err) {
       log(`Context-mode hook [${hookName}] failed: ${err}`);
       return {}; // Non-blocking: fail open
@@ -613,10 +679,10 @@ async function runQuery(
             { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] }
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createPostToolUseHook(), createContextModeHook('posttooluse')] }
+            { matcher: '', hooks: [createPostToolUseHook(), createSelfImprovementPostToolUseHook(), createContextModeHook('posttooluse')] }
           ],
           SessionStart: [
-            { matcher: '', hooks: [createContextModeHook('sessionstart')] }
+            { matcher: '', hooks: [createSelfImprovementSessionStartHook(), createContextModeHook('sessionstart')] }
           ],
         },
         includePartialMessages: true,

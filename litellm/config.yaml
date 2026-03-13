@@ -72,6 +72,16 @@ model_list:
       extra_body:
         enable_thinking: true
 
+  # 火山
+  - model_name: doubao-seed-2.0-pro
+    litellm_params:
+      model: openai/Doubao-Seed-2.0-pro
+      api_base: https://ark.cn-beijing.volces.com/api/coding/v3
+      api_key: "os.environ/VOLCANO_API_KEY"
+      rpm: 1000
+      extra_body:
+        enable_thinking: true  
+
 litellm_settings:
   drop_params: true
   # set_verbose: true

@@ -231,6 +231,24 @@ function createSanitizeBashHook(): HookCallback {
   };
 }
 
+function createPreToolUseHook(): HookCallback {
+  return async (input, _toolUseId, _context) => {
+    const preInput = input as PreToolUseHookInput;
+    if (preInput.tool_name) {
+      writeToolStatus({ type: 'tool_status', tool: preInput.tool_name, status: 'running' });
+    }
+    return {};
+  };
+}
+
+function createPostToolUseHook(): HookCallback {
+  return async () => {
+    // Keep the previous status visible until the final result
+    // writeToolStatus({ type: 'tool_status', status: 'idle' });
+    return {};
+  };
+}
+
 /**
  * Native, single-process hook adapter for context-mode.
  * Instead of spawning CLI processes, this intercepts stdout and dynamically
@@ -592,10 +610,10 @@ async function runQuery(
           ],
           PreToolUse: [
             { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-            { matcher: '', hooks: [createContextModeHook('pretooluse')] }
+            { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] }
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createContextModeHook('posttooluse')] }
+            { matcher: '', hooks: [createPostToolUseHook(), createContextModeHook('posttooluse')] }
           ],
           SessionStart: [
             { matcher: '', hooks: [createContextModeHook('sessionstart')] }
@@ -623,15 +641,7 @@ async function runQuery(
       }
 
       // Emit tool status events for host-side Telegram updates
-      // stream_event with content_block_start of type tool_use captures ALL tools
-      if (message.type === 'stream_event') {
-        const event = (message as { event: { type: string; content_block?: { type: string; name?: string } } }).event;
-        if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use' && event.content_block.name) {
-          writeToolStatus({ type: 'tool_status', tool: event.content_block.name, status: 'running' });
-        }
-      }
-
-      // tool_progress only fires for Bash/PowerShell, keep as secondary source
+      // SDK Hook PreToolUse handles standard tools, but tool_progress adds elapsed times for bash
       if (message.type === 'tool_progress') {
         const tp = message as { tool_name: string; elapsed_time_seconds: number };
         writeToolStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });

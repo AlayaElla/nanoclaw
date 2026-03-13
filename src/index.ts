@@ -286,45 +286,80 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     ToolSearch: '搜索工具',
     Skill: '技能',
     NotebookEdit: '编辑笔记本',
+    LS: '列出文件',
+    ReadLink: '读取链接',
+    FileTree: '列出文件树',
     // MCP: nanoclaw tools
-    mcp__nanoclaw__send_message: '发送MCP消息',
+    mcp__nanoclaw__send_message: '发送消息',
+    send_message: '发送消息',
     mcp__nanoclaw__send_media: '发送媒体',
+    send_media: '发送媒体',
     mcp__nanoclaw__generate_image: '生成图片',
-    mcp__nanoclaw__schedule_task: '安排定时任务',
+    generate_image: '生成图片',
+    mcp__nanoclaw__schedule_task: '安排任务',
+    schedule_task: '安排任务',
     mcp__nanoclaw__list_tasks: '查询任务列表',
+    list_tasks: '查询任务列表',
     mcp__nanoclaw__pause_task: '暂停任务',
+    pause_task: '暂停任务',
     mcp__nanoclaw__resume_task: '恢复任务',
+    resume_task: '恢复任务',
     mcp__nanoclaw__cancel_task: '取消任务',
+    cancel_task: '取消任务',
     mcp__nanoclaw__register_group: '注册群组',
+    register_group: '注册群组',
     mcp__nanoclaw__rag_search: '搜索记忆',
+    rag_search: '搜索记忆',
     mcp__nanoclaw__x_post: '发推文',
+    x_post: '发推文',
     mcp__nanoclaw__x_like: '点赞推文',
+    x_like: '点赞推文',
     mcp__nanoclaw__x_reply: '回复推文',
+    x_reply: '回复推文',
     mcp__nanoclaw__x_retweet: '转推',
+    x_retweet: '转推',
     mcp__nanoclaw__x_quote: '引用推文',
-    mcp__nanoclaw__x_trends: '获取热门推文',
+    x_quote: '引用推文',
+    mcp__nanoclaw__x_trends: '查询热搜',
+    x_trends: '查询热搜',
     // MCP: media tools
-    mcp__nanoclaw__mcp__media__get_cached_media: '获取缓存媒体',
-    mcp__nanoclaw__mcp__media__describe_cached_image: '分析图片',
-    mcp__nanoclaw__mcp__media__describe_cached_video: '分析视频',
-    mcp__nanoclaw__mcp__media__transcribe_cached_audio: '转录语音',
+    mcp__nanoclaw__mcp__media__get_cached_media: '获取媒体',
+    describe_cached_image: '分析图片',
+    describe_cached_video: '分析视频',
+    transcribe_cached_audio: '转录语音',
     // MCP: context-mode tools
     'mcp__context-mode__ctx_read': '读取上下文',
     'mcp__context-mode__ctx_search': '搜索上下文',
-    'mcp__context-mode__ctx_fetch_and_index': '抓取并索引网页',
+    'mcp__context-mode__ctx_fetch_and_index': '网页解析',
+    ctx_read: '读取上下文',
+    ctx_search: '搜索上下文',
+    ctx_fetch_and_index: '网页解析',
+    ctx_execute: '代码沙盒执行',
+    ctx_batch_execute: '批量脚本执行',
     // MCP: parallel tools
-    'mcp__parallel-search__search': '并行搜索',
-    'mcp__parallel-task__run_task': '执行并行任务',
+    'mcp__parallel-search__search': '网络搜索',
+    'mcp__parallel-search__web_fetch': '抓取网页',
+    'mcp__parallel-task__run_task': '并行任务',
+    search: '网络搜索',
+    web_fetch: '抓取网页',
+    run_task: '并行任务',
   };
+
+  // Build a lookup map with lowercase keys
+  const TOOL_LOOKUP: Record<string, string> = {};
+  for (const [key, value] of Object.entries(TOOL_DISPLAY_NAMES)) {
+    TOOL_LOOKUP[key.toLowerCase()] = value;
+  }
 
   /** Resolve tool display name, with fallback for unknown MCP tools */
   const getToolDisplayName = (tool: string): string => {
-    if (TOOL_DISPLAY_NAMES[tool]) return TOOL_DISPLAY_NAMES[tool];
-    // For unknown MCP tools: mcp__server__tool_name → "tool_name (server)"
+    const lower = tool.toLowerCase();
+    if (TOOL_LOOKUP[lower]) return TOOL_LOOKUP[lower];
+
+    // For unknown MCP tools: mcp__server__tool_name → "tool_name"
     if (tool.startsWith('mcp__')) {
       const parts = tool.split('__');
-      const toolName = parts[parts.length - 1];
-      return toolName;
+      return parts[parts.length - 1];
     }
     return tool;
   };

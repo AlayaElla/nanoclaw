@@ -9,6 +9,7 @@ import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
 import { describeImage, describeVideo } from '../vision.js';
+import { saveToMediaCache } from '../tools/mediaTools.js';
 import { getAllBotConfigs } from '../agents-config.js';
 import {
   Channel,
@@ -777,16 +778,7 @@ export class TelegramChannel implements Channel {
         const buffer = Buffer.from(await resp.arrayBuffer());
 
         // Cache media
-        const mediaId = `voice_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.ogg`;
-        const cacheDir = path.join(
-          DATA_DIR,
-          'sessions',
-          group.folder,
-          '.claude',
-          'media_cache',
-        );
-        fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+        const mediaId = saveToMediaCache(group.folder, buffer, 'audio');
 
         const transcript = await transcribeAudioMessage(buffer);
         finalContent = transcript
@@ -820,10 +812,79 @@ export class TelegramChannel implements Channel {
         is_from_me: false,
       });
     });
-    this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
-    this.bot.on('message:document', (ctx) => {
+    this.bot.on('message:audio', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group || !this.ownsJid(chatJid)) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+
+      try {
+        const file = await ctx.api.getFile(ctx.message.audio.file_id);
+        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const mediaId = saveToMediaCache(group.folder, buffer, 'audio');
+
+        this.opts.onMessage(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          sender: ctx.from?.id?.toString() || '',
+          sender_name: senderName,
+          content: `[Audio | MediaID: ${mediaId}]`,
+          timestamp,
+          is_from_me: false,
+        });
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Telegram audio download failed');
+        storeNonText(ctx, '[Audio - download failed]');
+      }
+    });
+
+    this.bot.on('message:document', async (ctx) => {
+      const chatJid = this.makeJid(ctx.chat.id);
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group || !this.ownsJid(chatJid)) return;
+
       const name = ctx.message.document?.file_name || 'file';
-      storeNonText(ctx, `[Document: ${name}]`);
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+
+      try {
+        const file = await ctx.api.getFile(ctx.message.document.file_id);
+        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const mediaId = saveToMediaCache(group.folder, buffer, 'document');
+
+        this.opts.onMessage(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          sender: ctx.from?.id?.toString() || '',
+          sender_name: senderName,
+          content: `[Document: ${name} | MediaID: ${mediaId}]`,
+          timestamp,
+          is_from_me: false,
+        });
+      } catch (err) {
+        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Telegram document download failed');
+        storeNonText(ctx, `[Document: ${name} - download failed]`);
+      }
     });
     this.bot.on('message:sticker', (ctx) => {
       const emoji = ctx.message.sticker?.emoji || '';
@@ -948,21 +1009,7 @@ export class TelegramChannel implements Channel {
     // Cache media
     let mediaId = '';
     if (group) {
-      const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
-      mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-      const cacheDir = path.join(
-        DATA_DIR,
-        'sessions',
-        group.folder,
-        '.claude',
-        'media_cache',
-      );
-      try {
-        fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
-      } catch (e) {
-        logger.error({ err: e }, 'Failed to cache media buffer');
-      }
+      mediaId = saveToMediaCache(group.folder, buffer, mediaType);
     }
 
     let finalContent: string;

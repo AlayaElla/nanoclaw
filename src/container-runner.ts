@@ -242,6 +242,14 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  const mediaCacheDir = path.join(groupSessionsDir, 'media_cache');
+  fs.mkdirSync(mediaCacheDir, { recursive: true });
+  mounts.push({
+    hostPath: mediaCacheDir,
+    containerPath: '/workspace/group/.claude/media_cache',
+    readonly: false,
+  });
+
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { DATA_DIR } from '../config.js';
 import { describeImage, describeVideo } from '../vision.js';
 import { transcribeAudioMessage } from '../transcription.js';
@@ -25,6 +26,49 @@ export function getCachedMediaPath(
     return filePath;
   }
   return null;
+}
+
+/**
+ * Saves a media buffer to the group's media cache and returns a unique MediaID.
+ */
+export function saveToMediaCache(
+  groupFolder: string,
+  buffer: Buffer,
+  mediaType: 'photo' | 'video' | 'audio' | 'document' | 'image' | 'file',
+): string {
+  const typeMap: Record<string, string> = {
+    photo: 'photo',
+    image: 'photo',
+    video: 'video',
+    audio: 'audio',
+    document: 'doc',
+    file: 'doc',
+  };
+  const extMap: Record<string, string> = {
+    photo: 'jpg',
+    image: 'jpg',
+    video: 'mp4',
+    audio: 'ogg',
+    document: 'bin',
+    file: 'bin',
+  };
+
+  const prefix = typeMap[mediaType] || 'misc';
+  const ext = extMap[mediaType] || 'bin';
+  const mediaId = `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+
+  const cacheDir = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+    'media_cache',
+  );
+
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+
+  return mediaId;
 }
 
 export async function describeCachedImage(

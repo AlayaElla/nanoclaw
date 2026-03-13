@@ -10,6 +10,7 @@ import { readEnvFile } from '../env.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
 import { describeImage, describeVideo } from '../vision.js';
+import { saveToMediaCache } from '../tools/mediaTools.js';
 
 // --- Types for Feishu Advanced Support ---
 
@@ -268,6 +269,12 @@ export class FeishuChannel implements Channel {
 
   /** Map numeric hash → Feishu string message_id for status messages */
   private statusIdMap = new Map<number, string>();
+
+  /** Map numeric hash → number of times it has been edited */
+  private statusEditCounts = new Map<number, number>();
+
+  /** Feishu edit limit is 50, we recycle at 45 to be safe */
+  private static readonly STATUS_EDIT_LIMIT = 45;
 
   /** Buffered media waiting for a possible follow-up text (key: chatJid) */
   private pendingMedia = new Map<
@@ -581,6 +588,26 @@ export class FeishuChannel implements Channel {
       // Actually, the original code DID keep going to deliverIfRegistered.
     }
 
+    const group = this.opts.registeredGroups()[chatJid];
+    if (group && context.resources.length > 0) {
+      for (const res of context.resources) {
+        try {
+          const buffer = await this.downloadMessageResource(
+            messageId,
+            res.fileKey,
+            res.type,
+          );
+          const mediaId = saveToMediaCache(group.folder, buffer, res.type);
+          content += `\n[${res.type === 'image' ? 'Photo' : 'File'} MediaID: ${mediaId}]`;
+        } catch (err) {
+          logger.error(
+            { chatJid, fileKey: res.fileKey, err },
+            'Failed to download advanced message resource',
+          );
+        }
+      }
+    }
+
     // 7. Deliver
     this.deliverIfRegistered(chatJid, {
       id: messageId,
@@ -852,16 +879,7 @@ export class FeishuChannel implements Channel {
       );
 
       // Cache media
-      const mediaId = `voice_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.ogg`;
-      const cacheDir = path.join(
-        DATA_DIR,
-        'sessions',
-        group.folder,
-        '.claude',
-        'media_cache',
-      );
-      fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
+      const mediaId = saveToMediaCache(group.folder, buffer, 'audio');
 
       const transcript = await transcribeAudioMessage(buffer);
       finalContent = transcript
@@ -898,12 +916,28 @@ export class FeishuChannel implements Channel {
     msgId: string,
     isGroup: boolean,
   ): Promise<void> {
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) return;
+
     let fileName = 'file';
+    let fileKey = '';
     try {
       const parsed = JSON.parse(msg.content || '{}');
       fileName = parsed.file_name || 'file';
+      fileKey = parsed.file_key || '';
     } catch {
       /* ignore */
+    }
+
+    let finalContent = `[Document: ${fileName}]`;
+    if (fileKey) {
+      try {
+        const buffer = await this.downloadMessageResource(msgId, fileKey, 'file');
+        const mediaId = saveToMediaCache(group.folder, buffer, 'file');
+        finalContent = `[Document: ${fileName} | MediaID: ${mediaId}]`;
+      } catch (err) {
+        logger.error({ chatJid, err }, 'Feishu file download failed');
+      }
     }
 
     this.opts.onChatMetadata(chatJid, timestamp, undefined, 'feishu', isGroup);
@@ -912,7 +946,7 @@ export class FeishuChannel implements Channel {
       chat_jid: chatJid,
       sender,
       sender_name: senderName,
-      content: `[Document: ${fileName}]`,
+      content: finalContent,
       timestamp,
       is_from_me: false,
       is_bot_message: false,
@@ -1275,21 +1309,7 @@ export class FeishuChannel implements Channel {
     // Cache media
     let mediaId = '';
     if (group) {
-      const ext = mediaType === 'photo' ? 'jpg' : 'mp4';
-      mediaId = `${mediaType}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-      const cacheDir = path.join(
-        DATA_DIR,
-        'sessions',
-        group.folder,
-        '.claude',
-        'media_cache',
-      );
-      try {
-        fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(path.join(cacheDir, mediaId), buffer);
-      } catch (e) {
-        logger.error({ err: e }, 'Failed to cache media buffer');
-      }
+      mediaId = saveToMediaCache(group.folder, buffer, mediaType);
     }
 
     let finalContent: string;
@@ -1587,6 +1607,7 @@ export class FeishuChannel implements Channel {
 
       const numericId = this.hashStringToNumber(messageId);
       this.statusIdMap.set(numericId, messageId);
+      this.statusEditCounts.set(numericId, 0);
       return numericId;
     } catch (err) {
       logger.debug({ jid, err }, 'Failed to send Feishu status message');
@@ -1602,8 +1623,20 @@ export class FeishuChannel implements Channel {
     const feishuMsgId = this.statusIdMap.get(messageId);
     if (!feishuMsgId) return;
 
+    const editCount = this.statusEditCounts.get(messageId) || 0;
+
+    // If we're approaching the Feishu edit limit (50), recycle the message
+    if (editCount >= FeishuChannel.STATUS_EDIT_LIMIT) {
+      logger.info(
+        { jid, messageId, feishuMsgId, editCount },
+        'Feishu status message reaching edit limit, recycling...',
+      );
+      await this.recycleStatusMessage(jid, messageId, text);
+      return;
+    }
+
     try {
-      await this.client.im.v1.message.update({
+      const resp = await this.client.im.v1.message.update({
         path: { message_id: feishuMsgId },
         data: {
           msg_type: 'post',
@@ -1615,11 +1648,89 @@ export class FeishuChannel implements Channel {
           }),
         },
       });
-    } catch (err) {
+
+      // Check for the edit limit error code in the response if the SDK doesn't throw
+      const code = (resp as any)?.code;
+      if (code === 230072) {
+        logger.warn(
+          { jid, messageId, feishuMsgId, code },
+          'Feishu edit limit hit (async), recycling...',
+        );
+        await this.recycleStatusMessage(jid, messageId, text);
+        return;
+      }
+
+      this.statusEditCounts.set(messageId, editCount + 1);
+    } catch (err: any) {
+      // Handle the edit limit error (230072) specifically
+      if (err?.response?.data?.code === 230072 || err?.code === 230072) {
+        logger.warn(
+          { jid, messageId, feishuMsgId, err },
+          'Feishu edit limit hit, recycling...',
+        );
+        await this.recycleStatusMessage(jid, messageId, text);
+        return;
+      }
+
       logger.debug(
         { jid, messageId, err },
         'Failed to edit Feishu status message',
       );
+    }
+  }
+
+  /**
+   * Internal helper to recycle a status message by sending a new one
+   * and updating the maps so subsequent edits use the new message.
+   */
+  private async recycleStatusMessage(
+    jid: string,
+    numericId: number,
+    text: string,
+  ): Promise<void> {
+    const oldFeishuMsgId = this.statusIdMap.get(numericId);
+
+    // 1. Send new message
+    const chatId = jid.replace(/@feishu$/, '');
+    try {
+      const resp = await this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'post',
+          content: JSON.stringify({
+            zh_cn: {
+              title: '',
+              content: [[{ tag: 'text', text }]],
+            },
+          }),
+        },
+      });
+
+      const NewMessageId =
+        (resp as any)?.data?.message_id || (resp as any)?.message_id;
+
+      if (NewMessageId) {
+        // 2. Update maps
+        this.statusIdMap.set(numericId, NewMessageId);
+        this.statusEditCounts.set(numericId, 0);
+
+        // 3. Try to delete the old message (best effort)
+        if (oldFeishuMsgId) {
+          this.client.im.v1.message
+            .delete({
+              path: { message_id: oldFeishuMsgId },
+            })
+            .catch((err) => {
+              logger.debug(
+                { jid, oldFeishuMsgId, err },
+                'Failed to delete old status message during recycling',
+              );
+            });
+        }
+      }
+    } catch (err) {
+      logger.error({ jid, err }, 'Failed to recycle Feishu status message');
     }
   }
 
@@ -1632,6 +1743,7 @@ export class FeishuChannel implements Channel {
         path: { message_id: feishuMsgId },
       });
       this.statusIdMap.delete(messageId);
+      this.statusEditCounts.delete(messageId);
     } catch (err) {
       logger.debug(
         { jid, messageId, err },
@@ -1697,6 +1809,7 @@ export class FeishuChannel implements Channel {
     }
     this.pendingMedia.clear();
     this.statusIdMap.clear();
+    this.statusEditCounts.clear();
     this.connected = false;
   }
 

@@ -5,10 +5,7 @@ import * as crypto from 'node:crypto';
 
 import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
-import {
-  Channel,
-  NewMessage,
-} from '../types.js';
+import { Channel, NewMessage } from '../types.js';
 import { readEnvFile } from '../env.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
@@ -137,7 +134,11 @@ export class FeishuContentConverter {
     let text = '';
     const traverse = (obj: any) => {
       if (!obj || typeof obj !== 'object') return;
-      if (obj.tag === 'plain_text' || obj.tag === 'lark_md' || obj.tag === 'markdown') {
+      if (
+        obj.tag === 'plain_text' ||
+        obj.tag === 'lark_md' ||
+        obj.tag === 'markdown'
+      ) {
         if (obj.content) text += obj.content + '\n';
       }
       for (const key in obj) {
@@ -201,13 +202,16 @@ export class FeishuContentConverter {
       const senderOpenId = child.sender?.id || 'unknown';
       const senderName = await this.resolveSenderName(senderOpenId);
       const timestamp = new Date(Number(child.create_time)).toISOString();
-      
+
       const context = await this.convert(child, []); // We don't resolve mentions for sub-messages for now
       const content = context.content;
 
       result += `[${timestamp}] ${senderName}:\n`;
       // Indent content
-      result += content.split('\n').map(line => '    ' + line).join('\n');
+      result += content
+        .split('\n')
+        .map((line) => '    ' + line)
+        .join('\n');
       result += '\n';
 
       // If it's another merge_forward, it will be expanded by the recursive convert call above
@@ -363,7 +367,9 @@ export class FeishuChannel implements Channel {
       const rawContent = JSON.parse(msg.content);
       const textSnippet = rawContent.text || '[Media]';
       const snippet =
-        textSnippet.length > 50 ? textSnippet.slice(0, 50) + '...' : textSnippet;
+        textSnippet.length > 50
+          ? textSnippet.slice(0, 50) + '...'
+          : textSnippet;
 
       const content = `[用户对消息 "${snippet}" 做出了 ${emojiType} 反应]`;
 
@@ -615,7 +621,6 @@ export class FeishuChannel implements Channel {
       return null;
     }
   }
-
 
   private async handleImageMessage(
     msg: any,

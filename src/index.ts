@@ -449,7 +449,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   ? `群聊:${group.name}`
                   : '私聊',
               timestamp: new Date().toISOString(),
-            }).catch(() => { });
+            }).catch(() => {});
           }
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
@@ -549,12 +549,12 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
-      if (output.newSessionId) {
-        sessions[group.folder] = output.newSessionId;
-        setSession(group.folder, output.newSessionId);
+        if (output.newSessionId) {
+          sessions[group.folder] = output.newSessionId;
+          setSession(group.folder, output.newSessionId);
+        }
+        await onOutput(output);
       }
-      await onOutput(output);
-    }
     : undefined;
 
   try {
@@ -773,7 +773,7 @@ async function main(): Promise<void> {
                   : '私聊',
               timestamp: msg.timestamp,
             },
-          ).catch(() => { });
+          ).catch(() => {});
         }
       }
     },
@@ -877,7 +877,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-  new URL(`file://${process.argv[1]}`).pathname;
+    new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

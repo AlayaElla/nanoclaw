@@ -823,8 +823,15 @@ export class TelegramChannel implements Channel {
         ctx.from?.username ||
         ctx.from?.id?.toString() ||
         'Unknown';
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       try {
         const file = await ctx.api.getFile(ctx.message.audio.file_id);
@@ -844,7 +851,10 @@ export class TelegramChannel implements Channel {
           is_from_me: false,
         });
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Telegram audio download failed');
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Telegram audio download failed',
+        );
         storeNonText(ctx, '[Audio - download failed]');
       }
     });
@@ -861,8 +871,15 @@ export class TelegramChannel implements Channel {
         ctx.from?.username ||
         ctx.from?.id?.toString() ||
         'Unknown';
-      const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       try {
         const file = await ctx.api.getFile(ctx.message.document.file_id);
@@ -882,7 +899,10 @@ export class TelegramChannel implements Channel {
           is_from_me: false,
         });
       } catch (err) {
-        logger.error({ chatJid, err, bot: this.tokenEnvName }, 'Telegram document download failed');
+        logger.error(
+          { chatJid, err, bot: this.tokenEnvName },
+          'Telegram document download failed',
+        );
         storeNonText(ctx, `[Document: ${name} - download failed]`);
       }
     });

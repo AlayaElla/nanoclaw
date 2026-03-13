@@ -932,7 +932,11 @@ export class FeishuChannel implements Channel {
     let finalContent = `[Document: ${fileName}]`;
     if (fileKey) {
       try {
-        const buffer = await this.downloadMessageResource(msgId, fileKey, 'file');
+        const buffer = await this.downloadMessageResource(
+          msgId,
+          fileKey,
+          'file',
+        );
         const mediaId = saveToMediaCache(group.folder, buffer, 'file');
         finalContent = `[Document: ${fileName} | MediaID: ${mediaId}]`;
       } catch (err) {

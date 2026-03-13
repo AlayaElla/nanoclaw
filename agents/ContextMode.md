@@ -54,7 +54,7 @@
    - `mcp__media__describe_cached_image(mediaId, prompt)` — 调用视觉模型重新审视图片细节。
    - `mcp__media__describe_cached_video(mediaId, prompt)` — 重新分析视频细节。
    - `mcp__media__transcribe_cached_audio(mediaId)` — 重新转录语音。
-   - `mcp__media__get_cached_media(mediaId)` — 获取物理路径。由于物理文件已自动下载并在工作区 `.claude/media_cache` 可见，你可以直接用 `cat`、`read_file` 或脚本读取文档内容，或进行图像处理。
+   - `mcp__media__get_cached_media(mediaId)` — 获取物理路径。由于物理文件已自动下载并在 `.claude/media_cache` 可见，你可以直接通过内置分析工具或 Python 脚本读取内容。
 5. **抓取网页 (WEB)**: `mcp__context-mode__ctx_fetch_and_index(url, source)` 后接 `mcp__context-mode__ctx_search` — 抓取、分块、索引、查询。长篇 HTML 绝不进入对话。（如果是动态交互型网页，换用 `BrowserTool` 工具）。
 6. **人工标记 (INDEX)**: `mcp__context-mode__ctx_index(content, source)` — 把当前占空间但以后可能需要知道的知识片段，存入后端的 FTS5 知识库中备查。
 

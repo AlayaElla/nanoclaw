@@ -99,7 +99,7 @@ server.tool(
     caption: z.string().optional().describe('媒体附带的文字说明'),
   },
   async (args) => {
-    const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
+    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
 
     // Determine media type from extension
@@ -230,7 +230,7 @@ server.tool(
       return { content: [{ type: 'text' as const, text: 'WHATAI_API_KEY not configured. Cannot generate images.' }], isError: true };
     }
 
-    const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
+    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
 
     try {
@@ -758,7 +758,7 @@ if (isMain) {
 
 // --- Media Analytics Tools ---
 
-const MEDIA_CACHE_DIR = path.join('/workspace/group/.claude/media_cache');
+const MEDIA_CACHE_DIR = path.join('/home/node/.claude/media_cache');
 
 function getCachedMediaPath(mediaId: string): string | null {
   const safeId = path.basename(mediaId); // Prevent directory traversal

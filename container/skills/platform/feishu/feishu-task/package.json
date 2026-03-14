@@ -1,0 +1,17 @@
+{
+  "name": "feishu-task",
+  "version": "1.0.0",
+  "description": "飞书任务管理技能 - 支持创建、查询、修改、完成飞书任务",
+  "main": "src/index.js",
+  "keywords": [
+    "feishu",
+    "task",
+    "todo",
+    "lark"
+  ],
+  "author": "星梦",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.3.1"
+  }
+}

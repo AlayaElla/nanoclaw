@@ -28,6 +28,12 @@ export const MOUNT_ALLOWLIST_PATH = path.join(
   'nanoclaw',
   'mount-allowlist.json',
 );
+export const SENDER_ALLOWLIST_PATH = path.join(
+  HOME_DIR,
+  '.config',
+  'nanoclaw',
+  'sender-allowlist.json',
+);
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const AGENTS_DIR = path.resolve(PROJECT_ROOT, 'agents');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
@@ -53,6 +59,11 @@ export const MAX_CONCURRENT_CONTAINERS = Math.max(
 export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+export const TRIGGER_PATTERN = new RegExp(
+  `^@${escapeRegex(ASSISTANT_NAME)}\\b`,
+  'i',
+);
 
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default

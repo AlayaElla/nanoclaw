@@ -45,6 +45,8 @@ export interface SearchResult {
 
 let db: lancedb.Connection | null = null;
 let embeddingConfig: EmbeddingConfig | null = null;
+const tableCache = new Map<string, lancedb.Table>();
+const tablePending = new Map<string, Promise<lancedb.Table>>();
 
 // --- Initialization ---
 
@@ -194,34 +196,56 @@ function sanitizeTableName(groupFolder: string): string {
 }
 
 async function getOrCreateTable(groupFolder: string): Promise<lancedb.Table> {
-  const connection = await getDb();
   const tableName = sanitizeTableName(groupFolder);
 
-  const tableNames = await connection.tableNames();
-  if (tableNames.includes(tableName)) {
-    return connection.openTable(tableName);
+  // Return cached table if available
+  const cached = tableCache.get(tableName);
+  if (cached) return cached;
+
+  // Coalesce concurrent calls: if another call is already creating this table, await it
+  const pending = tablePending.get(tableName);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const connection = await getDb();
+
+    // Try to open existing table first (covers restart case where table is on disk)
+    try {
+      const table = await connection.openTable(tableName);
+      tableCache.set(tableName, table);
+      return table;
+    } catch {
+      // Table doesn't exist yet, create it below
+    }
+
+    const emptyVector = new Array(EMBEDDING_DIM).fill(0);
+    const table = await connection.createTable(tableName, [
+      {
+        vector: emptyVector,
+        text: '',
+        role: 'system',
+        sender_name: '',
+        message_id: '__init__',
+        timestamp: new Date().toISOString(),
+        chat_source: '',
+        chunk_index: 0,
+        total_chunks: 0,
+        image_url: '',
+        video_url: '',
+      },
+    ]);
+
+    logger.info({ groupFolder, tableName }, 'Created RAG table');
+    tableCache.set(tableName, table);
+    return table;
+  })();
+
+  tablePending.set(tableName, promise);
+  try {
+    return await promise;
+  } finally {
+    tablePending.delete(tableName);
   }
-
-  // Create table with a dummy record (LanceDB requires data on creation)
-  const emptyVector = new Array(EMBEDDING_DIM).fill(0);
-  const table = await connection.createTable(tableName, [
-    {
-      vector: emptyVector,
-      text: '',
-      role: 'system',
-      sender_name: '',
-      message_id: '__init__',
-      timestamp: new Date().toISOString(),
-      chat_source: '',
-      chunk_index: 0,
-      total_chunks: 0,
-      image_url: '',
-      video_url: '',
-    },
-  ]);
-
-  logger.info({ groupFolder, tableName }, 'Created RAG table');
-  return table;
 }
 
 // --- Indexing ---

@@ -5,6 +5,7 @@ import {
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
+  TIMEZONE,
   escapeRegex,
 } from './config.js';
 import './channels/index.js';
@@ -45,7 +46,13 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
-import { resolveAgentName } from './agents-config.js';
+import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
+import {
+  isSenderAllowed,
+  isTriggerAllowed,
+  loadSenderAllowlist,
+  shouldDropMessage,
+} from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import {
   Channel,
@@ -86,6 +93,27 @@ function loadState(): void {
   }
   sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
+
+  // Patch existing groups that lack botToken (e.g. Feishu groups registered
+  // before auto-injection was added). This ensures they resolve to the correct
+  // agent config instead of falling back to the first bot.
+  for (const [jid, group] of Object.entries(registeredGroups)) {
+    if (!group.botToken) {
+      const channelMatch = jid.match(/@(\w+)$/);
+      if (channelMatch && channelMatch[1] !== 'telegram') {
+        const channelBot = getBotConfigByChannel(channelMatch[1]);
+        if (channelBot) {
+          group.botToken = channelBot.name;
+          setRegisteredGroup(jid, group);
+          logger.info(
+            { jid, botToken: group.botToken },
+            'Patched missing botToken for existing group',
+          );
+        }
+      }
+    }
+  }
+
   logger.info(
     { groupCount: Object.keys(registeredGroups).length },
     'State loaded',
@@ -107,6 +135,23 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
       'Rejecting group registration with invalid folder',
     );
     return;
+  }
+
+  // Auto-inject botToken for channel-based bots (e.g. Feishu) that don't use
+  // per-bot tokens. Without this, they fall back to the first bot in agents.yaml.
+  if (!group.botToken) {
+    const channelMatch = jid.match(/@(\w+)$/);
+    if (channelMatch && channelMatch[1] !== 'telegram') {
+      const channelName = channelMatch[1];
+      const channelBot = getBotConfigByChannel(channelName);
+      if (channelBot) {
+        group.botToken = channelBot.name;
+        logger.info(
+          { jid, channel: channelName, botToken: group.botToken },
+          'Auto-injected botToken from channel config',
+        );
+      }
+    }
   }
 
   registeredGroups[jid] = group;
@@ -219,18 +264,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
+    const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = missedMessages.some((m) => {
       const text = getTextContent(m.content);
-      return isTriggerPresent(
+      const triggerPresent = isTriggerPresent(
         text,
         group.trigger,
         group.assistantName || ASSISTANT_NAME,
+      );
+      return (
+        triggerPresent &&
+        (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg))
       );
     });
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages);
+  const prompt = formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -650,12 +700,18 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
+            const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some((m) => {
               const text = getTextContent(m.content);
-              return isTriggerPresent(
+              const triggerPresent = isTriggerPresent(
                 text,
                 group.trigger,
                 group.assistantName || ASSISTANT_NAME,
+              );
+              return (
+                triggerPresent &&
+                (m.is_from_me ||
+                  isTriggerAllowed(chatJid, m.sender, allowlistCfg))
               );
             });
             if (!hasTrigger) {
@@ -676,7 +732,7 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend);
+          const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(
@@ -715,10 +771,29 @@ async function startMessageLoop(): Promise<void> {
  * Handles crash between advancing lastRowid and processing messages.
  */
 function recoverPendingMessages(): void {
+  // Only recover messages that arrived recently (within last 5 minutes).
+  // This prevents replaying stale history when lastAgentTimestamp was
+  // rolled back due to agent producing no output (crash, empty reply, etc.).
+  const recoveryCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
     const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
     const pending = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
     if (pending.length > 0) {
+      // Only recover if the most recent pending message is recent enough
+      const newestTimestamp = pending[pending.length - 1].timestamp;
+      if (newestTimestamp < recoveryCutoff) {
+        // Messages are too old — advance cursor past them to prevent
+        // replaying on every restart
+        logger.info(
+          { group: group.name, pendingCount: pending.length, newestTimestamp },
+          'Recovery: skipping stale messages and advancing cursor',
+        );
+        lastAgentTimestamp[chatJid] = newestTimestamp;
+        saveState();
+        continue;
+      }
+
       logger.info(
         { group: group.name, pendingCount: pending.length },
         'Recovery: found unprocessed messages',
@@ -753,6 +828,22 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (_chatJid: string, msg: NewMessage) => {
+      // Sender allowlist drop mode: discard messages from denied senders before storing
+      if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[msg.chat_jid]) {
+        const cfg = loadSenderAllowlist();
+        if (
+          shouldDropMessage(msg.chat_jid, cfg) &&
+          !isSenderAllowed(msg.chat_jid, msg.sender, cfg)
+        ) {
+          if (cfg.logDenied) {
+            logger.debug(
+              { chatJid: msg.chat_jid, sender: msg.sender },
+              'sender-allowlist: dropping message (drop mode)',
+            );
+          }
+          return;
+        }
+      }
       storeMessage(msg);
       // Auto-index user messages for RAG (fire-and-forget)
       if (isRagEnabled()) {

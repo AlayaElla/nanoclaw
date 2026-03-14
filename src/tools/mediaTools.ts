@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { DATA_DIR } from '../config.js';
+import { WORKSPACE_DIR } from '../config.js';
 import { describeImage, describeVideo } from '../vision.js';
 import { transcribeAudioMessage } from '../transcription.js';
 
@@ -10,14 +10,13 @@ import { transcribeAudioMessage } from '../transcription.js';
  * Returns null if the file does not exist.
  */
 export function getCachedMediaPath(
-  groupFolder: string,
+  agentName: string,
   mediaId: string,
 ): string | null {
   const safeId = path.basename(mediaId); // Prevent directory traversal
   const filePath = path.join(
-    DATA_DIR,
-    'sessions',
-    groupFolder,
+    WORKSPACE_DIR,
+    agentName,
     '.claude',
     'media_cache',
     safeId,
@@ -32,7 +31,7 @@ export function getCachedMediaPath(
  * Saves a media buffer to the group's media cache and returns a unique MediaID.
  */
 export function saveToMediaCache(
-  groupFolder: string,
+  agentName: string,
   buffer: Buffer,
   mediaType: 'photo' | 'video' | 'audio' | 'document' | 'image' | 'file',
 ): string {
@@ -58,9 +57,8 @@ export function saveToMediaCache(
   const mediaId = `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
 
   const cacheDir = path.join(
-    DATA_DIR,
-    'sessions',
-    groupFolder,
+    WORKSPACE_DIR,
+    agentName,
     '.claude',
     'media_cache',
   );
@@ -72,11 +70,11 @@ export function saveToMediaCache(
 }
 
 export async function describeCachedImage(
-  groupFolder: string,
+  agentName: string,
   mediaId: string,
   prompt: string,
 ): Promise<string> {
-  const filePath = getCachedMediaPath(groupFolder, mediaId);
+  const filePath = getCachedMediaPath(agentName, mediaId);
   if (!filePath) {
     return `Error: MediaID ${mediaId} not found in cache. It may have expired or the ID is incorrect.`;
   }
@@ -91,11 +89,11 @@ export async function describeCachedImage(
 }
 
 export async function describeCachedVideo(
-  groupFolder: string,
+  agentName: string,
   mediaId: string,
   prompt: string,
 ): Promise<string> {
-  const filePath = getCachedMediaPath(groupFolder, mediaId);
+  const filePath = getCachedMediaPath(agentName, mediaId);
   if (!filePath) {
     return `Error: MediaID ${mediaId} not found in cache.`;
   }
@@ -118,10 +116,10 @@ export async function describeCachedVideo(
 }
 
 export async function transcribeCachedAudio(
-  groupFolder: string,
+  agentName: string,
   mediaId: string,
 ): Promise<string> {
-  const filePath = getCachedMediaPath(groupFolder, mediaId);
+  const filePath = getCachedMediaPath(agentName, mediaId);
   if (!filePath) {
     return `Error: MediaID ${mediaId} not found in cache.`;
   }

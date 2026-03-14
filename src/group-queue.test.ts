@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { GroupQueue } from './group-queue.js';
@@ -9,8 +10,8 @@ vi.mock('./config.js', () => ({
 }));
 
 // Mock fs operations used by sendMessage/closeStdin
-vi.mock('fs', async () => {
-  const actual = await vi.importActual<typeof import('fs')>('fs');
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
     ...actual,
     default: {
@@ -19,6 +20,9 @@ vi.mock('fs', async () => {
       writeFileSync: vi.fn(),
       renameSync: vi.fn(),
     },
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    renameSync: vi.fn(),
   };
 });
 
@@ -246,7 +250,6 @@ describe('GroupQueue', () => {
   // --- Idle preemption ---
 
   it('does NOT preempt active container when not idle', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -275,7 +278,7 @@ describe('GroupQueue', () => {
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
     // _close should NOT have been written (container is working, not idle)
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
+    const writeFileSync = vi.mocked(fs.writeFileSync);
     const closeWrites = writeFileSync.mock.calls.filter(
       (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
     );
@@ -286,7 +289,6 @@ describe('GroupQueue', () => {
   });
 
   it('preempts idle container when task is enqueued', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -312,7 +314,7 @@ describe('GroupQueue', () => {
     queue.notifyIdle('group1@g.us');
 
     // Clear previous writes, then enqueue a task
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
+    const writeFileSync = vi.mocked(fs.writeFileSync);
     writeFileSync.mockClear();
 
     const taskFn = vi.fn(async () => {});
@@ -329,7 +331,6 @@ describe('GroupQueue', () => {
   });
 
   it('sendMessage resets idleWaiting so a subsequent task enqueue does not preempt', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -356,7 +357,7 @@ describe('GroupQueue', () => {
     queue.sendMessage('group1@g.us', 'hello');
 
     // Task enqueued after message reset — should NOT preempt (agent is working)
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
+    const writeFileSync = vi.mocked(fs.writeFileSync);
     writeFileSync.mockClear();
 
     const taskFn = vi.fn(async () => {});
@@ -399,7 +400,6 @@ describe('GroupQueue', () => {
   });
 
   it('preempts when idle arrives with pending tasks', async () => {
-    const fs = await import('fs');
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -423,7 +423,7 @@ describe('GroupQueue', () => {
       'test-group',
     );
 
-    const writeFileSync = vi.mocked(fs.default.writeFileSync);
+    const writeFileSync = vi.mocked(fs.writeFileSync);
     writeFileSync.mockClear();
 
     const taskFn = vi.fn(async () => {});

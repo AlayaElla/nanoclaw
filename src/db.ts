@@ -277,6 +277,11 @@ export function setLastGroupSync(): void {
  * Only call this for registered groups where message history is needed.
  */
 export function storeMessage(msg: NewMessage): void {
+  // Serialize MultiPartContent[] to JSON string for SQLite storage
+  const content =
+    typeof msg.content === 'string'
+      ? msg.content
+      : JSON.stringify(msg.content);
   db.prepare(
     `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -284,7 +289,7 @@ export function storeMessage(msg: NewMessage): void {
     msg.chat_jid,
     msg.sender,
     msg.sender_name,
-    msg.content,
+    content,
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,

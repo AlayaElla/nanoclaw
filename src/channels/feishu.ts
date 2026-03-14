@@ -11,6 +11,7 @@ import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
 import { describeImage, describeVideo } from '../vision.js';
 import { saveToMediaCache } from '../tools/mediaTools.js';
+import { resolveAgentName } from '../agents-config.js';
 
 // --- Types for Feishu Advanced Support ---
 
@@ -355,6 +356,10 @@ export class FeishuChannel implements Channel {
       'im.message.reaction.created_v1': async (data: any) => {
         await this.handleReaction(data);
       },
+      'im.message.reaction.deleted_v1': async (_data: any) => {
+        // Intentionally ignored — we don't need to act on reaction removals,
+        // but registering prevents SDK "no handle" warnings and dispatch errors.
+      },
     });
 
     wsClient.start({ eventDispatcher });
@@ -365,18 +370,23 @@ export class FeishuChannel implements Channel {
   // ─── Reactions ────────────────────────────────────────────────────
 
   private async handleReaction(data: any): Promise<void> {
-    const event = data.event;
-    const messageId = event.message_id;
-    const emojiType = event.reaction_type.emoji_type;
-    const userId = event.user_id.open_id;
-    const actionTime = event.action_time;
-
-    // Ignore bot's own reactions
-    if (this.botOpenId && userId === this.botOpenId) return;
-    // Ignore Typing indicator reactions
-    if (emojiType === 'Typing') return;
-
     try {
+      // SDK may pass data as {event: {...}} or directly as {...}
+      const event = data?.event || data;
+      const messageId = event?.message_id;
+      const emojiType = event?.reaction_type?.emoji_type;
+      const userId = event?.user_id?.open_id;
+      const actionTime = event?.action_time;
+
+      if (!messageId || !emojiType || !userId) {
+        logger.debug({ data }, 'Ignoring reaction with missing fields');
+        return;
+      }
+
+      // Ignore bot's own reactions
+      if (this.botOpenId && userId === this.botOpenId) return;
+      // Ignore Typing indicator reactions
+      if (emojiType === 'Typing') return;
       // Fetch the original message to get chat_id and snippet
       const msgResp = await this.client.im.v1.message.get({
         path: { message_id: messageId },
@@ -414,7 +424,7 @@ export class FeishuChannel implements Channel {
         'Feishu reaction processed',
       );
     } catch (err) {
-      logger.error({ messageId, err }, 'Failed to process Feishu reaction');
+      logger.error({ err }, 'Failed to process Feishu reaction');
     }
   }
 
@@ -615,7 +625,7 @@ export class FeishuChannel implements Channel {
             res.fileKey,
             res.type,
           );
-          const mediaId = saveToMediaCache(group.folder, buffer, res.type);
+          const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, res.type);
           content += `\n[${res.type === 'image' ? 'Photo' : 'File'} MediaID: ${mediaId}]`;
         } catch (err) {
           logger.error(
@@ -897,7 +907,7 @@ export class FeishuChannel implements Channel {
       );
 
       // Cache media
-      const mediaId = saveToMediaCache(group.folder, buffer, 'audio');
+      const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'audio');
 
       const transcript = await transcribeAudioMessage(buffer);
       finalContent = transcript
@@ -955,7 +965,7 @@ export class FeishuChannel implements Channel {
           fileKey,
           'file',
         );
-        const mediaId = saveToMediaCache(group.folder, buffer, 'file');
+        const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'file');
         finalContent = `[Document: ${fileName} | MediaID: ${mediaId}]`;
       } catch (err) {
         logger.error({ chatJid, err }, 'Feishu file download failed');
@@ -1331,7 +1341,7 @@ export class FeishuChannel implements Channel {
     // Cache media
     let mediaId = '';
     if (group) {
-      mediaId = saveToMediaCache(group.folder, buffer, mediaType);
+      mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, mediaType);
     }
 
     let finalContent: string;
@@ -1434,11 +1444,20 @@ export class FeishuChannel implements Channel {
         let msgType = 'text';
         let content = JSON.stringify({ text: chunk });
 
-        if (chunk.trim().startsWith('{') && chunk.trim().endsWith('}')) {
+        // Strip markdown code fences: agents often wrap JSON in ```json ... ```
+        let stripped = chunk.trim();
+        const codeFenceMatch = stripped.match(
+          /^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/,
+        );
+        if (codeFenceMatch) {
+          stripped = codeFenceMatch[1].trim();
+        }
+
+        if (stripped.startsWith('{') && stripped.endsWith('}')) {
           try {
-            JSON.parse(chunk); // Validate JSON
+            JSON.parse(stripped); // Validate JSON
             msgType = 'interactive';
-            content = chunk;
+            content = stripped;
           } catch {
             // Not JSON, stick with text
           }

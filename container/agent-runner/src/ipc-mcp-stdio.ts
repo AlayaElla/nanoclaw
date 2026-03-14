@@ -83,6 +83,90 @@ server.tool(
   },
 );
 
+// --- Feishu-only Tools ---
+if (chatJid.endsWith('@feishu')) {
+  server.tool(
+    'send_card',
+    `发送飞书互动消息卡片。当你需要展示结构化信息时（任务创建结果、列表、状态汇报等），使用此工具而不是直接输出 JSON。
+
+使用场景：
+• 任务创建/更新/完成后的结果通知
+• 任务列表展示
+• 带结构化数据的操作反馈
+• 任何需要美观展示的信息
+
+卡片中的 markdown 语法限制：
+• ✅ 支持：加粗(**text**)、斜体、删除线、链接 [text](url)、@人 <at id=open_id></at>、列表
+• ❌ 不支持：一二三级标题（只能用四五级 #### #####）、图片用 http 链接
+• 用 \\n 换行`,
+    {
+      title: z.string().describe('卡片标题（例如 "✅ 任务已创建"、"📋 任务列表"）'),
+      content: z.string().describe('卡片正文，支持飞书卡片 Markdown 语法。用 \\n 换行，支持加粗、链接、@人'),
+      color: z.enum([
+        'blue', 'wathet', 'turquoise', 'green', 'yellow', 'orange', 'red',
+        'carmine', 'violet', 'purple', 'indigo', 'grey'
+      ]).optional().default('blue').describe('标题栏颜色。推荐：创建成功→green，查询/列表→blue，更新→wathet，删除/警告→orange，错误→red'),
+      buttons: z.array(z.object({
+        text: z.string().describe('按钮文字'),
+        url: z.string().describe('按钮链接'),
+      })).optional().describe('可选的底部按钮列表（例如 [{"text": "查看任务", "url": "https://..."}]）'),
+    },
+    async (args) => {
+      // Build card JSON
+      const elements: any[] = [
+        {
+          tag: 'markdown',
+          content: args.content,
+        },
+      ];
+
+      // Add buttons if provided
+      if (args.buttons && args.buttons.length > 0) {
+        elements.push({
+          tag: 'action',
+          actions: args.buttons.map((btn) => ({
+            tag: 'button',
+            text: {
+              tag: 'plain_text',
+              content: btn.text,
+            },
+            type: 'primary',
+            multi_url: {
+              url: btn.url,
+              pc_url: btn.url,
+              android_url: btn.url,
+              ios_url: btn.url,
+            },
+          })),
+        });
+      }
+
+      const cardJson = JSON.stringify({
+        elements,
+        header: {
+          template: args.color || 'blue',
+          title: {
+            tag: 'plain_text',
+            content: args.title,
+          },
+        },
+      });
+
+      const data: Record<string, string | undefined> = {
+        type: 'message',
+        chatJid,
+        text: cardJson,
+        groupFolder,
+        timestamp: new Date().toISOString(),
+      };
+
+      writeIpcFile(MESSAGES_DIR, data);
+
+      return { content: [{ type: 'text' as const, text: `Card sent: ${args.title}\n\n【重要提醒】：卡片已发送给用户。如果不需要补充其他文字，请直接结束输出，或者将后续的思考包裹在 <internal>...</internal> 标签中，避免向用户重复发送废话。` }] };
+    },
+  );
+}
+
 server.tool(
   'send_media',
   `向用户或群组发送图片、视频、音频或文件。支持三种来源：
@@ -99,7 +183,7 @@ server.tool(
     caption: z.string().optional().describe('媒体附带的文字说明'),
   },
   async (args) => {
-    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
+    const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
 
     // Determine media type from extension
@@ -230,7 +314,7 @@ server.tool(
       return { content: [{ type: 'text' as const, text: 'WHATAI_API_KEY not configured. Cannot generate images.' }], isError: true };
     }
 
-    const MEDIA_CACHE = path.join('/home/node/.claude/media_cache');
+    const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
 
     try {
@@ -758,7 +842,7 @@ if (isMain) {
 
 // --- Media Analytics Tools ---
 
-const MEDIA_CACHE_DIR = path.join('/home/node/.claude/media_cache');
+const MEDIA_CACHE_DIR = path.join('/workspace/group/.claude/media_cache');
 
 function getCachedMediaPath(mediaId: string): string | null {
   const safeId = path.basename(mediaId); // Prevent directory traversal

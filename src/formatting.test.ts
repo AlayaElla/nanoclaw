@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { ASSISTANT_NAME, escapeRegex } from './config.js';
+import { ASSISTANT_NAME, escapeRegex, TIMEZONE } from './config.js';
 import {
   escapeXml,
   formatMessages,
@@ -58,17 +58,18 @@ describe('escapeXml', () => {
 // --- formatMessages ---
 
 describe('formatMessages', () => {
-  it('formats a single message as JSON', () => {
+  const tz = 'UTC';
+
+  it('formats a single message as XML with context header', () => {
     const msg = makeMsg();
-    const result = JSON.parse(formatMessages([msg]));
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({
-      sender: 'Alice',
-      sender_id: '123@s.whatsapp.net',
-      message_id: '1',
-      time: '2024-01-01T00:00:00.000Z',
-      content: 'hello',
-    });
+    const result = formatMessages([msg], tz);
+    expect(result).toContain('<context timezone="UTC" />');
+    expect(result).toContain('<messages>');
+    expect(result).toContain('</messages>');
+    expect(result).toContain('sender="Alice"');
+    expect(result).toContain('sender_id="123@s.whatsapp.net"');
+    expect(result).toContain('message_id="1"');
+    expect(result).toContain('>hello</message>');
   });
 
   it('formats multiple messages', () => {
@@ -77,28 +78,34 @@ describe('formatMessages', () => {
         id: '1',
         sender_name: 'Alice',
         content: 'hi',
-        timestamp: 't1',
+        timestamp: '2024-01-01T00:00:00.000Z',
       }),
       makeMsg({
         id: '2',
         sender: '456@s.whatsapp.net',
         sender_name: 'Bob',
         content: 'hey',
-        timestamp: 't2',
+        timestamp: '2024-01-01T00:01:00.000Z',
       }),
     ];
-    const result = JSON.parse(formatMessages(msgs));
-    expect(result).toHaveLength(2);
-    expect(result[0].sender).toBe('Alice');
-    expect(result[1].sender).toBe('Bob');
-    expect(result[0].message_id).toBe('1');
-    expect(result[1].message_id).toBe('2');
-    expect(result[1].sender_id).toBe('456@s.whatsapp.net');
+    const result = formatMessages(msgs, tz);
+    expect(result).toContain('sender="Alice"');
+    expect(result).toContain('sender="Bob"');
+    expect(result).toContain('message_id="1"');
+    expect(result).toContain('message_id="2"');
+    expect(result).toContain('sender_id="456@s.whatsapp.net"');
   });
 
   it('handles empty array', () => {
-    const result = formatMessages([]);
-    expect(result).toBe('[]');
+    const result = formatMessages([], tz);
+    expect(result).toContain('<messages>');
+    expect(result).toContain('</messages>');
+  });
+
+  it('escapes XML special characters in content', () => {
+    const msg = makeMsg({ content: 'a & b < c' });
+    const result = formatMessages([msg], tz);
+    expect(result).toContain('a &amp; b &lt; c</message>');
   });
 });
 

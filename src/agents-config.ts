@@ -97,6 +97,14 @@ export function getBotConfigByIndex(index: number): BotConfig | undefined {
 }
 
 /**
+ * Get the first bot config matching a given channel name.
+ * Useful for channels like Feishu that don't have per-bot tokens.
+ */
+export function getBotConfigByChannel(channel: string): BotConfig | undefined {
+  return loadConfig().find((b) => b.channel === channel);
+}
+
+/**
  * Resolve the agent name from a bot reference (e.g. 'TELEGRAM_BOT_TOKEN_2' or 'feishu_xingmeng').
  * Falls back to the first bot's name or 'default'.
  */

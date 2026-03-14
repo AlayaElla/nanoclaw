@@ -625,7 +625,11 @@ export class FeishuChannel implements Channel {
             res.fileKey,
             res.type,
           );
-          const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, res.type);
+          const mediaId = saveToMediaCache(
+            resolveAgentName(group.botToken),
+            buffer,
+            res.type,
+          );
           content += `\n[${res.type === 'image' ? 'Photo' : 'File'} MediaID: ${mediaId}]`;
         } catch (err) {
           logger.error(
@@ -907,7 +911,11 @@ export class FeishuChannel implements Channel {
       );
 
       // Cache media
-      const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'audio');
+      const mediaId = saveToMediaCache(
+        resolveAgentName(group.botToken),
+        buffer,
+        'audio',
+      );
 
       const transcript = await transcribeAudioMessage(buffer);
       finalContent = transcript
@@ -965,7 +973,11 @@ export class FeishuChannel implements Channel {
           fileKey,
           'file',
         );
-        const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'file');
+        const mediaId = saveToMediaCache(
+          resolveAgentName(group.botToken),
+          buffer,
+          'file',
+        );
         finalContent = `[Document: ${fileName} | MediaID: ${mediaId}]`;
       } catch (err) {
         logger.error({ chatJid, err }, 'Feishu file download failed');
@@ -1341,7 +1353,11 @@ export class FeishuChannel implements Channel {
     // Cache media
     let mediaId = '';
     if (group) {
-      mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, mediaType);
+      mediaId = saveToMediaCache(
+        resolveAgentName(group.botToken),
+        buffer,
+        mediaType,
+      );
     }
 
     let finalContent: string;

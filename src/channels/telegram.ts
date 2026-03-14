@@ -778,7 +778,11 @@ export class TelegramChannel implements Channel {
         const buffer = Buffer.from(await resp.arrayBuffer());
 
         // Cache media
-        const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'audio');
+        const mediaId = saveToMediaCache(
+          resolveAgentName(group.botToken),
+          buffer,
+          'audio',
+        );
 
         const transcript = await transcribeAudioMessage(buffer);
         finalContent = transcript
@@ -839,7 +843,11 @@ export class TelegramChannel implements Channel {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
-        const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'audio');
+        const mediaId = saveToMediaCache(
+          resolveAgentName(group.botToken),
+          buffer,
+          'audio',
+        );
 
         this.opts.onMessage(chatJid, {
           id: ctx.message.message_id.toString(),
@@ -887,7 +895,11 @@ export class TelegramChannel implements Channel {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
-        const mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, 'document');
+        const mediaId = saveToMediaCache(
+          resolveAgentName(group.botToken),
+          buffer,
+          'document',
+        );
 
         this.opts.onMessage(chatJid, {
           id: ctx.message.message_id.toString(),
@@ -1029,7 +1041,11 @@ export class TelegramChannel implements Channel {
     // Cache media
     let mediaId = '';
     if (group) {
-      mediaId = saveToMediaCache(resolveAgentName(group.botToken), buffer, mediaType);
+      mediaId = saveToMediaCache(
+        resolveAgentName(group.botToken),
+        buffer,
+        mediaType,
+      );
     }
 
     let finalContent: string;

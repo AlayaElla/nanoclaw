@@ -3,7 +3,12 @@ import path from 'path';
 
 import { CronExpressionParser } from 'cron-parser';
 
-import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE, WORKSPACE_DIR } from './config.js';
+import {
+  DATA_DIR,
+  IPC_POLL_INTERVAL,
+  TIMEZONE,
+  WORKSPACE_DIR,
+} from './config.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { handleXIpc } from './x-integration-host.js';
 import { AvailableGroup } from './container-runner.js';
@@ -152,8 +157,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   const mediaType = data.mediaType || 'document';
                   // Resolve media file from the agent's shared media_cache on the host
                   const safeId = path.basename(data.mediaId);
-                  const sourceGroupEntry = Object.values(registeredGroups).find(g => g.folder === sourceGroup);
-                  const mediaAgentName = resolveAgentName(sourceGroupEntry?.botToken);
+                  const sourceGroupEntry = Object.values(registeredGroups).find(
+                    (g) => g.folder === sourceGroup,
+                  );
+                  const mediaAgentName = resolveAgentName(
+                    sourceGroupEntry?.botToken,
+                  );
                   const mediaPath = path.join(
                     WORKSPACE_DIR,
                     mediaAgentName,

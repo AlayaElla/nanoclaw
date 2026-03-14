@@ -829,7 +829,11 @@ async function main(): Promise<void> {
   const channelOpts = {
     onMessage: (_chatJid: string, msg: NewMessage) => {
       // Sender allowlist drop mode: discard messages from denied senders before storing
-      if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[msg.chat_jid]) {
+      if (
+        !msg.is_from_me &&
+        !msg.is_bot_message &&
+        registeredGroups[msg.chat_jid]
+      ) {
         const cfg = loadSenderAllowlist();
         if (
           shouldDropMessage(msg.chat_jid, cfg) &&

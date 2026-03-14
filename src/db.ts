@@ -279,9 +279,7 @@ export function setLastGroupSync(): void {
 export function storeMessage(msg: NewMessage): void {
   // Serialize MultiPartContent[] to JSON string for SQLite storage
   const content =
-    typeof msg.content === 'string'
-      ? msg.content
-      : JSON.stringify(msg.content);
+    typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
   db.prepare(
     `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(

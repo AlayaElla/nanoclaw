@@ -330,6 +330,24 @@ export class FeishuChannel implements Channel {
       loggerLevel: Lark.LoggerLevel.warn,
     });
 
+    // --- PATCH: Suppress confusing SDK crash log when Feishu is busy (1.59.0 bug) ---
+    const originalLoggerError = (wsClient as any).logger.error;
+    (wsClient as any).logger.error = function (tag: string, msg: string) {
+      if (
+        tag === '[ws]' &&
+        (msg?.includes('PingInterval') || msg?.includes('1000040345'))
+      ) {
+        // Suppress the crash message and provide a cleaner one for the "busy" error
+        if (msg.includes('1000040345')) {
+          logger.warn(
+            'Feishu system busy (rate limited), retrying in background...',
+          );
+        }
+        return;
+      }
+      return originalLoggerError.call(this, tag, msg);
+    };
+
     const eventDispatcher = new Lark.EventDispatcher({}).register({
       'im.message.receive_v1': async (data: any) => {
         await this.handleMessage(data);

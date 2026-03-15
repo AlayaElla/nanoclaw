@@ -99,6 +99,15 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
+  // Add is_reply_to_bot column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE messages ADD COLUMN is_reply_to_bot INTEGER DEFAULT 0`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
     database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
@@ -281,7 +290,7 @@ export function storeMessage(msg: NewMessage): void {
   const content =
     typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, is_reply_to_bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -291,6 +300,7 @@ export function storeMessage(msg: NewMessage): void {
     msg.timestamp,
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
+    msg.is_reply_to_bot ? 1 : 0,
   );
 }
 
@@ -339,7 +349,7 @@ export function getNewMessages(
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   const sql = `
-    SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp
+    SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp, is_reply_to_bot
     FROM messages
     WHERE rowid > ? AND chat_jid IN (${placeholders})
       AND is_bot_message = 0 AND content NOT LIKE ?
@@ -349,16 +359,33 @@ export function getNewMessages(
 
   const rows = db
     .prepare(sql)
-    .all(lastRowid, ...jids, `${botPrefix}:%`) as (NewMessage & {
+    .all(lastRowid, ...jids, `${botPrefix}:%`) as Array<{
     rowid: number;
-  })[];
+    id: string;
+    chat_jid: string;
+    sender: string;
+    sender_name: string;
+    content: string;
+    timestamp: string;
+    is_reply_to_bot: number;
+  }>;
 
   let newRowid = lastRowid;
+  const messages: NewMessage[] = [];
   for (const row of rows) {
     if (row.rowid > newRowid) newRowid = row.rowid;
+    messages.push({
+      id: row.id,
+      chat_jid: row.chat_jid,
+      sender: row.sender,
+      sender_name: row.sender_name,
+      content: row.content,
+      timestamp: row.timestamp,
+      is_reply_to_bot: row.is_reply_to_bot === 1 ? true : undefined,
+    });
   }
 
-  return { messages: rows, newRowid };
+  return { messages, newRowid };
 }
 
 export function getMessagesSince(
@@ -369,16 +396,33 @@ export function getMessagesSince(
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_reply_to_bot
     FROM messages
     WHERE chat_jid = ? AND timestamp > ?
       AND is_bot_message = 0 AND content NOT LIKE ?
       AND content != '' AND content IS NOT NULL
     ORDER BY timestamp
   `;
-  return db
+  const rows = db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as Array<{
+    id: string;
+    chat_jid: string;
+    sender: string;
+    sender_name: string;
+    content: string;
+    timestamp: string;
+    is_reply_to_bot: number;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    chat_jid: row.chat_jid,
+    sender: row.sender,
+    sender_name: row.sender_name,
+    content: row.content,
+    timestamp: row.timestamp,
+    is_reply_to_bot: row.is_reply_to_bot === 1 ? true : undefined,
+  }));
 }
 
 export function clearChatData(chatJid: string): void {

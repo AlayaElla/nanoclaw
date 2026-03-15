@@ -63,7 +63,7 @@ WORKDIR /app
 COPY container/agent-runner/package*.json ./
 
 # Install dependencies and link globally-installed context-mode into local node_modules
-# so createRequire() can resolve context-mode/package.json at runtime
+# so createRequire() can resolve context-mode and find its hook scripts at runtime
 RUN npm install && npm link context-mode
 
 # Copy source code

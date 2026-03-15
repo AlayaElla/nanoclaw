@@ -381,7 +381,21 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
 
       // Resolve the actual installation path of context-mode
       // (symlinked from global via `npm link context-mode` in Dockerfile)
-      const cmRoot = resolve(req.resolve('context-mode/package.json'), '..');
+      // Note: we resolve the main entry point instead of package.json because
+      // the package's exports map doesn't include ./package.json
+      const cmEntry = req.resolve('context-mode');
+      let cmRoot = path.dirname(cmEntry);
+      // Walk up until we find the directory containing package.json with name "context-mode"
+      while (cmRoot !== path.dirname(cmRoot)) {
+        const pkgPath = path.join(cmRoot, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+            if (pkg.name === 'context-mode') break;
+          } catch {}
+        }
+        cmRoot = path.dirname(cmRoot);
+      }
       const scriptPath = resolve(cmRoot, 'hooks', `${hookName}.mjs`);
 
       // Context-mode hook scripts read from stdin and write to stdout.

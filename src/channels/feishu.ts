@@ -1785,7 +1785,7 @@ export class FeishuChannel implements Channel {
             .delete({
               path: { message_id: oldFeishuMsgId },
             })
-            .catch((err) => {
+            .catch((err: any) => {
               logger.debug(
                 { jid, oldFeishuMsgId, err },
                 'Failed to delete old status message during recycling',

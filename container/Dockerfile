@@ -62,8 +62,9 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY container/agent-runner/package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies and link globally-installed context-mode into local node_modules
+# so createRequire() can resolve context-mode/package.json at runtime
+RUN npm install && npm link context-mode
 
 # Copy source code
 COPY container/agent-runner/ ./

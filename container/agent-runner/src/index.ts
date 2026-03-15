@@ -380,6 +380,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       const req = createRequire(import.meta.url);
 
       // Resolve the actual installation path of context-mode
+      // (symlinked from global via `npm link context-mode` in Dockerfile)
       const cmRoot = resolve(req.resolve('context-mode/package.json'), '..');
       const scriptPath = resolve(cmRoot, 'hooks', `${hookName}.mjs`);
 

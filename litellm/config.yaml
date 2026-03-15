@@ -53,9 +53,9 @@ model_list:
         enable_thinking: true
 
   # WhatAI.cc
-  - model_name: grok-4-1-fast-reasoning
+  - model_name: grok-4.1
     litellm_params:
-      model: openai/grok-4-1-fast-reasoning
+      model: openai/grok-4.1
       api_base: https://api.whatai.cc/v1
       api_key: "os.environ/WHATAI_API_KEY"
       rpm: 1000

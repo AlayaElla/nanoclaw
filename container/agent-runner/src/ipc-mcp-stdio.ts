@@ -313,6 +313,8 @@ server.tool(
     if (!apiKey) {
       return { content: [{ type: 'text' as const, text: 'WHATAI_API_KEY not configured. Cannot generate images.' }], isError: true };
     }
+    const imageBaseUrl = process.env.IMAGE_BASE_URL || 'https://api.whatai.cc';
+    const defaultModel = process.env.IMAGE_MODEL || 'gpt-image-1';
 
     const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
@@ -346,7 +348,7 @@ server.tool(
         parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${args.prompt}\r\n`));
 
         // model field
-        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${args.model || 'gpt-image-1'}\r\n`));
+        parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${args.model || defaultModel}\r\n`));
 
         // size field (optional)
         if (args.size) {
@@ -361,7 +363,7 @@ server.tool(
 
         const body = Buffer.concat(parts);
 
-        const resp = await fetch('https://api.whatai.cc/v1/images/edits', {
+        const resp = await fetch(`${imageBaseUrl}/v1/images/edits`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -392,12 +394,12 @@ server.tool(
         // Text-to-image: use /v1/images/generations with JSON body
         const payload = {
           prompt: args.prompt,
-          model: args.model || 'gpt-image-1',
+          model: args.model || defaultModel,
           size: args.size || '1024x1024',
           n: 1,
         };
 
-        const resp = await fetch('https://api.whatai.cc/v1/images/generations', {
+        const resp = await fetch(`${imageBaseUrl}/v1/images/generations`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -455,7 +457,7 @@ server.tool(
       };
       writeIpcFile(MESSAGES_DIR, ipcData);
 
-      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || 'gpt-image-1'}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，请直接完成任务，或者将你的任何后续回复或思考包裹在 <internal>...</internal> 标签中，避免向用户发送重复无用的确认消息。` }] };
+      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || defaultModel}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，请直接完成任务，或者将你的任何后续回复或思考包裹在 <internal>...</internal> 标签中，避免向用户发送重复无用的确认消息。` }] };
     } catch (err: any) {
       return { content: [{ type: 'text' as const, text: `Image generation failed: ${err.message}` }], isError: true };
     }

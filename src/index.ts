@@ -273,7 +273,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         group.assistantName || ASSISTANT_NAME,
       );
       return (
-        triggerPresent &&
+        (triggerPresent || m.is_reply_to_bot) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg))
       );
     });
@@ -709,7 +709,7 @@ async function startMessageLoop(): Promise<void> {
                 group.assistantName || ASSISTANT_NAME,
               );
               return (
-                triggerPresent &&
+                (triggerPresent || m.is_reply_to_bot) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg))
               );

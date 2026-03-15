@@ -411,6 +411,10 @@ export class TelegramChannel implements Channel {
       const sender = ctx.from?.id.toString() || '';
       const msgId = ctx.message.message_id.toString();
 
+      // Check if this message is a reply to a message sent by this bot
+      const isReplyToBot =
+        ctx.message.reply_to_message?.from?.id?.toString() === this.botId;
+
       // Determine chat name
       const chatName =
         ctx.chat.type === 'private'
@@ -466,6 +470,7 @@ export class TelegramChannel implements Channel {
         content,
         timestamp,
         is_from_me: false,
+        is_reply_to_bot: isReplyToBot || undefined,
       });
 
       logger.info(
@@ -490,6 +495,8 @@ export class TelegramChannel implements Channel {
         ctx.from?.id?.toString() ||
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+      const isReplyToBot =
+        ctx.message.reply_to_message?.from?.id?.toString() === this.botId;
 
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
@@ -508,6 +515,7 @@ export class TelegramChannel implements Channel {
         content: `${placeholder}${caption}`,
         timestamp,
         is_from_me: false,
+        is_reply_to_bot: isReplyToBot || undefined,
       });
     };
 
@@ -756,6 +764,8 @@ export class TelegramChannel implements Channel {
         ctx.from?.username ||
         ctx.from?.id?.toString() ||
         'Unknown';
+      const isReplyToBot =
+        ctx.message.reply_to_message?.from?.id?.toString() === this.botId;
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       this.opts.onChatMetadata(
@@ -814,6 +824,7 @@ export class TelegramChannel implements Channel {
         content: finalContent,
         timestamp,
         is_from_me: false,
+        is_reply_to_bot: isReplyToBot || undefined,
       });
     });
     this.bot.on('message:audio', async (ctx) => {
@@ -849,6 +860,8 @@ export class TelegramChannel implements Channel {
           'audio',
         );
 
+        const isReplyToBot =
+          ctx.message.reply_to_message?.from?.id?.toString() === this.botId;
         this.opts.onMessage(chatJid, {
           id: ctx.message.message_id.toString(),
           chat_jid: chatJid,
@@ -857,6 +870,7 @@ export class TelegramChannel implements Channel {
           content: `[Audio | MediaID: ${mediaId}]`,
           timestamp,
           is_from_me: false,
+          is_reply_to_bot: isReplyToBot || undefined,
         });
       } catch (err) {
         logger.error(
@@ -901,6 +915,8 @@ export class TelegramChannel implements Channel {
           'document',
         );
 
+        const isReplyToBot =
+          ctx.message.reply_to_message?.from?.id?.toString() === this.botId;
         this.opts.onMessage(chatJid, {
           id: ctx.message.message_id.toString(),
           chat_jid: chatJid,
@@ -909,6 +925,7 @@ export class TelegramChannel implements Channel {
           content: `[Document: ${name} | MediaID: ${mediaId}]`,
           timestamp,
           is_from_me: false,
+          is_reply_to_bot: isReplyToBot || undefined,
         });
       } catch (err) {
         logger.error(

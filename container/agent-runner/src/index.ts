@@ -270,6 +270,65 @@ function createSelfImprovementSessionStartHook(): HookCallback {
   };
 }
 
+/**
+ * PostToolUse hook: when a tool call fails validation, return the correct
+ * usage/signature so the model knows exactly how to fix its call.
+ */
+function createToolUsageHintHook(): HookCallback {
+  // Registry of tool parameter signatures for error guidance
+  const TOOL_USAGE: Record<string, string> = {
+    'mcp__nanoclaw__send_message': 'send_message({ text: string, sender?: string })\n  例: send_message({ text: "你好" })',
+    'mcp__nanoclaw__send_card': 'send_card({ title: string, content: string, color?: string, buttons?: [{text, url}] })\n  例: send_card({ title: "标题", content: "正文内容" })',
+    'mcp__nanoclaw__send_media': 'send_media({ file_path?: string, url?: string, media_id?: string, media_type?: "photo"|"video"|"audio"|"document", caption?: string })\n  三选一: file_path / url / media_id',
+    'mcp__nanoclaw__generate_image': 'generate_image({ prompt: string, source_image?: string, model?: string, size?: string, caption?: string })\n  例: generate_image({ prompt: "一只猫" })',
+    'mcp__nanoclaw__schedule_task': 'schedule_task({ prompt: string, schedule_type: "cron"|"interval"|"once", schedule_value: string, context_mode?: "group"|"isolated" })',
+    'mcp__nanoclaw__register_group': 'register_group({ jid: string, name: string, folder: string, trigger: string })',
+    'mcp__nanoclaw__rag_search': 'rag_search({ query: string, top_k?: number })',
+    'mcp__nanoclaw__list_tasks': 'list_tasks({})',
+    'mcp__nanoclaw__pause_task': 'pause_task({ task_id: string })',
+    'mcp__nanoclaw__resume_task': 'resume_task({ task_id: string })',
+    'mcp__nanoclaw__cancel_task': 'cancel_task({ task_id: string })',
+    'TeamCreate': 'TeamCreate({ team_name: string, description?: string, agent_type?: string })',
+    'SendMessage': 'SendMessage({ to: string, content: string })',
+  };
+
+  return async (input) => {
+    const postInput = input as any;
+    const toolName: string = postInput.tool_name || '';
+    const toolOutput = postInput.tool_response;
+
+    if (!toolOutput) return {};
+
+    const outputStr = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
+
+    // Only trigger on validation errors
+    const isValidationError = [
+      'Invalid arguments for tool',
+      'InputValidationError',
+      'invalid_type',
+      'is missing',
+      'MCP error -32602',
+      'tool_use_error',
+    ].some(p => outputStr.includes(p));
+
+    if (!isValidationError) return {};
+
+    const usage = TOOL_USAGE[toolName];
+    const hint = usage
+      ? `工具调用失败。正确用法:\n${usage}\n如果连续失败，请直接用文本回复用户。`
+      : `工具 ${toolName} 调用参数错误。请检查必需参数后重试，或直接用文本回复用户。`;
+
+    log(`[ToolUsageHint] ${toolName}: returning usage hint`);
+
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUse',
+        additionalContext: hint,
+      },
+    };
+  };
+}
+
 function createSelfImprovementPostToolUseHook(): HookCallback {
   return async (input) => {
     const postToolUseInput = input as any; // PostToolUseHookInput is not exported from sdk but present in type defs
@@ -679,7 +738,7 @@ async function runQuery(
             { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] }
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createPostToolUseHook(), createSelfImprovementPostToolUseHook(), createContextModeHook('posttooluse')] }
+            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createSelfImprovementPostToolUseHook(), createContextModeHook('posttooluse')] }
           ],
           SessionStart: [
             { matcher: '', hooks: [createSelfImprovementSessionStartHook(), createContextModeHook('sessionstart')] }

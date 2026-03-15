@@ -399,12 +399,19 @@ export class FeishuChannel implements Channel {
       const timestamp = new Date(parseInt(actionTime)).toISOString();
 
       // Create a synthetic notification message for the AI
-      const rawContent = JSON.parse(msg.content);
-      const textSnippet = rawContent.text || '[Media]';
-      const snippet =
-        textSnippet.length > 50
-          ? textSnippet.slice(0, 50) + '...'
-          : textSnippet;
+      let snippet = '[Media]';
+      try {
+        if (msg.content) {
+          const rawContent = JSON.parse(msg.content);
+          const textSnippet = rawContent.text || '[Media]';
+          snippet =
+            textSnippet.length > 50
+              ? textSnippet.slice(0, 50) + '...'
+              : textSnippet;
+        }
+      } catch {
+        // Content may not be parseable JSON
+      }
 
       const content = `[用户对消息 "${snippet}" 做出了 ${emojiType} 反应]`;
 

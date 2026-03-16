@@ -104,6 +104,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
               if (data.type === 'message' && data.chatJid && data.text) {
                 if (authorized) {
+                  // Fault tolerance: if sender matches the group's own assistantName,
+                  // treat as a normal bot message (no pool bot, no username prefix)
+                  const sourceGroupEntry = Object.values(registeredGroups).find(
+                    (g) => g.folder === sourceGroup,
+                  );
+                  const isOwnName =
+                    data.sender &&
+                    sourceGroupEntry?.assistantName &&
+                    data.sender === sourceGroupEntry.assistantName;
+                  if (isOwnName) {
+                    data.sender = undefined;
+                  }
+
                   if (data.sender && data.chatJid.startsWith('tg:')) {
                     const chatNumericId = data.chatJid
                       .replace(/^tg:/, '')

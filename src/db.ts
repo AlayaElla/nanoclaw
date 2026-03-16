@@ -573,19 +573,28 @@ export function updateTaskAfterRun(
 }
 
 export function logTaskRun(log: TaskRunLog): void {
-  db.prepare(
-    `
-    INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `,
-  ).run(
-    log.task_id,
-    log.run_at,
-    log.duration_ms,
-    log.status,
-    log.result,
-    log.error,
-  );
+  try {
+    db.prepare(
+      `
+      INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      log.task_id,
+      log.run_at,
+      log.duration_ms,
+      log.status,
+      log.result,
+      log.error,
+    );
+  } catch (err) {
+    // FK constraint fails when the parent scheduled_task has been deleted
+    // while the task was still running. Log instead of crashing the caller.
+    logger.warn(
+      { taskId: log.task_id, err },
+      'Failed to log task run (task may have been deleted)',
+    );
+  }
 }
 
 // --- Router state accessors ---

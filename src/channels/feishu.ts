@@ -583,9 +583,12 @@ export class FeishuChannel implements Channel {
 
     // 3. Normalize mentions for core logic
     if (isMentioned) {
-      // If mentioned, ensure text contains @ASSISTANT_NAME for trigger logic
-      if (!content.includes(`@${ASSISTANT_NAME}`)) {
-        content = `@${ASSISTANT_NAME} ${content}`;
+      // Use group's assistantName if available, otherwise fall back to global
+      const group = this.opts.registeredGroups()[chatJid];
+      const triggerName = group?.assistantName || ASSISTANT_NAME;
+      // If mentioned, ensure text contains @assistantName for trigger logic
+      if (!content.includes(`@${triggerName}`)) {
+        content = `@${triggerName} ${content}`;
       }
     }
 

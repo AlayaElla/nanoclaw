@@ -350,9 +350,7 @@ export function getNewMessages(
     ORDER BY rowid
   `;
 
-  const rows = db
-    .prepare(sql)
-    .all(lastRowid, ...jids) as Array<{
+  const rows = db.prepare(sql).all(lastRowid, ...jids) as Array<{
     rowid: number;
     id: string;
     chat_jid: string;
@@ -393,9 +391,7 @@ export function getMessagesSince(
       AND content != '' AND content IS NOT NULL
     ORDER BY timestamp
   `;
-  const rows = db
-    .prepare(sql)
-    .all(chatJid, sinceTimestamp) as Array<{
+  const rows = db.prepare(sql).all(chatJid, sinceTimestamp) as Array<{
     id: string;
     chat_jid: string;
     sender: string;

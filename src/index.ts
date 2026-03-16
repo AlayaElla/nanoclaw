@@ -253,10 +253,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const isMainGroup = group.isMain === true;
 
   const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
-  const missedMessages = getMessagesSince(
-    chatJid,
-    sinceTimestamp,
-  );
+  const missedMessages = getMessagesSince(chatJid, sinceTimestamp);
 
   if (missedMessages.length === 0) return true;
 
@@ -483,11 +480,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           });
 
           // Cross-post to sibling agents in same Telegram group
-          crossPostToSiblingAgents(
-            chatJid,
-            text,
-            group.assistantName!,
-          );
+          crossPostToSiblingAgents(chatJid, text, group.assistantName!);
           // Auto-index agent output for RAG (fire-and-forget)
           if (isRagEnabled()) {
             indexMessage(resolveAgentName(group.botToken), text, {
@@ -661,10 +654,7 @@ async function startMessageLoop(): Promise<void> {
   while (true) {
     try {
       const jids = Object.keys(registeredGroups);
-      const { messages, newRowid } = getNewMessages(
-        jids,
-        lastRowid,
-      );
+      const { messages, newRowid } = getNewMessages(jids, lastRowid);
 
       if (messages.length > 0) {
         logger.info({ count: messages.length }, 'New messages');

@@ -22,6 +22,32 @@ class FeishuTask {
   }
 
   /**
+   * Validate member IDs — must be open_id (ou_xxx) format.
+   * Rejects common mistakes like passing app_id (cli_xxx) or other invalid prefixes.
+   */
+  _validateMemberIds(members) {
+    if (!Array.isArray(members) || members.length === 0) return;
+    const invalidIds = [];
+    for (const m of members) {
+      const id = typeof m === 'string' ? m : m.id;
+      if (!id) continue;
+      if (!id.startsWith('ou_')) {
+        invalidIds.push(id);
+      }
+    }
+    if (invalidIds.length > 0) {
+      const hint = invalidIds.some(id => id.startsWith('cli_'))
+        ? '你传入的是应用 App ID (cli_xxx)，不是用户 ID。'
+        : '成员 ID 格式不正确。';
+      throw new Error(
+        `无效的成员 ID: [${invalidIds.join(', ')}]。${hint} ` +
+        `成员 ID 必须是用户的 open_id（以 ou_ 开头，例如 ou_xxxxxxxxxx）。` +
+        `请通过飞书联系人 API 或让用户发送 /chatid 命令来获取正确的 open_id。`
+      );
+    }
+  }
+
+  /**
    * Load refresh_token from persistent file or environment variable.
    */
   _loadRefreshToken() {
@@ -154,6 +180,10 @@ class FeishuTask {
   }
 
   async createTask(params) {
+    if (params.members && params.members.length > 0) {
+      this._validateMemberIds(params.members);
+    }
+
     const accessToken = await this.getUserAccessToken();
 
     const taskData = {
@@ -217,6 +247,8 @@ class FeishuTask {
   }
 
   async addMembers(taskGuid, members) {
+    this._validateMemberIds(members);
+
     const accessToken = await this.getUserAccessToken();
     const result = await this.request('POST', `/open-apis/task/v2/tasks/${taskGuid}/members`, {
       members: members
@@ -269,6 +301,7 @@ class FeishuTask {
     }
 
     if (params.members && params.members.length > 0) {
+      this._validateMemberIds(params.members);
       data.members = params.members.map(m => ({
         id: m.id,
         type: 'user',

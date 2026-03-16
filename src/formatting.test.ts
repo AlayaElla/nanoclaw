@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { ASSISTANT_NAME, escapeRegex, TIMEZONE } from './config.js';
+import { escapeRegex, TIMEZONE } from './config.js';
 import {
   escapeXml,
   formatMessages,
@@ -167,8 +167,8 @@ describe('trigger gating (requiresTrigger interaction)', () => {
     isMainGroup: boolean,
     requiresTrigger: boolean | undefined,
     messages: NewMessage[],
-    trigger: string = `@${ASSISTANT_NAME}`,
-    assistantName: string = ASSISTANT_NAME,
+    trigger: string = '@TestBot',
+    assistantName: string = 'TestBot',
   ): boolean {
     if (!shouldRequireTrigger(isMainGroup, requiresTrigger)) return true;
 
@@ -200,7 +200,7 @@ describe('trigger gating (requiresTrigger interaction)', () => {
   });
 
   it('non-main group with requiresTrigger=true processes when trigger present', () => {
-    const msgs = [makeMsg({ content: `@${ASSISTANT_NAME} do something` })];
+    const msgs = [makeMsg({ content: '@TestBot do something' })];
     expect(shouldProcess(false, true, msgs)).toBe(true);
   });
 

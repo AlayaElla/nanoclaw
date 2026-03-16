@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
-import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -89,9 +89,13 @@ async function runTask(
     return;
   }
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update tasks snapshot for container to read (filtered by agent)
   const isMain = group.isMain === true;
   const tasks = getAllTasks();
+  const allGroups = deps.registeredGroups();
+  const agentFolders = Object.values(allGroups)
+    .filter((g) => (g.botToken || '') === (group.botToken || ''))
+    .map((g) => g.folder);
   writeTasksSnapshot(
     task.group_folder,
     isMain,
@@ -113,6 +117,7 @@ async function runTask(
       status: t.status,
       next_run: t.next_run,
     })),
+    agentFolders,
   );
 
   let result: string | null = null;
@@ -160,7 +165,7 @@ async function runTask(
         isMain,
         isGroup,
         isScheduledTask: true,
-        assistantName: group.assistantName || ASSISTANT_NAME,
+        assistantName: group.assistantName,
       },
       (proc, containerName) =>
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),

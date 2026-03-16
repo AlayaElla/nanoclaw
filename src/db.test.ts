@@ -58,7 +58,6 @@ describe('storeMessage', () => {
     const messages = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
-      'Andy',
     );
     expect(messages).toHaveLength(1);
     expect(messages[0].id).toBe('msg-1');
@@ -82,7 +81,6 @@ describe('storeMessage', () => {
     const messages = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
-      'Andy',
     );
     expect(messages).toHaveLength(0);
   });
@@ -104,7 +102,6 @@ describe('storeMessage', () => {
     const messages = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
-      'Andy',
     );
     expect(messages).toHaveLength(1);
   });
@@ -133,7 +130,6 @@ describe('storeMessage', () => {
     const messages = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
-      'Andy',
     );
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe('updated');
@@ -185,7 +181,6 @@ describe('getMessagesSince', () => {
     const msgs = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:02.000Z',
-      'Andy',
     );
     // Should exclude m1, m2 (before/at timestamp), m3 (bot message)
     expect(msgs).toHaveLength(1);
@@ -196,20 +191,20 @@ describe('getMessagesSince', () => {
     const msgs = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
-      'Andy',
     );
     const botMsgs = msgs.filter((m) => m.content === 'bot reply');
     expect(botMsgs).toHaveLength(0);
   });
 
   it('returns all non-bot messages when sinceTimestamp is empty', () => {
-    const msgs = getMessagesSince('group@g.us', '', 'Andy');
+    const msgs = getMessagesSince('group@g.us', '');
     // 3 user messages (bot message excluded)
     expect(msgs).toHaveLength(3);
   });
 
-  it('filters pre-migration bot messages via content prefix backstop', () => {
-    // Simulate a message written before migration: has prefix but is_bot_message = 0
+  it('does not filter pre-migration bot messages by content prefix (backstop removed)', () => {
+    // The old content-prefix backstop (content NOT LIKE 'Name:%') was removed.
+    // Now only the is_bot_message flag matters.
     store({
       id: 'm5',
       chat_jid: 'group@g.us',
@@ -221,9 +216,9 @@ describe('getMessagesSince', () => {
     const msgs = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:04.000Z',
-      'Andy',
     );
-    expect(msgs).toHaveLength(0);
+    // Without is_bot_message flag, the message is returned (backstop removed)
+    expect(msgs).toHaveLength(1);
   });
 });
 
@@ -273,7 +268,6 @@ describe('getNewMessages', () => {
     const { messages, newRowid } = getNewMessages(
       ['group1@g.us', 'group2@g.us'],
       0,
-      'Andy',
     );
     // Excludes bot message, returns 3 user messages
     expect(messages).toHaveLength(3);
@@ -282,20 +276,19 @@ describe('getNewMessages', () => {
 
   it('filters by rowid', () => {
     // First get some messages to find a middle rowid
-    const { messages: all } = getNewMessages(['group1@g.us'], 0, 'Andy');
+    const { messages: all } = getNewMessages(['group1@g.us'], 0);
     const midRowid = (all[0] as any).rowid;
 
     const { messages } = getNewMessages(
       ['group1@g.us', 'group2@g.us'],
       midRowid,
-      'Andy',
     );
     // Should only have messages after the first one
     expect(messages.length).toBeLessThan(3);
   });
 
   it('returns empty for no registered groups', () => {
-    const { messages, newRowid } = getNewMessages([], 0, 'Andy');
+    const { messages, newRowid } = getNewMessages([], 0);
     expect(messages).toHaveLength(0);
     expect(newRowid).toBe(0);
   });

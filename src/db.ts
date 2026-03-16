@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from './config.js';
+import { DATA_DIR, STORE_DIR } from './config.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -91,10 +91,6 @@ function createSchema(database: Database.Database): void {
     database.exec(
       `ALTER TABLE messages ADD COLUMN is_bot_message INTEGER DEFAULT 0`,
     );
-    // Backfill: mark existing bot messages that used the content prefix pattern
-    database
-      .prepare(`UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`)
-      .run(`${ASSISTANT_NAME}:%`);
   } catch {
     /* column already exists */
   }
@@ -341,25 +337,22 @@ export function getMaxRowid(): number {
 export function getNewMessages(
   jids: string[],
   lastRowid: number,
-  botPrefix: string,
 ): { messages: NewMessage[]; newRowid: number } {
   if (jids.length === 0) return { messages: [], newRowid: lastRowid };
 
   const placeholders = jids.map(() => '?').join(',');
-  // Filter bot messages using both the is_bot_message flag AND the content
-  // prefix as a backstop for messages written before the migration ran.
   const sql = `
     SELECT rowid, id, chat_jid, sender, sender_name, content, timestamp, is_reply_to_bot
     FROM messages
     WHERE rowid > ? AND chat_jid IN (${placeholders})
-      AND is_bot_message = 0 AND content NOT LIKE ?
+      AND is_bot_message = 0
       AND content != '' AND content IS NOT NULL
     ORDER BY rowid
   `;
 
   const rows = db
     .prepare(sql)
-    .all(lastRowid, ...jids, `${botPrefix}:%`) as Array<{
+    .all(lastRowid, ...jids) as Array<{
     rowid: number;
     id: string;
     chat_jid: string;
@@ -391,21 +384,18 @@ export function getNewMessages(
 export function getMessagesSince(
   chatJid: string,
   sinceTimestamp: string,
-  botPrefix: string,
 ): NewMessage[] {
-  // Filter bot messages using both the is_bot_message flag AND the content
-  // prefix as a backstop for messages written before the migration ran.
   const sql = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_reply_to_bot
     FROM messages
     WHERE chat_jid = ? AND timestamp > ?
-      AND is_bot_message = 0 AND content NOT LIKE ?
+      AND is_bot_message = 0
       AND content != '' AND content IS NOT NULL
     ORDER BY timestamp
   `;
   const rows = db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as Array<{
+    .all(chatJid, sinceTimestamp) as Array<{
     id: string;
     chat_jid: string;
     sender: string;

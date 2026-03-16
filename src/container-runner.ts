@@ -860,14 +860,18 @@ export function writeTasksSnapshot(
     status: string;
     next_run: string | null;
   }>,
+  agentGroupFolders?: string[],
 ): void {
   // Write filtered tasks to the group's IPC directory
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  // Main sees all tasks, others only see their own
+  // Main sees its own agent's tasks (all groups + private chats),
+  // others only see their own group's tasks.
   const filteredTasks = isMain
-    ? tasks
+    ? agentGroupFolders
+      ? tasks.filter((t) => agentGroupFolders.includes(t.groupFolder))
+      : tasks
     : tasks.filter((t) => t.groupFolder === groupFolder);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');

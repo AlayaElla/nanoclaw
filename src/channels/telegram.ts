@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
-import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
+import { DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
@@ -129,7 +129,9 @@ export class TelegramChannel implements Channel {
 
     // Command to check bot status
     this.bot.command('ping', (ctx) => {
-      ctx.reply(`${ASSISTANT_NAME} is online. (${this.tokenEnvName})`);
+      const group = this.opts.registeredGroups()[this.makeJid(ctx.chat.id)];
+      const name = group?.assistantName || 'NanoClaw';
+      ctx.reply(`${name} is online. (${this.tokenEnvName})`);
     });
 
     // Command to clear session data

@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 
 import {
-  ASSISTANT_NAME,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
   TIMEZONE,
@@ -257,7 +256,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const missedMessages = getMessagesSince(
     chatJid,
     sinceTimestamp,
-    ASSISTANT_NAME,
   );
 
   if (missedMessages.length === 0) return true;
@@ -270,7 +268,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const triggerPresent = isTriggerPresent(
         text,
         group.trigger,
-        group.assistantName || ASSISTANT_NAME,
+        group.assistantName,
       );
       return (
         (triggerPresent || m.is_reply_to_bot) &&
@@ -477,7 +475,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             id: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             chat_jid: chatJid,
             sender: 'assistant',
-            sender_name: group.assistantName || ASSISTANT_NAME,
+            sender_name: group.assistantName!,
             content: text,
             timestamp: new Date().toISOString(),
             is_bot_message: true,
@@ -488,7 +486,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           crossPostToSiblingAgents(
             chatJid,
             text,
-            group.assistantName || ASSISTANT_NAME,
+            group.assistantName!,
           );
           // Auto-index agent output for RAG (fire-and-forget)
           if (isRagEnabled()) {
@@ -571,8 +569,11 @@ async function runAgent(
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update tasks snapshot for container to read (filtered by agent)
   const tasks = getAllTasks();
+  const agentFolders = Object.values(registeredGroups)
+    .filter((g) => (g.botToken || '') === (group.botToken || ''))
+    .map((g) => g.folder);
   writeTasksSnapshot(
     group.folder,
     isMain,
@@ -585,6 +586,7 @@ async function runAgent(
       status: t.status,
       next_run: t.next_run,
     })),
+    agentFolders,
   );
 
   // Update available groups snapshot (main group only can see all groups)
@@ -619,7 +621,7 @@ async function runAgent(
         chatJid,
         isMain,
         isGroup,
-        assistantName: group.assistantName || ASSISTANT_NAME,
+        assistantName: group.assistantName,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -654,7 +656,7 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info(`NanoClaw running (trigger: @${ASSISTANT_NAME})`);
+  logger.info('NanoClaw running');
 
   while (true) {
     try {
@@ -662,7 +664,6 @@ async function startMessageLoop(): Promise<void> {
       const { messages, newRowid } = getNewMessages(
         jids,
         lastRowid,
-        ASSISTANT_NAME,
       );
 
       if (messages.length > 0) {
@@ -706,7 +707,7 @@ async function startMessageLoop(): Promise<void> {
               const triggerPresent = isTriggerPresent(
                 text,
                 group.trigger,
-                group.assistantName || ASSISTANT_NAME,
+                group.assistantName,
               );
               return (
                 (triggerPresent || m.is_reply_to_bot) &&
@@ -728,7 +729,6 @@ async function startMessageLoop(): Promise<void> {
           const allPending = getMessagesSince(
             chatJid,
             lastAgentTimestamp[chatJid] || '',
-            ASSISTANT_NAME,
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
@@ -778,7 +778,7 @@ function recoverPendingMessages(): void {
 
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
     const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
-    const pending = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
+    const pending = getMessagesSince(chatJid, sinceTimestamp);
     if (pending.length > 0) {
       // Only recover if the most recent pending message is recent enough
       const newestTimestamp = pending[pending.length - 1].timestamp;

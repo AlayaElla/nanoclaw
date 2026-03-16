@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
-import { ASSISTANT_NAME, DATA_DIR } from '../config.js';
+import { DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 import { Channel, NewMessage } from '../types.js';
 import { readEnvFile } from '../env.js';
@@ -585,9 +585,9 @@ export class FeishuChannel implements Channel {
     if (isMentioned) {
       // Use group's assistantName if available, otherwise fall back to global
       const group = this.opts.registeredGroups()[chatJid];
-      const triggerName = group?.assistantName || ASSISTANT_NAME;
+      const triggerName = group?.assistantName;
       // If mentioned, ensure text contains @assistantName for trigger logic
-      if (!content.includes(`@${triggerName}`)) {
+      if (triggerName && !content.includes(`@${triggerName}`)) {
         content = `@${triggerName} ${content}`;
       }
     }
@@ -1048,7 +1048,9 @@ export class FeishuChannel implements Channel {
     }
 
     if (cmd === '/ping') {
-      await this.sendMessage(chatJid, `${ASSISTANT_NAME} is online. (feishu)`);
+      const group = this.opts.registeredGroups()[chatJid];
+      const name = group?.assistantName || 'NanoClaw';
+      await this.sendMessage(chatJid, `${name} is online. (feishu)`);
       return true;
     }
 

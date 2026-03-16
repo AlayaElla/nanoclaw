@@ -547,6 +547,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       { group: group.name },
       'Agent produced no output, rolled back message cursor for re-processing',
     );
+    return false; // Trigger retry via GroupQueue.scheduleRetry()
   }
 
   return true;

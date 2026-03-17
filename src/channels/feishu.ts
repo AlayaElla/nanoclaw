@@ -84,7 +84,10 @@ export class FeishuContentConverter {
       // Feishu text messages use @_user_N placeholders (e.g. "@_user_1").
       // Replace placeholder key with @name.
       if (mention.key) {
-        result = result.replace(new RegExp(mention.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), `@${mention.name}`);
+        result = result.replace(
+          new RegExp(mention.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+          `@${mention.name}`,
+        );
       }
       // Also handle <at user_id="ou_xxx">@Name</at> format (rich text fallback)
       const regex = new RegExp(`<at user_id="${mention.id}">[^<]*</at>`, 'g');
@@ -1481,8 +1484,11 @@ export class FeishuChannel implements Channel {
    *
    * Unknown `@username` are kept as plain text.
    */
-  private buildPostElements(text: string): Array<{ tag: string; text?: string; user_id?: string }> {
-    const elements: Array<{ tag: string; text?: string; user_id?: string }> = [];
+  private buildPostElements(
+    text: string,
+  ): Array<{ tag: string; text?: string; user_id?: string }> {
+    const elements: Array<{ tag: string; text?: string; user_id?: string }> =
+      [];
 
     // Phase 1: Normalize <at> HTML tags into @-mention format and collect openIds.
     // This handles agent-generated <at id="ou_xxx"></at> and <at user_id="ou_xxx">name</at>.
@@ -1532,7 +1538,10 @@ export class FeishuChannel implements Channel {
 
       // Push text before this match
       if (match.index > lastIndex) {
-        elements.push({ tag: 'text', text: normalized.slice(lastIndex, match.index) });
+        elements.push({
+          tag: 'text',
+          text: normalized.slice(lastIndex, match.index),
+        });
       }
 
       if (openId) {

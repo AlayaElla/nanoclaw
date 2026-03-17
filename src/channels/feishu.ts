@@ -24,7 +24,7 @@ export interface MediaResource {
 export interface FeishuMessageContext {
   content: string;
   resources: MediaResource[];
-  mentions: { id: string; name: string }[];
+  mentions: { id: string; name: string; key?: string }[];
   quoted?: {
     messageId: string;
     content: string;
@@ -44,7 +44,7 @@ export class FeishuContentConverter {
 
   async convert(
     msg: any,
-    mentions: { id: string; name: string }[],
+    mentions: { id: string; name: string; key?: string }[],
   ): Promise<FeishuMessageContext> {
     const type = msg.message_type;
     const rawContent = JSON.parse(msg.content);
@@ -77,11 +77,16 @@ export class FeishuContentConverter {
 
   private convertText(
     text: string,
-    mentions: { id: string; name: string }[],
+    mentions: { id: string; name: string; key?: string }[],
   ): string {
     let result = text;
     for (const mention of mentions) {
-      // Feishu text mentions are often in the form of <at user_id="ou_xxx">@Name</at>
+      // Feishu text messages use @_user_N placeholders (e.g. "@_user_1").
+      // Replace placeholder key with @name.
+      if (mention.key) {
+        result = result.replace(new RegExp(mention.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), `@${mention.name}`);
+      }
+      // Also handle <at user_id="ou_xxx">@Name</at> format (rich text fallback)
       const regex = new RegExp(`<at user_id="${mention.id}">[^<]*</at>`, 'g');
       result = result.replace(regex, `@${mention.name}`);
     }
@@ -570,10 +575,18 @@ export class FeishuChannel implements Channel {
     isMentioned: boolean,
   ): Promise<void> {
     // 1. Resolve mentions
-    const mentions: { id: string; name: string }[] = [];
+    const mentions: { id: string; name: string; key?: string }[] = [];
     if (Array.isArray(msg.mentions)) {
       for (const m of msg.mentions) {
-        mentions.push({ id: m.id?.open_id, name: m.name });
+        const openId = m.id?.open_id;
+        mentions.push({ id: openId, name: m.name, key: m.key });
+        // Seed reverse cache from inbound mentions for outbound @mention resolution
+        if (openId && m.name) {
+          this.nameToOpenIdCache.set(m.name, openId);
+          if (!this.senderNameCache.has(openId)) {
+            this.senderNameCache.set(openId, m.name);
+          }
+        }
       }
     }
 
@@ -1416,6 +1429,8 @@ export class FeishuChannel implements Channel {
   // ─── Helper: Resolve sender name ──────────────────────────────────
 
   private senderNameCache = new Map<string, string>();
+  /** Reverse map: display name → openId for outbound @mention resolution. */
+  private nameToOpenIdCache = new Map<string, string>();
 
   private async resolveSenderName(openId: string): Promise<string> {
     if (openId === 'unknown') return 'unknown';
@@ -1431,6 +1446,7 @@ export class FeishuChannel implements Channel {
       const name = (resp as any)?.data?.user?.name;
       if (name) {
         this.senderNameCache.set(openId, name);
+        this.nameToOpenIdCache.set(name, openId);
         return name;
       }
     } catch {
@@ -1450,6 +1466,96 @@ export class FeishuChannel implements Channel {
     const mentions = msg.mentions;
     if (!Array.isArray(mentions)) return false;
     return mentions.some((m: any) => m.id?.open_id === this.botOpenId);
+  }
+
+  // ─── Helper: Build post elements with @mention resolution ──────────
+
+  /**
+   * Parse text containing mention patterns and produce a Feishu post
+   * element array with proper `at` tags.
+   *
+   * Handles three formats the agent might produce:
+   *   1. `@username`                              — resolved via nameToOpenIdCache
+   *   2. `<at id="ou_xxx"></at>`                   — card-style mention (direct openId)
+   *   3. `<at user_id="ou_xxx">name</at>`          — text-style mention (direct openId)
+   *
+   * Unknown `@username` are kept as plain text.
+   */
+  private buildPostElements(text: string): Array<{ tag: string; text?: string; user_id?: string }> {
+    const elements: Array<{ tag: string; text?: string; user_id?: string }> = [];
+
+    // Phase 1: Normalize <at> HTML tags into @-mention format and collect openIds.
+    // This handles agent-generated <at id="ou_xxx"></at> and <at user_id="ou_xxx">name</at>.
+    const atTagOpenIds = new Map<string, string>(); // placeholder → openId
+    let normalized = text;
+
+    // Match <at id="ou_xxx"></at> or <at id=ou_xxx></at> (card format, with optional trailing text)
+    normalized = normalized.replace(
+      /<at\s+id=["']?([^"'\s>]+)["']?\s*>[^<]*<\/at>\s*/g,
+      (_match, openId: string) => {
+        const name = this.senderNameCache.get(openId);
+        if (name) {
+          atTagOpenIds.set(name, openId);
+          return `@${name} `;
+        }
+        // No name in cache — inject directly as at element later
+        const placeholder = `__AT_${openId}__`;
+        atTagOpenIds.set(placeholder, openId);
+        return `@${placeholder} `;
+      },
+    );
+
+    // Match <at user_id="ou_xxx">name</at> (text/post format)
+    normalized = normalized.replace(
+      /<at\s+user_id=["']?([^"'\s>]+)["']?\s*>[^<]*<\/at>\s*/g,
+      (_match, openId: string) => {
+        const name = this.senderNameCache.get(openId);
+        if (name) {
+          atTagOpenIds.set(name, openId);
+          return `@${name} `;
+        }
+        const placeholder = `__AT_${openId}__`;
+        atTagOpenIds.set(placeholder, openId);
+        return `@${placeholder} `;
+      },
+    );
+
+    // Phase 2: Split by @mentions (both from normalized <at> tags and original @name)
+    const mentionRegex = /@(\S+)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = mentionRegex.exec(normalized)) !== null) {
+      const name = match[1];
+      // Try: (1) direct openId from atTag normalization, (2) name cache lookup
+      const openId = atTagOpenIds.get(name) || this.nameToOpenIdCache.get(name);
+
+      // Push text before this match
+      if (match.index > lastIndex) {
+        elements.push({ tag: 'text', text: normalized.slice(lastIndex, match.index) });
+      }
+
+      if (openId) {
+        elements.push({ tag: 'at', user_id: openId });
+      } else {
+        // Unknown user → keep as plain text
+        elements.push({ tag: 'text', text: match[0] });
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Push remaining text after last match
+    if (lastIndex < normalized.length) {
+      elements.push({ tag: 'text', text: normalized.slice(lastIndex) });
+    }
+
+    // If no elements were produced (empty text), return a single empty text element
+    if (elements.length === 0) {
+      elements.push({ tag: 'text', text: '' });
+    }
+
+    return elements;
   }
 
   // ─── Outbound: Send Message ────────────────────────────────────────
@@ -1496,17 +1602,11 @@ export class FeishuChannel implements Channel {
         // openclaw-lark often uses 'post' for outbound messages.
         if (msgType === 'text') {
           msgType = 'post';
+          const elements = this.buildPostElements(chunk);
           content = JSON.stringify({
             zh_cn: {
               title: '',
-              content: [
-                [
-                  {
-                    tag: 'text',
-                    text: chunk,
-                  },
-                ],
-              ],
+              content: [elements],
             },
           });
         }

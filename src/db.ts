@@ -424,6 +424,13 @@ export function clearChatData(chatJid: string): void {
   }
   // Delete the tasks
   db.prepare('DELETE FROM scheduled_tasks WHERE chat_jid = ?').run(chatJid);
+
+  // Reset rowid cursor to prevent stale cursor after deletion.
+  // SQLite reuses rowids after DELETE, so the saved last_rowid
+  // may exceed the new MAX(rowid), causing the message loop to
+  // miss all subsequent messages.
+  const maxRowid = getMaxRowid();
+  setRouterState('last_rowid', maxRowid.toString());
 }
 
 export function getRecentMessages(
@@ -611,6 +618,10 @@ export function setSession(groupFolder: string, sessionId: string): void {
   db.prepare(
     'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
   ).run(groupFolder, sessionId);
+}
+
+export function deleteSession(groupFolder: string): void {
+  db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
 }
 
 export function getAllSessions(): Record<string, string> {

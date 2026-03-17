@@ -97,7 +97,11 @@ async function main() {
 
   if (!codeArg) {
     // Step 1: Print authorization URL
-    const authUrl = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=${APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&state=nanoclaw`;
+    // Include all task-related scopes needed by this skill
+    const scopes = [
+      'task:task'
+    ].join(' ');
+    const authUrl = `https://accounts.feishu.cn/open-apis/authen/v1/authorize?client_id=${APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&state=nanoclaw&scope=${encodeURIComponent(scopes)}`;
 
     console.log('=== 飞书 OAuth 授权 ===\n');
     console.log('步骤 1: 在浏览器中访问以下 URL 并授权：\n');

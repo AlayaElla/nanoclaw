@@ -37,6 +37,7 @@ description: |
 | 反完成任务 | feishu_task_task | patch | task_guid, completed_at="0" | - | - |
 | 改截止时间 | feishu_task_task | patch | task_guid, due | - | - |
 | 删除任务 | feishu_task_task | delete | task_guid | - | - |
+| **刷新Token** | feishu_task_task | **refresh** | - | - | - |
 | **创建子任务** | feishu_task_task | **add_subtask** | **task_guid, summary** | - | description, due, start, members |
 | **列出子任务** | feishu_task_task | **list_subtasks** | **task_guid** | - | page_size |
 | 添加成员 | feishu_task_task | add_members | task_guid, members[] | - | - |
@@ -53,8 +54,16 @@ description: |
 
 **工具通过 OAuth 使用 `user_access_token`（用户身份）**
 
-首次使用前需要运行 `node setup-oauth.js` 完成 OAuth 授权。
-refresh_token 会在每次调用时自动刷新并持久化，只要 agent 在 30 天内至少运行一次，token 就不会过期。
+首次使用前需要运行 `node setup-oauth.js` 完成 OAuth 授权（URL 中已包含 `task:task` 和 `task:tasklist` 全权限 scope）。
+
+**Token 缓存机制**：
+- `access_token`（~2小时有效）和 `refresh_token`（~30天有效）以 JSON 格式缓存到 `/workspace/group/.feishu_token_cache.json`
+- 多次 CLI 调用会**复用缓存的 access_token**，不会每次都消耗 refresh_token
+- 只有 access_token 过期时才会自动使用 refresh_token 刷新
+- 可用 `action: refresh` 手动刷新 token
+- 只要 agent 在 30 天内至少运行一次，token 就不会过期
+
+**⚠️ 新增权限后必须重新授权**：如果在飞书开放平台添加了新权限，需要重新运行 `node setup-oauth.js` 获取包含新 scope 的 token。
 
 这意味着：
 - ✅ 创建任务时可以指定任意成员（包括只分配给别人）
@@ -256,6 +265,8 @@ refresh_token 会在每次调用时自动刷新并持久化，只要 agent 在 3
 | **反完成失败** | completed_at 格式错误 | 使用 `"0"` 字符串，不是数字 0 |
 | **时间不对** | 使用了 Unix 时间戳 | 改用 ISO 8601 格式（带时区）：`2024-01-01T00:00:00+08:00` |
 | **子任务创建失败** | 未传 task_guid | `add_subtask` 必须传父任务（或父子任务）的 task_guid |
+| **权限不足 (code 99991679)** | OAuth token 缺少所需 scope | 重新运行 `node setup-oauth.js` 授权（确保 URL 包含 scope 参数） |
+| **refresh_token 失效** | 旧缓存文件中的 token 已过期 | 删除 `.feishu_token_cache.json` 和 `.feishu_refresh_token`，重新授权 |
 
 ---
 
@@ -332,6 +343,14 @@ refresh_token 会在每次调用时自动刷新并持久化，只要 agent 在 3
 
 **⚠️ 重要：输出卡片 JSON 时，不要用 \`\`\`json 代码围栏包裹，直接输出裸 JSON 对象。**
 
+### 任务链接
+
+API 返回值中已包含现成字段：
+- **`task.url`**：完整的任务详情链接（格式：`https://applink.feishu.cn/client/todo/detail?guid={guid}&suite_entity_num={task_id}`）
+- **`task.task_id`**：任务编号（如 `t6272302`），即 URL 中的 `suite_entity_num`
+
+**直接使用 `task.url`，不要手动拼接链接。**
+
 ### 通用卡片模板
 
 ```json
@@ -339,7 +358,23 @@ refresh_token 会在每次调用时自动刷新并持久化，只要 agent 在 3
   "elements": [
     {
       "tag": "markdown",
-      "content": "**任务标题**\n负责人：<at id=ou_xxx></at>\n截止时间：2026-03-15 18:00\n\n[查看任务](https://applink.feishu.cn/client/task/detail/guid)"
+      "content": "**任务标题**\n负责人：<at id=ou_xxx></at>\n截止时间：2026-03-15 18:00"
+    },
+    {
+      "tag": "action",
+      "actions": [
+        {
+          "tag": "button",
+          "text": {
+            "tag": "plain_text",
+            "content": "📋 查看任务"
+          },
+          "type": "primary",
+          "multi_url": {
+            "url": "{task.url}"
+          }
+        }
+      ]
     }
   ],
   "header": {

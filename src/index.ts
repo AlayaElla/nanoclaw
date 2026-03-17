@@ -37,6 +37,7 @@ import {
   setRegisteredGroup,
   setRouterState,
   setSession,
+  deleteSession,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
@@ -78,6 +79,18 @@ function loadState(): void {
   const rawRowid = getRouterState('last_rowid');
   if (rawRowid) {
     lastRowid = parseInt(rawRowid, 10);
+    // Guard against stale cursor: after message deletion (e.g. /clear),
+    // SQLite reuses rowids. If saved cursor exceeds max rowid, new
+    // messages would never be seen by the polling loop.
+    const actualMax = getMaxRowid();
+    if (lastRowid > actualMax) {
+      logger.warn(
+        { savedRowid: lastRowid, actualMax },
+        'Stale lastRowid detected (likely after /clear), resetting to current max',
+      );
+      lastRowid = actualMax;
+      setRouterState('last_rowid', lastRowid.toString());
+    }
   } else {
     // First boot after migration: pick up from current end of DB
     // to avoid re-replying to thousands of old messages.
@@ -633,12 +646,20 @@ async function runAgent(
         { group: group.name, error: output.error },
         'Container agent error',
       );
+      // Clear corrupted session so next retry starts fresh
+      delete sessions[group.folder];
+      deleteSession(group.folder);
+      logger.info({ group: group.name }, 'Cleared session for fresh retry');
       return 'error';
     }
 
     return 'success';
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
+    // Clear corrupted session so next retry starts fresh
+    delete sessions[group.folder];
+    deleteSession(group.folder);
+    logger.info({ group: group.name }, 'Cleared session for fresh retry');
     return 'error';
   }
 }

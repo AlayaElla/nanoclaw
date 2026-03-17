@@ -4,21 +4,24 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: __dirname + '/../.env' });
 
-// Persistent token file location (survives container restarts)
-const TOKEN_FILE = '/workspace/group/.feishu_refresh_token';
+// Persistent token cache file (JSON: refresh_token + access_token + expiry)
+const TOKEN_FILE = '/workspace/group/.feishu_token_cache.json';
+// Legacy file path (for migration from old format)
+const LEGACY_TOKEN_FILE = '/workspace/group/.feishu_refresh_token';
 
 class FeishuTask {
   constructor() {
     this.appId = process.env.FEISHU_APP_ID;
     this.appSecret = process.env.FEISHU_APP_SECRET;
 
-    // Load refresh_token: persistent file first, then env fallback
-    this.refreshToken = this._loadRefreshToken();
+    // Load cached tokens from persistent file
+    const cached = this._loadTokenCache();
+    this.refreshToken = cached.refreshToken;
+    this.userAccessToken = cached.accessToken;
+    this.userTokenExpireTime = cached.accessTokenExpireTime;
 
     this.appAccessToken = null;
     this.appTokenExpireTime = 0;
-    this.userAccessToken = null;
-    this.userTokenExpireTime = 0;
   }
 
   /**
@@ -48,30 +51,55 @@ class FeishuTask {
   }
 
   /**
-   * Load refresh_token from persistent file or environment variable.
+   * Load token cache from persistent JSON file, with fallback to legacy file and env.
    */
-  _loadRefreshToken() {
-    // 1. Try persistent file (most up-to-date after refresh)
+  _loadTokenCache() {
+    // 1. Try JSON cache file (has both access_token and refresh_token)
     try {
       if (fs.existsSync(TOKEN_FILE)) {
-        const token = fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
-        if (token) return token;
+        const data = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf-8'));
+        if (data.refresh_token) {
+          return {
+            refreshToken: data.refresh_token,
+            accessToken: data.access_token || null,
+            accessTokenExpireTime: data.access_token_expire_time || 0
+          };
+        }
       }
     } catch { /* ignore */ }
 
-    // 2. Fall back to environment variable (from .env)
-    return process.env.FEISHU_USER_REFRESH_TOKEN || null;
+    // 2. Try legacy plain-text file (migration from old format)
+    try {
+      if (fs.existsSync(LEGACY_TOKEN_FILE)) {
+        const token = fs.readFileSync(LEGACY_TOKEN_FILE, 'utf-8').trim();
+        if (token) {
+          return { refreshToken: token, accessToken: null, accessTokenExpireTime: 0 };
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 3. Fall back to environment variable (from .env, first-time setup)
+    return {
+      refreshToken: process.env.FEISHU_USER_REFRESH_TOKEN || null,
+      accessToken: null,
+      accessTokenExpireTime: 0
+    };
   }
 
   /**
-   * Persist new refresh_token so it survives container restarts.
+   * Persist token cache (refresh_token + access_token + expiry) to JSON file.
    */
-  _persistRefreshToken(token) {
-    this.refreshToken = token;
+  _persistTokenCache() {
     try {
-      fs.writeFileSync(TOKEN_FILE, token, 'utf-8');
+      const data = {
+        refresh_token: this.refreshToken,
+        access_token: this.userAccessToken,
+        access_token_expire_time: this.userTokenExpireTime,
+        updated_at: new Date().toISOString()
+      };
+      fs.writeFileSync(TOKEN_FILE, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
-      console.error(`[feishu-task] Warning: Could not persist refresh_token: ${err.message}`);
+      console.error(`[feishu-task] Warning: Could not persist token cache: ${err.message}`);
     }
   }
 
@@ -97,6 +125,10 @@ class FeishuTask {
         });
         res.on('end', () => {
           try {
+            // Debug: log raw response for non-200
+            if (res.statusCode !== 200) {
+              console.error('Raw response:', body.substring(0, 500));
+            }
             const result = JSON.parse(body);
             if (result.code === 0) {
               resolve(result);
@@ -140,8 +172,8 @@ class FeishuTask {
   }
 
   /**
-   * Get user_access_token via refresh_token.
-   * Automatically persists the new refresh_token.
+   * Get user_access_token. Uses cached token if still valid,
+   * otherwise auto-refreshes via refresh_token.
    */
   async getUserAccessToken() {
     const now = Date.now();
@@ -149,6 +181,15 @@ class FeishuTask {
       return this.userAccessToken;
     }
 
+    // Cached token expired or missing — auto refresh
+    return (await this.refreshUserAccessToken()).access_token;
+  }
+
+  /**
+   * Manually refresh user_access_token using refresh_token.
+   * Consumes the old refresh_token and persists the new one.
+   */
+  async refreshUserAccessToken() {
     if (!this.refreshToken) {
       throw new Error(
         'FEISHU_USER_REFRESH_TOKEN not set. Run setup-oauth.js to complete OAuth authorization first.'
@@ -167,16 +208,21 @@ class FeishuTask {
       appToken
     );
 
+    const now = Date.now();
     const data = result.data;
     this.userAccessToken = data.access_token;
     this.userTokenExpireTime = now + (data.expires_in * 1000 - 60000);
 
-    // Persist the new refresh_token (old one is invalidated after use)
     if (data.refresh_token) {
-      this._persistRefreshToken(data.refresh_token);
+      this.refreshToken = data.refresh_token;
     }
+    this._persistTokenCache();
 
-    return this.userAccessToken;
+    return {
+      access_token: this.userAccessToken,
+      expires_in: data.expires_in,
+      refresh_token_updated: !!data.refresh_token
+    };
   }
 
   async createTask(params) {
@@ -230,7 +276,38 @@ class FeishuTask {
 
   async updateTask(taskGuid, params) {
     const accessToken = await this.getUserAccessToken();
-    const result = await this.request('PATCH', `/open-apis/task/v2/tasks/${taskGuid}`, params, accessToken);
+
+    // 飞书任务 v2 API 需要 update_fields 参数来指定要更新的字段
+    // update_fields 必须在 task 外面，与 task 平级
+    const taskData = {};
+    const updateFields = [];
+
+    const fieldMapping = {
+      'summary': 'summary',
+      'description': 'description',
+      'due': 'due',
+      'start': 'start',
+      'priority': 'priority',
+      'reminder': 'reminder',
+      'repeat_rule': 'repeat_rule',
+      'status': 'status',
+      'completed_at': 'completed_at'
+    };
+
+    for (const key of Object.keys(params)) {
+      if (fieldMapping[key]) {
+        taskData[fieldMapping[key]] = params[key];
+        updateFields.push(fieldMapping[key]);
+      }
+    }
+
+    // 飞书任务 v2 API PATCH /open-apis/task/v2/tasks/{guid}
+    // update_fields 必须与 task 平级
+    const patchData = {
+      task: taskData,
+      update_fields: updateFields
+    };
+    const result = await this.request('PATCH', `/open-apis/task/v2/tasks/${taskGuid}`, patchData, accessToken);
     return result;
   }
 
@@ -371,6 +448,13 @@ async function runCli() {
   try {
     let result;
     switch (action) {
+      case 'refresh':
+        result = await client.refreshUserAccessToken();
+        console.log('\n✅ Token 刷新成功！');
+        console.log(`access_token 有效期: ${result.expires_in}s (~${Math.round(result.expires_in / 3600)}小时)`);
+        console.log(`refresh_token 已更新: ${result.refresh_token_updated}`);
+        console.log(JSON.stringify(result, null, 2));
+        return;
       case 'create':
         result = await client.createTask(params);
         break;
@@ -449,8 +533,9 @@ async function runCli() {
 
     // 如果是创建任务，生成任务链接并保存
     if (action === 'create' && result.data && result.data.task) {
-      const taskGuid = result.data.task.guid;
-      const taskUrl = `https://applink.feishu.cn/client/task/detail/${taskGuid}`;
+      const task = result.data.task;
+      const taskGuid = task.guid;
+      const taskUrl = task.url || `https://applink.feishu.cn/client/todo/detail?guid=${taskGuid}`;
       console.log(`\n✅ 任务创建成功！任务链接：${taskUrl}`);
 
       // 保存到最近创建的任务文件
@@ -461,6 +546,7 @@ async function runCli() {
       }
       recentTasks.unshift({
         task_guid: taskGuid,
+        task_id: task.task_id,
         summary: params.summary,
         created_at: new Date().toISOString(),
         url: taskUrl
@@ -487,6 +573,8 @@ if (require.main === module) {
 
     try {
       switch (params.action) {
+        case 'refresh':
+          return await client.refreshUserAccessToken();
         case 'create':
           return await client.createTask(params);
         case 'list':

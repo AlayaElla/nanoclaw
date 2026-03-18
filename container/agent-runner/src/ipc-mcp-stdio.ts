@@ -209,6 +209,7 @@ server.tool(
     let buffer: Buffer;
     let detectedType: 'photo' | 'video' | 'audio' | 'document' = 'document';
     let ext = '';
+    let originalFileName: string | undefined;
 
     if (args.file_path) {
       // Source: local file
@@ -216,6 +217,7 @@ server.tool(
         buffer = fs.readFileSync(args.file_path);
         detectedType = detectType(args.file_path);
         ext = path.extname(args.file_path).toLowerCase() || '.bin';
+        originalFileName = path.basename(args.file_path);
       } catch (err: any) {
         return { content: [{ type: 'text' as const, text: `Failed to read file: ${err.message}` }], isError: true };
       }
@@ -227,10 +229,14 @@ server.tool(
         buffer = Buffer.from(await resp.arrayBuffer());
         const contentType = resp.headers.get('content-type') || '';
         detectedType = detectTypeFromMime(contentType);
-        // Try to get extension from URL path
+        // Try to get extension and filename from URL path
         try {
           const urlPath = new URL(args.url).pathname;
           ext = path.extname(urlPath).toLowerCase();
+          const urlBasename = path.basename(urlPath);
+          if (urlBasename && urlBasename !== '/' && urlBasename.includes('.')) {
+            originalFileName = decodeURIComponent(urlBasename);
+          }
         } catch { ext = ''; }
         if (!ext) {
           // Fallback extension from mime
@@ -286,6 +292,7 @@ server.tool(
       mediaId,
       mediaType,
       caption: args.caption || undefined,
+      fileName: originalFileName || undefined,
       groupFolder,
       timestamp: new Date().toISOString(),
     };

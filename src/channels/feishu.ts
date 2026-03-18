@@ -1658,6 +1658,7 @@ export class FeishuChannel implements Channel {
     buffer: Buffer,
     mediaType: 'photo' | 'video' | 'audio' | 'document',
     caption?: string,
+    fileName?: string,
   ): Promise<void> {
     const chatId = jid.replace(/@feishu$/, '');
 
@@ -1701,7 +1702,7 @@ export class FeishuChannel implements Channel {
         const uploadResp = await this.client.im.v1.file.create({
           data: {
             file_type: 'opus',
-            file_name: `audio_${Date.now()}.opus`,
+            file_name: fileName || `audio_${Date.now()}.opus`,
             file: buffer,
           },
         });
@@ -1729,7 +1730,7 @@ export class FeishuChannel implements Channel {
         const uploadResp = await this.client.im.v1.file.create({
           data: {
             file_type: fileType,
-            file_name: `${mediaType}_${Date.now()}.${ext}`,
+            file_name: fileName || `${mediaType}_${Date.now()}.${ext}`,
             file: buffer,
           },
         });
@@ -1753,7 +1754,7 @@ export class FeishuChannel implements Channel {
       }
 
       logger.info(
-        { jid, mediaType, bytes: buffer.length },
+        { jid, mediaType, bytes: buffer.length, fileName },
         'Feishu media sent',
       );
     } catch (err) {

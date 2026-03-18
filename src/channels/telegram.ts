@@ -1181,6 +1181,7 @@ export class TelegramChannel implements Channel {
     buffer: Buffer,
     mediaType: 'photo' | 'video' | 'audio' | 'document',
     caption?: string,
+    fileName?: string,
   ): Promise<void> {
     if (!this.bot) {
       logger.warn({ bot: this.tokenEnvName }, 'Telegram bot not initialized');
@@ -1193,7 +1194,7 @@ export class TelegramChannel implements Channel {
       // Clear typing indicator before sending
       await this.setTyping(jid, false);
 
-      const file = new InputFile(buffer);
+      const file = new InputFile(buffer, fileName);
       const opts = caption ? { caption } : {};
 
       switch (mediaType) {
@@ -1211,7 +1212,7 @@ export class TelegramChannel implements Channel {
           break;
       }
       logger.info(
-        { jid, mediaType, bytes: buffer.length, bot: this.tokenEnvName },
+        { jid, mediaType, bytes: buffer.length, fileName, bot: this.tokenEnvName },
         'Telegram media sent',
       );
     } catch (err) {

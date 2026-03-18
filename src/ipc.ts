@@ -32,6 +32,7 @@ export interface IpcDeps {
     buffer: Buffer,
     mediaType: 'photo' | 'video' | 'audio' | 'document',
     caption?: string,
+    fileName?: string,
   ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
@@ -190,6 +191,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       buffer,
                       mediaType,
                       data.caption,
+                      data.fileName,
                     );
                     // Store outbound media message in DB (mirrors inbound format)
                     const labelMap: Record<string, string> = {

@@ -154,6 +154,7 @@ export interface Channel {
     buffer: Buffer,
     mediaType: 'photo' | 'video' | 'audio' | 'document',
     caption?: string,
+    fileName?: string,
   ): Promise<void>;
 }
 

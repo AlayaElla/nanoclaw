@@ -1212,7 +1212,13 @@ export class TelegramChannel implements Channel {
           break;
       }
       logger.info(
-        { jid, mediaType, bytes: buffer.length, fileName, bot: this.tokenEnvName },
+        {
+          jid,
+          mediaType,
+          bytes: buffer.length,
+          fileName,
+          bot: this.tokenEnvName,
+        },
         'Telegram media sent',
       );
     } catch (err) {

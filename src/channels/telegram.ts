@@ -777,7 +777,11 @@ export class TelegramChannel implements Channel {
         await sendTelegramMessage(this.bot.api, numericId, text);
       } else {
         for (let i = 0; i < text.length; i += MAX_LENGTH) {
-          await sendTelegramMessage(this.bot.api, numericId, text.slice(i, i + MAX_LENGTH));
+          await sendTelegramMessage(
+            this.bot.api,
+            numericId,
+            text.slice(i, i + MAX_LENGTH),
+          );
         }
       }
       logger.info(
@@ -935,7 +939,9 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       try {
-        await this.bot.api.editMessageText(numericId, messageId, text, { parse_mode: 'Markdown' });
+        await this.bot.api.editMessageText(numericId, messageId, text, {
+          parse_mode: 'Markdown',
+        });
       } catch {
         await this.bot.api.editMessageText(numericId, messageId, text);
       }
@@ -1065,7 +1071,11 @@ export async function sendPoolMessage(
       await sendTelegramMessage(api, numericId, prefixedText);
     } else {
       for (let i = 0; i < prefixedText.length; i += MAX_LENGTH) {
-        await sendTelegramMessage(api, numericId, prefixedText.slice(i, i + MAX_LENGTH));
+        await sendTelegramMessage(
+          api,
+          numericId,
+          prefixedText.slice(i, i + MAX_LENGTH),
+        );
       }
     }
     logger.info({ chatId, sender, length: text.length }, 'Pool message sent');

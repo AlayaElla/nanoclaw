@@ -20,6 +20,24 @@ import {
 
 import { GroupQueue } from '../group-queue.js';
 
+/**
+ * Send a message with Telegram Markdown parse mode, falling back to plain text.
+ * Claude's output naturally matches Telegram's Markdown v1 format:
+ *   *bold*, _italic_, `code`, ```code blocks```, [links](url)
+ */
+async function sendTelegramMessage(
+  api: { sendMessage: Bot['api']['sendMessage'] },
+  chatId: string | number,
+  text: string,
+): Promise<ReturnType<Bot['api']['sendMessage']>> {
+  try {
+    return await api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+  } catch (err) {
+    logger.debug({ err }, 'Markdown send failed, falling back to plain text');
+    return await api.sendMessage(chatId, text);
+  }
+}
+
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
@@ -153,7 +171,7 @@ export class TelegramChannel implements Channel {
           group,
           groupQueue: this.opts.groupQueue,
           reply: async (text: string) => {
-            await ctx.reply(text);
+            await ctx.reply(text, { parse_mode: 'Markdown' });
           },
           onMessage: this.opts.onMessage,
         },
@@ -756,13 +774,10 @@ export class TelegramChannel implements Channel {
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
-        await this.bot.api.sendMessage(numericId, text);
+        await sendTelegramMessage(this.bot.api, numericId, text);
       } else {
         for (let i = 0; i < text.length; i += MAX_LENGTH) {
-          await this.bot.api.sendMessage(
-            numericId,
-            text.slice(i, i + MAX_LENGTH),
-          );
+          await sendTelegramMessage(this.bot.api, numericId, text.slice(i, i + MAX_LENGTH));
         }
       }
       logger.info(
@@ -900,7 +915,7 @@ export class TelegramChannel implements Channel {
     if (!this.bot) return null;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
-      const msg = await this.bot.api.sendMessage(numericId, text);
+      const msg = await sendTelegramMessage(this.bot.api, numericId, text);
       return msg.message_id;
     } catch (err) {
       logger.debug(
@@ -919,7 +934,11 @@ export class TelegramChannel implements Channel {
     if (!this.bot) return;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
-      await this.bot.api.editMessageText(numericId, messageId, text);
+      try {
+        await this.bot.api.editMessageText(numericId, messageId, text, { parse_mode: 'Markdown' });
+      } catch {
+        await this.bot.api.editMessageText(numericId, messageId, text);
+      }
     } catch (err) {
       logger.debug(
         { jid, messageId, err, bot: this.tokenEnvName },
@@ -1043,10 +1062,10 @@ export async function sendPoolMessage(
     const numericId = chatId.replace(/^tg:/, '').replace(/@.*$/, '');
     const MAX_LENGTH = 4096;
     if (prefixedText.length <= MAX_LENGTH) {
-      await api.sendMessage(numericId, prefixedText);
+      await sendTelegramMessage(api, numericId, prefixedText);
     } else {
       for (let i = 0; i < prefixedText.length; i += MAX_LENGTH) {
-        await api.sendMessage(numericId, prefixedText.slice(i, i + MAX_LENGTH));
+        await sendTelegramMessage(api, numericId, prefixedText.slice(i, i + MAX_LENGTH));
       }
     }
     logger.info({ chatId, sender, length: text.length }, 'Pool message sent');

@@ -287,6 +287,19 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           continue;
         }
 
+        // Pre-advance next_run (or mark once-tasks completed) in the DB
+        // BEFORE dispatching. If the process crashes mid-execution,
+        // updateTaskAfterRun() never runs — without this, the stale
+        // next_run causes the task to fire again on restart.
+        if (currentTask.schedule_type === 'once') {
+          updateTask(currentTask.id, { status: 'completed' });
+        } else {
+          const nextRun = computeNextRun(currentTask);
+          if (nextRun) {
+            updateTask(currentTask.id, { next_run: nextRun });
+          }
+        }
+
         deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
           runTask(currentTask, deps),
         );

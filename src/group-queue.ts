@@ -19,6 +19,7 @@ interface GroupState {
   active: boolean;
   idleWaiting: boolean;
   isTaskContainer: boolean;
+  runningTaskId: string | null;
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
@@ -42,6 +43,7 @@ export class GroupQueue {
         active: false,
         idleWaiting: false,
         isTaskContainer: false,
+        runningTaskId: null,
         pendingMessages: false,
         pendingTasks: [],
         process: null,
@@ -91,7 +93,11 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Prevent double-queuing of the same task
+    // Prevent double-queuing: check both pending and currently-running task
+    if (state.runningTaskId === taskId) {
+      logger.debug({ groupJid, taskId }, 'Task already running, skipping');
+      return;
+    }
     if (state.pendingTasks.some((t) => t.id === taskId)) {
       logger.debug({ groupJid, taskId }, 'Task already queued, skipping');
       return;
@@ -216,6 +222,32 @@ export class GroupQueue {
     });
   }
 
+  /**
+   * Get a snapshot of the current group state (for /status command).
+   * Returns null if the group has never been seen.
+   */
+  getGroupStatus(groupJid: string): {
+    active: boolean;
+    idleWaiting: boolean;
+    isTaskContainer: boolean;
+    runningTaskId: string | null;
+    pendingMessages: boolean;
+    pendingTaskCount: number;
+    containerName: string | null;
+  } | null {
+    const state = this.groups.get(groupJid);
+    if (!state) return null;
+    return {
+      active: state.active,
+      idleWaiting: state.idleWaiting,
+      isTaskContainer: state.isTaskContainer,
+      runningTaskId: state.runningTaskId,
+      pendingMessages: state.pendingMessages,
+      pendingTaskCount: state.pendingTasks.length,
+      containerName: state.containerName,
+    };
+  }
+
   private async runForGroup(
     groupJid: string,
     reason: 'messages' | 'drain',
@@ -259,6 +291,7 @@ export class GroupQueue {
     state.active = true;
     state.idleWaiting = false;
     state.isTaskContainer = true;
+    state.runningTaskId = task.id;
     this.activeCount++;
 
     logger.debug(
@@ -273,6 +306,7 @@ export class GroupQueue {
     } finally {
       state.active = false;
       state.isTaskContainer = false;
+      state.runningTaskId = null;
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;

@@ -113,289 +113,54 @@ export class TelegramChannel implements Channel {
   async connect(): Promise<void> {
     this.bot = new Bot(this.botToken);
 
-    // Command to get chat ID (useful for registration)
-    this.bot.command('chatid', (ctx) => {
-      const chatId = ctx.chat.id;
-      const chatType = ctx.chat.type;
-      const chatName =
-        chatType === 'private'
-          ? ctx.from?.first_name || 'Private'
-          : (ctx.chat as any).title || 'Unknown';
+    // ─── Generic command handler ─────────────────────────────────────
+    // Delegate all /commands to the shared commands module.
+    this.bot.on('message:text', async (ctx, next) => {
+      if (!ctx.message.text.startsWith('/')) return next();
 
-      ctx.reply(
-        `Chat ID: tg:${chatId}@${this.botId}\nBot: ${this.tokenEnvName}\nName: ${chatName}\nType: ${chatType}`,
-      );
-    });
-
-    // Command to check bot status
-    this.bot.command('ping', (ctx) => {
-      const group = this.opts.registeredGroups()[this.makeJid(ctx.chat.id)];
-      const name = group?.assistantName || 'NanoClaw';
-      ctx.reply(`${name} is online. (${this.tokenEnvName})`);
-    });
-
-    // Command to clear session data
-    this.bot.command('clear', async (ctx) => {
       const chatJid = this.makeJid(ctx.chat.id);
-      const group = this.opts.registeredGroups()[chatJid];
-      if (!group) {
-        ctx.reply('This chat is not registered. Cannot clear session.');
-        return;
-      }
 
       // In group chats, only react when the command explicitly targets this bot
-      // e.g. /clear@BotName — avoids reacting to bare /clear from other bots
+      // e.g. /clear@BotName — avoids reacting to bare /command from other bots
       const isGroupChat =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       if (isGroupChat) {
-        const cmdText = ctx.message?.text || '';
+        const cmdText = ctx.message.text;
         const botUsername = ctx.me.username;
-        if (!cmdText.includes(`@${botUsername}`)) return;
+        // Strip @botname suffix for dispatch, but only handle if addressed to us or bare
+        if (cmdText.includes('@') && !cmdText.includes(`@${botUsername}`))
+          return;
       }
 
       // Message isolation: skip if JID belongs to a different bot
       if (!this.ownsJid(chatJid)) return;
 
-      try {
-        const groupSessionsDir = path.join(DATA_DIR, 'sessions', group.folder);
-
-        let clearedOptions = false;
-        if (fs.existsSync(groupSessionsDir)) {
-          fs.rmSync(groupSessionsDir, { recursive: true, force: true });
-          clearedOptions = true;
-        }
-
-        if (clearedOptions) {
-          logger.info(
-            { chatJid, bot: this.tokenEnvName },
-            'Workspace data cleared',
-          );
-        } else {
-          logger.info(
-            { chatJid, bot: this.tokenEnvName },
-            'No workspace data found to clear',
-          );
-        }
-
-        // Clear Database Data (Tasks, Messages) for this JID
-        const { clearChatData } = await import('../db.js');
-        clearChatData(chatJid);
-
-        ctx.reply(
-          '✅ 清理成功！您的工作区和所有历史对话已完全清空，可以直接开始全新的会话。',
-        );
-      } catch (err) {
-        logger.error(
-          { chatJid, err, bot: this.tokenEnvName },
-          'Failed to clear session data',
-        );
-        ctx.reply('❌ 清理失败，请检查服务器日志。');
-      }
-    });
-
-    // Command to compact session (Soft Reset)
-    this.bot.command('compact', async (ctx) => {
-      const chatJid = this.makeJid(ctx.chat.id);
       const group = this.opts.registeredGroups()[chatJid];
-      if (!group) {
-        ctx.reply('This chat is not registered. Cannot compact session.');
-        return;
-      }
+      const timestamp = ctx.message
+        ? new Date(ctx.message.date * 1000).toISOString()
+        : new Date().toISOString();
 
-      // In group chats, only react when the command explicitly targets this bot
-      const isGroupChat =
-        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      if (isGroupChat) {
-        const cmdText = ctx.message?.text || '';
-        const botUsername = ctx.me.username;
-        if (!cmdText.includes(`@${botUsername}`)) return;
-      }
+      // Strip @botname suffix from command text before dispatching
+      const rawContent = ctx.message.text.replace(/@\S+/, '').trim();
 
-      if (!this.ownsJid(chatJid)) return;
-
-      try {
-        ctx.reply(
-          'Compacting session... 正在读取数据库并生成对话总结，随后将重置短期记忆。',
-        );
-
-        // 1. Fetch recent history from DB
-        const { getRecentMessages } = await import('../db.js');
-        const recentMessages = getRecentMessages(chatJid, 20);
-        let historyBlock = '';
-        if (recentMessages && recentMessages.length > 0) {
-          for (const msg of recentMessages.reverse()) {
-            // Chronological order
-            historyBlock += `[${msg.timestamp}] ${msg.sender_name}: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}\n`;
-          }
-        }
-
-        // 2. Generate summary using LLM API
-        let summary = '目前没有先前的上下文可以总结。';
-        if (historyBlock) {
-          try {
-            const { readEnvFile } = await import('../env.js');
-            const envVars = readEnvFile([
-              'ANTHROPIC_API_KEY',
-              'ANTHROPIC_BASE_URL',
-              'ANTHROPIC_MODEL',
-            ]);
-            const apiKey =
-              envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-            let apiUrl =
-              envVars.ANTHROPIC_BASE_URL ||
-              process.env.ANTHROPIC_BASE_URL ||
-              'http://localhost:4000';
-            const modelName =
-              envVars.ANTHROPIC_MODEL ||
-              process.env.ANTHROPIC_MODEL ||
-              'claude-3-5-sonnet-20241022';
-
-            // Format URL to LiteLLM/OpenAI Messages API standard
-            // LiteLLM router uses /v1/chat/completions, not /v1/messages (Anthropic native)
-            if (!apiUrl.endsWith('/v1/chat/completions')) {
-              // Strip trailing /v1/messages if present (we replace with openai format)
-              apiUrl = apiUrl.replace(/\/v1\/messages$/, '').replace(/\/$/, '');
-              apiUrl = apiUrl + '/v1/chat/completions';
-            }
-
-            if (apiKey) {
-              const fetchResponse = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${apiKey}`, // LiteLLM uses Bearer token
-                },
-                body: JSON.stringify({
-                  model: modelName,
-                  max_tokens: 1024,
-                  messages: [
-                    {
-                      role: 'user',
-                      content: `请帮我总结以下这段近期对话的内容上下文。提取出所有的Active Tasks（当前正在进行的任务、未完成的），以及目前最新的定论、意图和关键信息。请保持简短扼要，使用列表的形式。回复请直接输出总结，不要包含任何寒暄废话。\n\n对话记录：\n${historyBlock}`,
-                    },
-                  ],
-                }),
-              });
-
-              if (fetchResponse.ok) {
-                const data = (await fetchResponse.json()) as any;
-                // LiteLLM returns OpenAI-compatible format: choices[0].message.content
-                // Anthropic native format: content[0].text
-                summary =
-                  data?.choices?.[0]?.message?.content ||
-                  data?.content?.[0]?.text ||
-                  '概括生成的文本为空';
-              } else {
-                const errText = await fetchResponse.text();
-                logger.error(
-                  {
-                    chatJid,
-                    status: fetchResponse.status,
-                    errText,
-                    apiUrl,
-                    modelName,
-                  },
-                  'Failed to fetch summary from LLM API',
-                );
-                summary = `由于摘要生成失败，这是您的原始对话记录：\n${historyBlock}`; // Fallback
-              }
-            } else {
-              summary = `由于未配置API密钥，这是您的原始对话记录：\n${historyBlock}`; // Fallback if no API key
-            }
-          } catch (e) {
-            logger.error(
-              { chatJid, err: e },
-              'Error during summary generation',
-            );
-            summary = `由于执行报错，这是您的原始对话记录：\n${historyBlock}`; // Fallback
-          }
-        }
-
-        // 3. Clear Session directories
-        // Before clearing, gracefully shut down any active container for this group
-        // to prevent the Claude SDK from crashing with ENOENT or ProcessTransport errors
-        if (this.opts.groupQueue) {
-          try {
-            this.opts.groupQueue.closeStdin(chatJid);
-            // Wait briefly to allow the _close sentinel to be processed by the container
-            await new Promise((r) => setTimeout(r, 1000));
-
-            // Forcibly terminate the container before ripping out the file system
-            await this.opts.groupQueue.killContainer(chatJid);
-            // Give the OS time to release file handles
-            await new Promise((r) => setTimeout(r, 2000));
-          } catch (e) {
-            logger.warn(
-              { chatJid, err: e },
-              'Failed to gracefully close container before compact, continuing anyway',
-            );
-          }
-        }
-
-        const baseClaudeDir = path.join(
-          DATA_DIR,
-          'sessions',
-          group.folder,
-          '.claude',
-        );
-        const dirsToClear = ['sessions', 'session-env', 'projects'];
-        for (const dirName of dirsToClear) {
-          const dirPath = path.join(baseClaudeDir, dirName);
-          try {
-            if (fs.existsSync(dirPath)) {
-              fs.rmSync(dirPath, { recursive: true, force: true });
-            }
-          } catch (e) {
-            logger.warn(
-              { dirPath, e },
-              'Failed to clear claude state directory',
-            );
-          }
-        }
-
-        // 3.5 Clear IPC state so the newly spawned container doesn't slurp up stale messages intended for the old session
-        const ipcDir = path.join(DATA_DIR, 'ipc', group.folder, 'input');
-        try {
-          if (fs.existsSync(ipcDir)) {
-            fs.rmSync(ipcDir, { recursive: true, force: true });
-          }
-        } catch (e) {
-          logger.warn({ ipcDir, e }, 'Failed to clear IPC directory');
-        }
-
-        // Give extra time for the file system to settle before the new request triggers the container boot
-        await new Promise((r) => setTimeout(r, 1000));
-
-        // 4. Inject system message with history
-        ctx.reply(
-          '✅ 总结与清理完成！最新提示词与上下文摘要已就绪，正在唤醒新会话...',
-        );
-        const timestamp = ctx.message
-          ? new Date(ctx.message.date * 1000).toISOString()
-          : new Date().toISOString();
-        const content = `[System Status: Session has been compacted to load new system prompts. Your short-term memory was cleared, but your tasks and RAG memory remain intact. The following is a summary of the recent conversational context precisely crafted for you to continue working smoothly:\n\n${summary}\n\nPlease acknowledge this reset and review your active tasks. Respond with "会话已软重置，最新提示词与上下文摘要已自动继承。"]`;
-
-        this.opts.onMessage(chatJid, {
-          id: `compact-${Date.now()}`,
-          chat_jid: chatJid,
-          sender: 'system',
-          sender_name: 'SystemAdmin',
-          content,
+      const { handleCommand } = await import('../commands.js');
+      const handled = await handleCommand(
+        {
+          chatJid,
+          isGroup: isGroupChat,
           timestamp,
-          is_from_me: false,
-        });
+          channelName: this.tokenEnvName,
+          group,
+          groupQueue: this.opts.groupQueue,
+          reply: async (text: string) => {
+            await ctx.reply(text);
+          },
+          onMessage: this.opts.onMessage,
+        },
+        rawContent,
+      );
 
-        logger.info(
-          { chatJid, bot: this.tokenEnvName },
-          'Session compacted and summary injected',
-        );
-      } catch (err) {
-        logger.error(
-          { chatJid, err, bot: this.tokenEnvName },
-          'Failed to compact session',
-        );
-        ctx.reply('❌ 软重置失败，请检查服务器日志。');
-      }
+      if (!handled) return; // Unknown command — ignore
     });
 
     this.bot.on('message:text', async (ctx) => {

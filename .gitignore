@@ -38,3 +38,5 @@ agents/*
 .nanoclaw/
 
 agents-sdk-docs
+
+.openclaw_temp

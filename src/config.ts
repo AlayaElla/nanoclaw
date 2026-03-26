@@ -12,6 +12,7 @@ export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 export const INSTANCE_ID = process.env.INSTANCE_ID || 'default';
+export const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '18789', 10);
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 

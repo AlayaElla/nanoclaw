@@ -44,6 +44,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
+import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
@@ -425,6 +426,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const onToolStatus = async (event: ToolStatusEvent) => {
     if (!channel.sendStatusMessage) return;
 
+    // Emit status event for status.json
+    statusEmit(event.status === 'running' ? 'tool_use' : 'agent_idle', {
+      group: chatJid,
+      tool: event.tool,
+    });
+
     if (event.status === 'running' && event.tool) {
       const displayName = getToolDisplayName(event.tool);
       const statusText = `⏳ 正在${displayName}...`;
@@ -630,11 +637,15 @@ async function runAgent(
         isGroup,
         assistantName: group.assistantName,
       },
-      (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
+      (proc, containerName) => {
+        queue.registerProcess(chatJid, proc, containerName, group.folder);
+        statusEmit('container_start', { group: chatJid });
+      },
       wrappedOnOutput,
       onToolStatus,
     );
+
+    statusEmit('container_stop', { group: chatJid });
 
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
@@ -830,6 +841,8 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    statusEmit('shutdown');
+    statusDestroy();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -974,6 +987,14 @@ async function main(): Promise<void> {
   };
 
   startGatewayServer(ipcDeps);
+
+  // Initialize status manager and emit startup
+  statusInit({
+    registeredGroups: () => registeredGroups,
+    channels,
+    queue,
+  });
+  statusEmit('startup');
 
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

@@ -659,8 +659,8 @@ server.tool(
 
 server.tool(
   'cancel_task',
-  '取消并删除一个定时任务。',
-  { task_id: z.string().describe('要取消的任务 ID') },
+  '删除一个定时任务。可以删除任何状态的任务（active/paused/completed）。用于清理不再需要的任务或已完成的一次性任务。',
+  { task_id: z.string().describe('要删除的任务 ID') },
   async (args) => {
     const requestId = `cancel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
@@ -747,7 +747,7 @@ server.tool(
     };
     let resultData: any;
     const result = await dispatchTask(data);
-    
+
     if (!result.success) {
       return {
         content: [{ type: 'text' as const, text: `搜索失败: ${result.message}` }],

@@ -243,8 +243,8 @@ registerCommand('/stop', '中断当前正在执行的任务', async (ctx) => {
     await new Promise((r) => setTimeout(r, 1000));
     await ctx.groupQueue.killContainer(ctx.chatJid);
 
-    const detail = status.isTaskContainer
-      ? `定时任务 (${status.runningTaskId || 'unknown'})`
+    const detail = status.runningTaskId
+      ? `定时任务 (${status.runningTaskId})`
       : '对话处理';
     await ctx.reply(`⏹️ 已中断当前${detail}。`);
     logger.info({ chatJid: ctx.chatJid }, 'Task stopped via /stop');
@@ -265,12 +265,21 @@ registerCommand('/status', '查看当前群组状态', async (ctx) => {
   let containerLine: string;
   if (!status || !status.active) {
     containerLine = '🔴 空闲';
-  } else if (status.idleWaiting) {
-    containerLine = '🟡 待机中（等待输入）';
-  } else if (status.isTaskContainer) {
-    containerLine = `🟢 执行定时任务 (${status.runningTaskId || '...'})`;
+  } else if (status.runningTaskId) {
+    containerLine = `🟢 执行定时任务 (${status.runningTaskId})`;
   } else {
     containerLine = '🟢 处理对话中';
+  }
+
+  // Running time
+  let uptimeLine = '';
+  if (status?.active && status.startedAt) {
+    const elapsed = Math.round(
+      (Date.now() - new Date(status.startedAt).getTime()) / 1000,
+    );
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    uptimeLine = `\n⏱️ 运行时间: ${mins}m${secs}s`;
   }
 
   // Tasks
@@ -278,20 +287,12 @@ registerCommand('/status', '查看当前群组状态', async (ctx) => {
   const tasks = getTasksForGroup(group.folder);
   const activeTasks = tasks.filter((t) => t.status === 'active');
 
-  // Pending work
-  const pendingParts: string[] = [];
-  if (status?.pendingMessages) pendingParts.push('消息');
-  if (status && status.pendingTaskCount > 0)
-    pendingParts.push(`${status.pendingTaskCount} 个任务`);
-  const pendingLine = pendingParts.length > 0 ? pendingParts.join('、') : '无';
-
   const lines = [
     `📊 **${group.name}** 状态`,
     ``,
-    `🤖 容器: ${containerLine}`,
+    `🤖 容器: ${containerLine}${uptimeLine}`,
     `📂 文件夹: \`${group.folder}\``,
     `📋 定时任务: ${activeTasks.length} 个活跃 / ${tasks.length} 个总计`,
-    `⏳ 待处理: ${pendingLine}`,
   ];
 
   await ctx.reply(lines.join('\n'));

@@ -5,11 +5,12 @@ import { sendPoolMessage } from './channels/telegram.js';
 import { resolveAgentName } from './agents-config.js';
 import fs from 'fs';
 import path from 'path';
-import { WORKSPACE_DIR } from './config.js';
+import { GATEWAY_PORT, WORKSPACE_DIR } from './config.js';
 import { storeMessage } from './db.js';
 import { searchMemory, isRagEnabled } from './rag.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
+import { getFullStatus } from './status.js';
 
 export interface TokenPayload {
   sourceGroup: string;
@@ -28,7 +29,7 @@ export class GatewayServer {
     this.server = createServer(this.handleRequest.bind(this));
   }
 
-  public start(port = 18789): void {
+  public start(port = GATEWAY_PORT): void {
     this.server.listen(port, '127.0.0.1', () => {
       logger.info(
         `[Gateway] Internal IPC server listening on 127.0.0.1:${port}`,
@@ -114,6 +115,17 @@ export class GatewayServer {
     // Health check (Control Center can ping this)
     if (req.method === 'GET' && req.url === '/health') {
       this.sendJson(res, 200, { status: 'ok', uptime: process.uptime() });
+      return;
+    }
+
+    // Full status snapshot (all agents + host)
+    if (req.method === 'GET' && req.url === '/status') {
+      const status = getFullStatus();
+      if (status) {
+        this.sendJson(res, 200, status);
+      } else {
+        this.sendJson(res, 503, { error: 'Status not ready' });
+      }
       return;
     }
 

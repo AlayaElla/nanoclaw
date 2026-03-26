@@ -25,6 +25,7 @@ interface GroupState {
   process: ChildProcess | null;
   containerName: string | null;
   groupFolder: string | null;
+  startedAt: string | null;
   retryCount: number;
 }
 
@@ -49,6 +50,7 @@ export class GroupQueue {
         process: null,
         containerName: null,
         groupFolder: null,
+        startedAt: null,
         retryCount: 0,
       };
       this.groups.set(groupJid, state);
@@ -228,23 +230,17 @@ export class GroupQueue {
    */
   getGroupStatus(groupJid: string): {
     active: boolean;
-    idleWaiting: boolean;
-    isTaskContainer: boolean;
     runningTaskId: string | null;
-    pendingMessages: boolean;
-    pendingTaskCount: number;
     containerName: string | null;
+    startedAt: string | null;
   } | null {
     const state = this.groups.get(groupJid);
     if (!state) return null;
     return {
       active: state.active,
-      idleWaiting: state.idleWaiting,
-      isTaskContainer: state.isTaskContainer,
       runningTaskId: state.runningTaskId,
-      pendingMessages: state.pendingMessages,
-      pendingTaskCount: state.pendingTasks.length,
       containerName: state.containerName,
+      startedAt: state.startedAt,
     };
   }
 
@@ -255,6 +251,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.idleWaiting = false;
+    state.startedAt = new Date().toISOString();
     state.isTaskContainer = false;
     state.pendingMessages = false;
     this.activeCount++;
@@ -281,6 +278,7 @@ export class GroupQueue {
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
+      state.startedAt = null;
       this.activeCount--;
       this.drainGroup(groupJid);
     }
@@ -290,6 +288,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.idleWaiting = false;
+    state.startedAt = new Date().toISOString();
     state.isTaskContainer = true;
     state.runningTaskId = task.id;
     this.activeCount++;
@@ -310,6 +309,7 @@ export class GroupQueue {
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
+      state.startedAt = null;
       this.activeCount--;
       this.drainGroup(groupJid);
     }

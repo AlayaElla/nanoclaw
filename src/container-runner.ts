@@ -15,6 +15,7 @@ import {
   CONTAINER_TIMEOUT,
   DATA_DIR,
   AGENTS_DIR,
+  GATEWAY_PORT,
   IDLE_TIMEOUT,
   INSTANCE_ID,
   TIMEZONE,
@@ -532,7 +533,7 @@ export async function runContainerAgent(
 
     const gatewayToken = crypto.randomBytes(32).toString('hex');
     input.gatewayToken = gatewayToken;
-    input.gatewayUrl = 'http://127.0.0.1:18789';
+    input.gatewayUrl = `http://127.0.0.1:${GATEWAY_PORT}`;
     if (gatewayServer) {
       gatewayServer.registerToken(gatewayToken, group.folder, input.isMain);
     }

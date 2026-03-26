@@ -984,7 +984,19 @@ export class TelegramChannel implements Channel {
       // Clear typing indicator before sending
       await this.setTyping(jid, false);
 
-      const file = new InputFile(buffer, fileName);
+      let finalFileName = fileName;
+      if (mediaType === 'audio') {
+        if (!finalFileName) {
+          finalFileName = 'voice.ogg';
+        } else {
+          const lower = finalFileName.toLowerCase();
+          if (!lower.endsWith('.ogg') && !lower.endsWith('.mp3')) {
+            finalFileName += '.ogg';
+          }
+        }
+      }
+
+      const file = new InputFile(buffer, finalFileName);
       const opts = caption ? { caption } : {};
 
       switch (mediaType) {

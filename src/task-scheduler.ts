@@ -273,6 +273,43 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   schedulerRunning = true;
   logger.info('Scheduler loop started');
 
+  // Periodically dump tasks to current_tasks.json for containers to read via MCP get_scheduled_tasks
+  setInterval(() => {
+    try {
+      const tasks = getAllTasks();
+      const groups = deps.registeredGroups();
+      const allTasksMapped = tasks.map((t) => ({
+        id: t.id,
+        groupFolder: t.group_folder,
+        prompt:
+          typeof t.prompt === 'string' && t.prompt.trim().startsWith('[')
+            ? (() => {
+                try {
+                  return JSON.parse(t.prompt);
+                } catch {
+                  return t.prompt;
+                }
+              })()
+            : t.prompt,
+        schedule_type: t.schedule_type,
+        schedule_value: t.schedule_value,
+        status: t.status,
+        next_run: t.next_run,
+      }));
+
+      for (const group of Object.values(groups)) {
+        const isMain = group.isMain === true;
+        const agentFolders = Object.values(groups)
+          .filter((g) => (g.botToken || '') === (group.botToken || ''))
+          .map((g) => g.folder);
+
+        writeTasksSnapshot(group.folder, isMain, allTasksMapped, agentFolders);
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to write scheduled tasks snapshots');
+    }
+  }, 5000);
+
   const loop = async () => {
     try {
       const dueTasks = getDueTasks();

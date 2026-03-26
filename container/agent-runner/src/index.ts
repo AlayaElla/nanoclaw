@@ -33,6 +33,8 @@ interface ContainerInput {
   toolsContent?: string;
   adminToolsContent?: string;
   secrets?: Record<string, string>;
+  gatewayToken?: string;
+  gatewayUrl?: string;
 }
 
 interface ContainerOutput {
@@ -723,12 +725,23 @@ async function runQuery(
               NANOCLAW_CHAT_JID: containerInput.chatJid,
               NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
               NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+              NANOCLAW_GATEWAY_TOKEN: containerInput.gatewayToken || '',
+              NANOCLAW_GATEWAY_URL: containerInput.gatewayUrl || '',
               ...(sdkEnv.WHATAI_API_KEY ? { WHATAI_API_KEY: sdkEnv.WHATAI_API_KEY } : {}),
+              ...(sdkEnv.IMAGE_BASE_URL ? { IMAGE_BASE_URL: sdkEnv.IMAGE_BASE_URL } : {}),
+              ...(sdkEnv.IMAGE_MODEL ? { IMAGE_MODEL: sdkEnv.IMAGE_MODEL } : {}),
+              ...(sdkEnv.VISION_API_KEY ? { VISION_API_KEY: sdkEnv.VISION_API_KEY } : {}),
+              ...(sdkEnv.VISION_BASE_URL ? { VISION_BASE_URL: sdkEnv.VISION_BASE_URL } : {}),
+              ...(sdkEnv.VISION_MODEL ? { VISION_MODEL: sdkEnv.VISION_MODEL } : {}),
+              ...(sdkEnv.EMBEDDING_API_KEY ? { EMBEDDING_API_KEY: sdkEnv.EMBEDDING_API_KEY } : {}),
             },
           },
           'context-mode': {
             command: 'context-mode',
             args: ['--transport', 'stdio'],
+            env: {
+              ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
+            },
           },
           ...(sdkEnv.PARALLEL_API_KEY ? {
             'parallel-search': {

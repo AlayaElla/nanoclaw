@@ -12,47 +12,53 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 
 const IPC_DIR = '/workspace/ipc';
-const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
-const TASKS_DIR = path.join(IPC_DIR, 'tasks');
-const TASK_RESULTS_DIR = path.join(IPC_DIR, 'task_results');
 
-// Context from environment variables (set by the agent runner)
+
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
+const GATEWAY_URL = process.env.NANOCLAW_GATEWAY_URL;
+const GATEWAY_TOKEN = process.env.NANOCLAW_GATEWAY_TOKEN;
 
-function writeIpcFile(dir: string, data: object): string {
-  fs.mkdirSync(dir, { recursive: true });
 
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
-  const filepath = path.join(dir, filename);
-
-  // Atomic write: temp file then rename
-  const tempPath = `${filepath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
-  fs.renameSync(tempPath, filepath);
-
-  return filename;
+async function dispatchMessage(data: any): Promise<void> {
+  if (!GATEWAY_URL || !GATEWAY_TOKEN) {
+    throw new Error('Gateway not configured.');
+  }
+  try {
+    const res = await fetch(`${GATEWAY_URL}/ipc/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GATEWAY_TOKEN}` },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+  } catch (err: any) {
+    console.error('Gateway message error:', err);
+    throw err;
+  }
 }
 
-async function waitForTaskResult(requestId: string, maxWaitMs = 10000): Promise<{ success: boolean; message: string }> {
-  const resultFile = path.join(TASK_RESULTS_DIR, `${requestId}.json`);
-  const pollInterval = 200;
-  const start = Date.now();
-
-  while (Date.now() - start < maxWaitMs) {
-    if (fs.existsSync(resultFile)) {
-      try {
-        const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
-        fs.unlinkSync(resultFile);
-        return result;
-      } catch {
-        return { success: false, message: 'Failed to parse task result JSON.' };
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+async function dispatchTask(data: any): Promise<any> {
+  if (!GATEWAY_URL || !GATEWAY_TOKEN) {
+    return { success: false, message: 'Gateway not configured.' };
   }
-  return { success: false, message: 'Request timed out waiting for the host process.' };
+  try {
+    const res = await fetch(`${GATEWAY_URL}/ipc/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GATEWAY_TOKEN}` },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { success: false, message: `HTTP ${res.status}: ${text}` };
+    }
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: `Gateway error: ${err.message}` };
+  }
 }
 
 const server = new McpServer({
@@ -77,7 +83,7 @@ server.tool(
       timestamp: new Date().toISOString(),
     };
 
-    writeIpcFile(MESSAGES_DIR, data);
+    await dispatchMessage(data);
 
     return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
   },
@@ -160,7 +166,7 @@ if (chatJid.endsWith('@feishu')) {
         timestamp: new Date().toISOString(),
       };
 
-      writeIpcFile(MESSAGES_DIR, data);
+      await dispatchMessage(data);
 
       return { content: [{ type: 'text' as const, text: `Card sent: ${args.title}\n\n【重要提醒】：卡片已发送给用户。如果不需要补充其他文字，请直接结束输出，或者将后续的思考包裹在 <internal>...</internal> 标签中，避免向用户重复发送废话。` }] };
     },
@@ -270,7 +276,7 @@ server.tool(
         groupFolder,
         timestamp: new Date().toISOString(),
       };
-      writeIpcFile(MESSAGES_DIR, data);
+      await dispatchMessage(data);
 
       const fileSize = fs.statSync(cachedPath).size;
       return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
@@ -296,7 +302,7 @@ server.tool(
       groupFolder,
       timestamp: new Date().toISOString(),
     };
-    writeIpcFile(MESSAGES_DIR, data);
+    await dispatchMessage(data);
 
     return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
   },
@@ -462,7 +468,7 @@ server.tool(
         groupFolder,
         timestamp: new Date().toISOString(),
       };
-      writeIpcFile(MESSAGES_DIR, ipcData);
+      await dispatchMessage(ipcData);
 
       return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || defaultModel}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，请直接完成任务，或者将你的任何后续回复或思考包裹在 <internal>...</internal> 标签中，避免向用户发送重复无用的确认消息。` }] };
     } catch (err: any) {
@@ -550,10 +556,17 @@ server.tool(
       timestamp: new Date().toISOString(),
     };
 
-    const filename = writeIpcFile(TASKS_DIR, data);
+    const result = await dispatchTask(data);
+
+    if (!result.success) {
+      return {
+        content: [{ type: 'text' as const, text: `Task scheduling failed: ${result.message}` }],
+        isError: true,
+      };
+    }
 
     return {
-      content: [{ type: 'text' as const, text: `Task scheduled (${filename}): ${args.schedule_type} - ${args.schedule_value}` }],
+      content: [{ type: 'text' as const, text: `Task scheduled successfully. Task ID: ${result.taskId || 'N/A'}` }],
     };
   },
 );
@@ -611,9 +624,8 @@ server.tool(
       timestamp: new Date().toISOString(),
     };
 
-    writeIpcFile(TASKS_DIR, data);
+    let result = await dispatchTask(data);
 
-    const result = await waitForTaskResult(requestId);
     return {
       content: [{ type: 'text' as const, text: result.message }],
       isError: !result.success,
@@ -636,9 +648,8 @@ server.tool(
       timestamp: new Date().toISOString(),
     };
 
-    writeIpcFile(TASKS_DIR, data);
+    let result = await dispatchTask(data);
 
-    const result = await waitForTaskResult(requestId);
     return {
       content: [{ type: 'text' as const, text: result.message }],
       isError: !result.success,
@@ -661,9 +672,8 @@ server.tool(
       timestamp: new Date().toISOString(),
     };
 
-    writeIpcFile(TASKS_DIR, data);
+    let result = await dispatchTask(data);
 
-    const result = await waitForTaskResult(requestId);
     return {
       content: [{ type: 'text' as const, text: result.message }],
       isError: !result.success,
@@ -703,7 +713,7 @@ server.tool(
     if (args.bot_token) data.botToken = args.bot_token;
     if (args.assistant_name) data.assistantName = args.assistant_name;
 
-    writeIpcFile(TASKS_DIR, data);
+    await dispatchTask(data);
 
     return {
       content: [{ type: 'text' as const, text: `Group "${args.name}" registered. It will start receiving messages immediately.` }],
@@ -735,116 +745,81 @@ server.tool(
       groupFolder,
       timestamp: new Date().toISOString(),
     };
-    writeIpcFile(TASKS_DIR, data);
+    let resultData: any;
+    const result = await dispatchTask(data);
+    
+    if (!result.success) {
+      return {
+        content: [{ type: 'text' as const, text: `搜索失败: ${result.message}` }],
+        isError: true,
+      };
+    }
+    resultData = { results: result.results || [] };
 
-    // Poll for result file (host writes it after processing)
-    const resultDir = path.join(IPC_DIR, 'rag_results');
-    const resultPath = path.join(resultDir, `${requestId}.json`);
-    const timeout = 10_000; // 10 second timeout
-    const pollInterval = 200;
-    const start = Date.now();
-
-    while (Date.now() - start < timeout) {
-      if (fs.existsSync(resultPath)) {
-        try {
-          const resultData = JSON.parse(fs.readFileSync(resultPath, 'utf-8'));
-          fs.unlinkSync(resultPath); // Clean up
-
-          if (!resultData.results || resultData.results.length === 0) {
-            return {
-              content: [{ type: 'text' as const, text: '没有找到相关的历史记忆。' }],
-            };
-          }
-
-          const formatted = resultData.results
-            .map((r: { text: string; role: string; sender_name: string; timestamp: string; chat_source: string; score: number }, i: number) => {
-              const role = r.role === 'user' ? `👤 ${r.sender_name || 'User'}` : '🤖 Assistant';
-              const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
-              const source = r.chat_source ? ` | 来源: ${r.chat_source}` : '';
-              return `[${i + 1}] ${role} (${time}, 相关度: ${(r.score * 100).toFixed(0)}%${source})\n${r.text}`;
-            })
-            .join('\n\n---\n\n');
-
-          return {
-            content: [{ type: 'text' as const, text: `搜索 "${args.query}" 的结果:\n\n${formatted}` }],
-          };
-        } catch (err) {
-          return {
-            content: [{ type: 'text' as const, text: `读取搜索结果失败: ${err instanceof Error ? err.message : String(err)}` }],
-            isError: true,
-          };
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    if (!resultData.results || resultData.results.length === 0) {
+      return {
+        content: [{ type: 'text' as const, text: '没有找到相关的历史记忆。' }],
+      };
     }
 
+    const formatted = resultData.results
+      .map((r: { text: string; role: string; sender_name: string; timestamp: string; chat_source: string; score: number }, i: number) => {
+        const role = r.role === 'user' ? `👤 ${r.sender_name || 'User'}` : '🤖 Assistant';
+        const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+        const source = r.chat_source ? ` | 来源: ${r.chat_source}` : '';
+        return `[${i + 1}] ${role} (${time}, 相关度: ${(r.score * 100).toFixed(0)}%${source})\n${r.text}`;
+      })
+      .join('\n\n---\n\n');
+
     return {
-      content: [{ type: 'text' as const, text: '搜索超时，请稍后重试。' }],
-      isError: true,
+      content: [{ type: 'text' as const, text: `搜索 "${args.query}" 的结果:\n\n${formatted}` }],
     };
   },
 );
 
 // --- X Integration Tools (main group only) ---
 if (isMain) {
-  const X_RESULTS_DIR = path.join(IPC_DIR, 'x_results');
 
-  async function waitForXResult(requestId: string, maxWait = 120000): Promise<{ success: boolean; message: string }> {
-    const resultFile = path.join(X_RESULTS_DIR, `${requestId}.json`);
-    let elapsed = 0;
-    while (elapsed < maxWait) {
-      if (fs.existsSync(resultFile)) {
-        try {
-          const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
-          fs.unlinkSync(resultFile);
-          return result;
-        } catch { return { success: false, message: 'Failed to read result' }; }
-      }
-      await new Promise(r => setTimeout(r, 1000));
-      elapsed += 1000;
-    }
-    return { success: false, message: 'Request timed out' };
-  }
 
   server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args) => {
     const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 
   server.tool('x_like', '点赞 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
     const requestId = `xlike-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 
   server.tool('x_reply', '回复 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), content: z.string().max(280).describe('回复内容') }, async (args) => {
     const requestId = `xreply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 
   server.tool('x_retweet', '转推 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
     const requestId = `xretweet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 
   server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args) => {
     const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 
   server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args) => {
     const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    writeIpcFile(TASKS_DIR, { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() });
-    const result = await waitForXResult(requestId);
+    const data = { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() };
+    const result = await dispatchTask(data);
     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
   });
 }

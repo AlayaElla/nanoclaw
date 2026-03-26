@@ -5,6 +5,9 @@
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+
+import { gatewayServer } from './gateway.js';
 
 import {
   CONTAINER_IMAGE,
@@ -47,6 +50,8 @@ export interface ContainerInput {
   toolsContent?: string;
   adminToolsContent?: string;
   secrets?: Record<string, string>;
+  gatewayToken?: string;
+  gatewayUrl?: string;
 }
 
 export interface ContainerOutput {
@@ -255,9 +260,12 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Copy agent-runner source into a per-group writable location so agents
+  // Sync agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
+  // Always sync upstream files so gateway refactoring and other changes
+  // propagate to all groups. Group-local customizations in files that don't
+  // exist in upstream are preserved.
   const agentRunnerSrc = path.join(
     projectRoot,
     'container',
@@ -270,7 +278,7 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+  if (fs.existsSync(agentRunnerSrc)) {
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({
@@ -521,6 +529,14 @@ export async function runContainerAgent(
     if (!group.assistantName && botConfig?.name) {
       input.assistantName = botConfig.name;
     }
+
+    const gatewayToken = crypto.randomBytes(32).toString('hex');
+    input.gatewayToken = gatewayToken;
+    input.gatewayUrl = 'http://127.0.0.1:18789';
+    if (gatewayServer) {
+      gatewayServer.registerToken(gatewayToken, group.folder, input.isMain);
+    }
+
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
     // Remove secrets from input so they don't appear in logs
@@ -638,6 +654,9 @@ export async function runContainerAgent(
     };
 
     container.on('close', (code) => {
+      if (gatewayServer && input.gatewayToken) {
+        gatewayServer.revokeToken(input.gatewayToken);
+      }
       clearTimeout(timeout);
       statusPolling = false;
       const duration = Date.now() - startTime;

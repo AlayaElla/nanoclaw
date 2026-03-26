@@ -43,7 +43,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
-import { startIpcWatcher } from './ipc.js';
+import { startGatewayServer } from './gateway.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
@@ -938,13 +938,19 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
-  startIpcWatcher({
-    sendMessage: (jid, text) => {
+  const ipcDeps = {
+    sendMessage: (jid: string, text: string) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
     },
-    sendMedia: async (jid, buffer, mediaType, caption, fileName) => {
+    sendMedia: async (
+      jid: string,
+      buffer: Buffer,
+      mediaType: 'photo' | 'video' | 'audio' | 'document',
+      caption?: string,
+      fileName?: string,
+    ) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       if (!channel.sendMedia) {
@@ -963,9 +969,12 @@ async function main(): Promise<void> {
       );
     },
     getAvailableGroups,
-    writeGroupsSnapshot: (gf, im, ag, rj) =>
+    writeGroupsSnapshot: (gf: any, im: any, ag: any, rj: any) =>
       writeGroupsSnapshot(gf, im, ag, rj),
-  });
+  };
+
+  startGatewayServer(ipcDeps);
+
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

@@ -78,49 +78,37 @@ async function runScript(script: string, args: object): Promise<SkillResult> {
   });
 }
 
-// Write result to IPC results directory
-function writeResult(
-  dataDir: string,
-  sourceGroup: string,
-  requestId: string,
-  result: SkillResult,
-): void {
-  const resultsDir = path.join(dataDir, 'ipc', sourceGroup, 'x_results');
-  fs.mkdirSync(resultsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(resultsDir, `${requestId}.json`),
-    JSON.stringify(result),
-  );
-}
-
 /**
  * Handle X integration IPC messages
  *
- * @returns true if message was handled, false if not an X message
+ * @returns SkillResult if handled, null if not an X message
  */
 export async function handleXIpc(
   data: Record<string, unknown>,
   sourceGroup: string,
   isMain: boolean,
   dataDir: string,
-): Promise<boolean> {
+): Promise<SkillResult | null> {
   const type = data.type as string;
 
   // Only handle x_* types
   if (!type?.startsWith('x_')) {
-    return false;
+    return null;
   }
 
   // Only main group can use X integration
   if (!isMain) {
     logger.warn({ sourceGroup, type }, 'X integration blocked: not main group');
-    return true;
+    return { success: false, message: 'X integration blocked: not main group' };
   }
 
   const requestId = data.requestId as string;
   if (!requestId) {
     logger.warn({ type }, 'X integration blocked: missing requestId');
-    return true;
+    return {
+      success: false,
+      message: 'X integration blocked: missing requestId',
+    };
   }
 
   logger.info({ type, requestId }, 'Processing X request');
@@ -179,10 +167,9 @@ export async function handleXIpc(
       break;
 
     default:
-      return false;
+      return null;
   }
 
-  writeResult(dataDir, sourceGroup, requestId, result);
   if (result.success) {
     logger.info({ type, requestId }, 'X request completed');
   } else {
@@ -191,5 +178,5 @@ export async function handleXIpc(
       'X request failed',
     );
   }
-  return true;
+  return result;
 }

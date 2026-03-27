@@ -40,3 +40,4 @@ agents/*
 agents-sdk-docs
 
 .openclaw_temp
+litellm/spend.db

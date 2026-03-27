@@ -736,9 +736,21 @@ export class TelegramChannel implements Channel {
     });
 
     // Start polling — returns a Promise that resolves when started
-    return new Promise<void>((resolve) => {
+    const CONNECT_TIMEOUT = 30_000;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        logger.error(
+          { tokenEnvName: this.tokenEnvName },
+          `Telegram bot connect timed out after ${CONNECT_TIMEOUT / 1000}s — check token validity`,
+        );
+        reject(
+          new Error(`Telegram bot ${this.tokenEnvName} connect timed out`),
+        );
+      }, CONNECT_TIMEOUT);
+
       this.bot!.start({
         onStart: (botInfo) => {
+          clearTimeout(timer);
           logger.info(
             {
               username: botInfo.username,

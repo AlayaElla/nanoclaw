@@ -44,6 +44,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
+import { startControlCenter } from './control-center.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
@@ -918,8 +919,12 @@ async function main(): Promise<void> {
     // Support factories that return multiple channel instances (e.g., multi-bot Telegram)
     const instances = Array.isArray(result) ? result : [result];
     for (const channel of instances) {
-      channels.push(channel);
-      await channel.connect();
+      try {
+        await channel.connect();
+        channels.push(channel);
+      } catch (err) {
+        // Silently skip if a bot fails to connect
+      }
     }
   }
   if (channels.length === 0) {
@@ -987,6 +992,7 @@ async function main(): Promise<void> {
   };
 
   startGatewayServer(ipcDeps);
+  startControlCenter();
 
   // Initialize status manager and emit startup
   statusInit({

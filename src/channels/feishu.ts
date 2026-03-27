@@ -943,7 +943,7 @@ export class FeishuChannel implements Channel {
         'audio',
       );
 
-      const transcript = await transcribeAudioMessage(buffer);
+      const transcript = await transcribeAudioMessage(buffer, group.folder);
       finalContent = transcript
         ? `[Voice: ${transcript} | MediaID: ${mediaId}]`
         : `[Voice Message - transcription unavailable | MediaID: ${mediaId}]`;
@@ -1170,9 +1170,14 @@ export class FeishuChannel implements Channel {
     try {
       let description: string | null;
       if (mediaType === 'photo') {
-        description = await describeImage(buffer, userText);
+        description = await describeImage(buffer, userText, group?.folder);
       } else {
-        description = await describeVideo(buffer, media.mimeType, userText);
+        description = await describeVideo(
+          buffer,
+          media.mimeType,
+          userText,
+          group?.folder,
+        );
       }
 
       if (description) {

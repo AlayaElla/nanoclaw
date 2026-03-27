@@ -29,6 +29,7 @@ function loadConfig(): VisionConfig {
 async function callVisionApi(
   userContent: Array<Record<string, unknown>>,
   config: VisionConfig,
+  groupFolder?: string,
 ): Promise<string | null> {
   if (!config.apiKey) {
     console.warn('VISION_API_KEY not set in .env');
@@ -63,13 +64,29 @@ async function callVisionApi(
       return null;
     }
 
-    const result = (await response.json()) as {
-      choices?: Array<{
-        message?: {
-          content?: string | Array<{ text?: string }>;
-        };
-      }>;
-    };
+    const result = (await response.json()) as any;
+
+    if (result.usage) {
+      try {
+        const { insertTokenUsage } = await import('./db.js');
+        const crypto = await import('crypto');
+
+        insertTokenUsage({
+          id: crypto.randomUUID(),
+          group_id: groupFolder || 'system',
+          task_id: 'vision',
+          timestamp: new Date().toISOString(),
+          model: config.model,
+          input_tokens:
+            result.usage.prompt_tokens || result.usage.input_tokens || 0,
+          output_tokens:
+            result.usage.completion_tokens || result.usage.output_tokens || 0,
+          total_tokens: result.usage.total_tokens || 0,
+        });
+      } catch (err) {
+        console.error('Failed to log vision token usage:', err);
+      }
+    }
 
     const choice = result.choices?.[0];
     if (!choice?.message?.content) {
@@ -84,7 +101,7 @@ async function callVisionApi(
 
     if (Array.isArray(content)) {
       return content
-        .map((item) => item.text || '')
+        .map((item: any) => item.text || '')
         .join('')
         .trim();
     }
@@ -104,6 +121,7 @@ async function callVisionApi(
 export async function describeImage(
   imageBuffer: Buffer,
   caption?: string,
+  groupFolder?: string,
 ): Promise<string | null> {
   const config = loadConfig();
 
@@ -132,7 +150,7 @@ export async function describeImage(
       },
     ];
 
-    const description = await callVisionApi(userContent, config);
+    const description = await callVisionApi(userContent, config, groupFolder);
     return description?.trim() || '[Photo - description unavailable]';
   } catch (err) {
     console.error('Image description error:', err);
@@ -150,6 +168,7 @@ export async function describeVideo(
   videoBuffer: Buffer,
   mimeType?: string,
   caption?: string,
+  groupFolder?: string,
 ): Promise<string | null> {
   const config = loadConfig();
 
@@ -179,7 +198,7 @@ export async function describeVideo(
       },
     ];
 
-    const description = await callVisionApi(userContent, config);
+    const description = await callVisionApi(userContent, config, groupFolder);
     return description?.trim() || '[Video - description unavailable]';
   } catch (err) {
     console.error('Video description error:', err);

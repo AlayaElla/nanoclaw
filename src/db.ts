@@ -10,10 +10,12 @@ import {
   RegisteredGroup,
   ScheduledTask,
   TaskRunLog,
+  TokenUsageLog,
 } from './types.js';
 
 let db: Database.Database;
 let groupsDb: Database.Database;
+let usageDb: Database.Database;
 
 function createSchema(database: Database.Database): void {
   database.exec(`
@@ -144,6 +146,27 @@ function createGroupsSchema(database: Database.Database): void {
   `);
 }
 
+function createUsageSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS token_usage (
+      id TEXT PRIMARY KEY,
+      group_id TEXT,
+      task_id TEXT,
+      tool_name TEXT,
+      timestamp TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      total_tokens INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON token_usage(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_usage_group ON token_usage(group_id);
+    CREATE INDEX IF NOT EXISTS idx_usage_task ON token_usage(task_id);
+    CREATE INDEX IF NOT EXISTS idx_usage_tool ON token_usage(tool_name);
+    CREATE INDEX IF NOT EXISTS idx_usage_model ON token_usage(model);
+  `);
+}
+
 export function initDatabase(): void {
   fs.mkdirSync(STORE_DIR, { recursive: true });
 
@@ -155,6 +178,10 @@ export function initDatabase(): void {
   groupsDb = new Database(groupsDbPath);
   createGroupsSchema(groupsDb);
 
+  const usageDbPath = path.join(STORE_DIR, 'usage.db');
+  usageDb = new Database(usageDbPath);
+  createUsageSchema(usageDb);
+
   // Migrate from JSON files if they exist
   migrateJsonState();
 }
@@ -165,6 +192,8 @@ export function _initTestDatabase(): void {
   createSchema(db);
   groupsDb = new Database(':memory:');
   createGroupsSchema(groupsDb);
+  usageDb = new Database(':memory:');
+  createUsageSchema(usageDb);
 }
 
 /**
@@ -563,6 +592,115 @@ export function updateTaskAfterRun(
     WHERE id = ?
   `,
   ).run(nextRun, now, lastResult, nextRun, id);
+}
+
+// --- Usage Tracking ---
+
+export function insertTokenUsage(log: TokenUsageLog): void {
+  try {
+    usageDb
+      .prepare(
+        `
+      INSERT INTO token_usage (id, group_id, task_id, tool_name, timestamp, model, input_tokens, output_tokens, total_tokens)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      )
+      .run(
+        log.id,
+        log.group_id,
+        log.task_id || null,
+        log.tool_name || null,
+        log.timestamp,
+        log.model,
+        log.input_tokens,
+        log.output_tokens,
+        log.total_tokens,
+      );
+  } catch (err) {
+    logger.error({ err, log }, 'Failed to insert token usage');
+  }
+}
+
+export function getTokenUsageTimeline(
+  startDate: string,
+  endDate: string,
+  groupBy: 'hour' | 'day',
+): Array<{
+  date: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}> {
+  // Format the strftime string based on hour or day grouping
+  const timeFormat =
+    groupBy === 'hour' ? '%Y-%m-%d %H:00:00' : '%Y-%m-%d 00:00:00';
+
+  const rows = usageDb
+    .prepare(
+      `
+    SELECT strftime(?, timestamp) as date,
+           SUM(input_tokens) as input_tokens,
+           SUM(output_tokens) as output_tokens,
+           SUM(total_tokens) as total_tokens
+    FROM token_usage
+    WHERE timestamp >= ? AND timestamp <= ?
+    GROUP BY date
+    ORDER BY date ASC
+    `,
+    )
+    .all(timeFormat, startDate, endDate) as any[];
+
+  return rows;
+}
+
+export function getTokenUsageSummary(
+  startDate?: string,
+  endDate?: string,
+): { input_tokens: number; output_tokens: number; total_tokens: number } {
+  let query = `SELECT SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(total_tokens) as total_tokens FROM token_usage`;
+  const params: any[] = [];
+
+  if (startDate && endDate) {
+    query += ` WHERE timestamp >= ? AND timestamp <= ?`;
+    params.push(startDate, endDate);
+  }
+
+  const row = usageDb.prepare(query).get(...params) as any;
+  return {
+    input_tokens: row?.input_tokens || 0,
+    output_tokens: row?.output_tokens || 0,
+    total_tokens: row?.total_tokens || 0,
+  };
+}
+
+export function getTokenUsageByDimension(
+  dimension: 'model' | 'group_id' | 'tool_name' | 'task_id',
+  startDate?: string,
+  endDate?: string,
+  limit: number = 20,
+): Array<{ name: string; total_tokens: number }> {
+  const allowedDimensions = ['model', 'group_id', 'tool_name', 'task_id'];
+  if (!allowedDimensions.includes(dimension)) {
+    throw new Error('Invalid dimension');
+  }
+
+  let query = `
+    SELECT ${dimension} as name, SUM(total_tokens) as total_tokens 
+    FROM token_usage
+  `;
+  const params: any[] = [];
+
+  if (startDate && endDate) {
+    query += ` WHERE timestamp >= ? AND timestamp <= ? AND ${dimension} IS NOT NULL`;
+    params.push(startDate, endDate);
+  } else {
+    query += ` WHERE ${dimension} IS NOT NULL`;
+  }
+
+  query += ` GROUP BY ${dimension} ORDER BY total_tokens DESC LIMIT ?`;
+  params.push(limit);
+
+  return usageDb.prepare(query).all(...params) as any[];
 }
 
 export function logTaskRun(log: TaskRunLog): void {

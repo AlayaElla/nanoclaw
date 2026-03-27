@@ -45,6 +45,7 @@ export interface ContainerInput {
   isMain: boolean;
   isGroup?: boolean;
   isScheduledTask?: boolean;
+  taskId?: string;
   assistantName?: string;
   teamRuleContent?: string;
   contextModeContent?: string;
@@ -526,6 +527,13 @@ export async function runContainerAgent(
     if (botConfig?.model) {
       input.secrets.ANTHROPIC_MODEL = botConfig.model;
     }
+
+    // Inject token tracking metadata into API key and redirect traffic proxy
+    input.secrets.ANTHROPIC_BASE_URL = `http://127.0.0.1:${GATEWAY_PORT}/llm`;
+    const modelMeta = botConfig?.model ? `;model=${botConfig.model}` : '';
+    const metadata = `group=${group.folder};task=${input.taskId || 'none'}${modelMeta}`;
+    input.secrets.ANTHROPIC_API_KEY = `nc_meta_${metadata}`;
+
     // Per-bot assistant name from agents.yaml
     if (!group.assistantName && botConfig?.name) {
       input.assistantName = botConfig.name;

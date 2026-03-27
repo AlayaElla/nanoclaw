@@ -6,8 +6,8 @@ import { DATA_DIR, STORE_DIR, AGENTS_DIR } from '../config.js';
 
 const LITELLM_DIR = join(process.cwd(), 'litellm');
 
-export function openSpendDb(): Database.Database | null {
-  const p = join(LITELLM_DIR, 'spend.db');
+export function openUsageDb(): Database.Database | null {
+  const p = join(STORE_DIR, 'usage.db');
   if (!existsSync(p)) return null;
   try {
     return new Database(p, { readonly: true });
@@ -16,39 +16,39 @@ export function openSpendDb(): Database.Database | null {
   }
 }
 
-export function getSpendSummary(days: number): {
+export function getUsageSummary(days: number): {
   total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
   request_count: number;
 } {
-  const db = openSpendDb();
+  const db = openUsageDb();
   if (!db)
     return {
       total_tokens: 0,
-      prompt_tokens: 0,
-      completion_tokens: 0,
+      input_tokens: 0,
+      output_tokens: 0,
       request_count: 0,
     };
   try {
     const row = db
       .prepare(
-        `SELECT COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(prompt_tokens),0) as prompt_tokens, COALESCE(SUM(completion_tokens),0) as completion_tokens, COUNT(*) as request_count FROM spend_logs WHERE timestamp >= datetime('now', '-${days} days')`,
+        `SELECT COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens, COUNT(*) as request_count FROM token_usage WHERE timestamp >= datetime('now', '-${days} days')`,
       )
       .get() as any;
     return (
       row || {
         total_tokens: 0,
-        prompt_tokens: 0,
-        completion_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
         request_count: 0,
       }
     );
   } catch {
     return {
       total_tokens: 0,
-      prompt_tokens: 0,
-      completion_tokens: 0,
+      input_tokens: 0,
+      output_tokens: 0,
       request_count: 0,
     };
   } finally {
@@ -56,15 +56,56 @@ export function getSpendSummary(days: number): {
   }
 }
 
-export function getSpendByModel(
+export function getUsageByDimension(
+  dimension: 'model' | 'group_id' | 'tool_name' | 'task_id',
   days: number,
-): { model: string; total_tokens: number; request_count: number }[] {
-  const db = openSpendDb();
+  limit: number = 20,
+): { name: string; total_tokens: number; request_count: number }[] {
+  const db = openUsageDb();
   if (!db) return [];
+  try {
+    const allowed = ['model', 'group_id', 'tool_name', 'task_id'];
+    if (!allowed.includes(dimension)) return [];
+
+    return db
+      .prepare(
+        `SELECT ${dimension} as name, SUM(total_tokens) as total_tokens, COUNT(*) as request_count 
+         FROM token_usage 
+         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL 
+         GROUP BY ${dimension} 
+         ORDER BY total_tokens DESC LIMIT ?`,
+      )
+      .all(limit) as any[];
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
+export function getUsageTimeline(
+  days: number,
+  groupBy: 'hour' | 'day' = 'day',
+): {
+  date: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}[] {
+  const db = openUsageDb();
+  if (!db) return [];
+  const timeFormat = groupBy === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
   try {
     return db
       .prepare(
-        `SELECT model, SUM(total_tokens) as total_tokens, COUNT(*) as request_count FROM spend_logs WHERE timestamp >= datetime('now', '-${days} days') GROUP BY model ORDER BY total_tokens DESC`,
+        `SELECT strftime('${timeFormat}', timestamp) as date, 
+                SUM(input_tokens) as input_tokens, 
+                SUM(output_tokens) as output_tokens,
+                SUM(total_tokens) as total_tokens 
+         FROM token_usage 
+         WHERE timestamp >= datetime('now', '-${days} days') 
+         GROUP BY date 
+         ORDER BY date ASC`,
       )
       .all() as any[];
   } catch {
@@ -74,17 +115,45 @@ export function getSpendByModel(
   }
 }
 
-export function getSpendTimeline(
+export function getUsageTimelineByDimension(
+  dimension: 'total' | 'model' | 'group_id' | 'tool_name' | 'task_id',
   days: number,
-): { date: string; total_tokens: number; request_count: number }[] {
-  const db = openSpendDb();
+  groupBy: 'hour' | 'day' = 'day',
+): { date: string; [key: string]: string | number }[] {
+  const db = openUsageDb();
   if (!db) return [];
+  const timeFormat = groupBy === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
+
+  if (dimension === 'total') {
+    return getUsageTimeline(days, groupBy);
+  }
+
   try {
-    return db
+    const allowed = ['model', 'group_id', 'tool_name', 'task_id'];
+    if (!allowed.includes(dimension)) return [];
+
+    const rows = db
       .prepare(
-        `SELECT date(timestamp) as date, SUM(total_tokens) as total_tokens, COUNT(*) as request_count FROM spend_logs WHERE timestamp >= datetime('now', '-${days} days') GROUP BY date(timestamp) ORDER BY date DESC`,
+        `SELECT strftime('${timeFormat}', timestamp) as date, 
+                ${dimension} as dimension_value,
+                SUM(total_tokens) as total_tokens 
+         FROM token_usage 
+         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL
+         GROUP BY date, dimension_value 
+         ORDER BY date ASC`,
       )
       .all() as any[];
+
+    // Pivot rows into shape: [{ date: '...', 'val1': 100, 'val2': 50 }]
+    const grouped: Record<string, any> = {};
+    for (const row of rows) {
+      if (!grouped[row.date]) {
+        grouped[row.date] = { date: row.date };
+      }
+      grouped[row.date][row.dimension_value || 'unknown'] = row.total_tokens;
+    }
+
+    return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
   } catch {
     return [];
   } finally {
@@ -92,12 +161,12 @@ export function getSpendTimeline(
   }
 }
 
-export function getRecentSpendLogs(limit: number = 15): any[] {
-  const db = openSpendDb();
+export function getRecentUsageLogs(limit: number = 15): any[] {
+  const db = openUsageDb();
   if (!db) return [];
   try {
     return db
-      .prepare('SELECT * FROM spend_logs ORDER BY id DESC LIMIT ?')
+      .prepare('SELECT * FROM token_usage ORDER BY timestamp DESC LIMIT ?')
       .all(limit) as any[];
   } catch {
     return [];

@@ -81,7 +81,7 @@ export async function describeCachedImage(
 
   try {
     const buffer = fs.readFileSync(filePath);
-    const description = await describeImage(buffer, prompt);
+    const description = await describeImage(buffer, prompt, agentName);
     return description || 'Error: Vision API returned no description.';
   } catch (err: any) {
     return `Error reading or describing image: ${err.message}`;
@@ -108,7 +108,7 @@ export async function describeCachedVideo(
     const ext = path.extname(filePath).toLowerCase();
     const mime = mimeMap[ext] || 'video/mp4';
 
-    const description = await describeVideo(buffer, mime, prompt);
+    const description = await describeVideo(buffer, mime, prompt, agentName);
     return description || 'Error: Vision API returned no description.';
   } catch (err: any) {
     return `Error reading or describing video: ${err.message}`;
@@ -126,7 +126,7 @@ export async function transcribeCachedAudio(
 
   try {
     const buffer = fs.readFileSync(filePath);
-    const transcript = await transcribeAudioMessage(buffer);
+    const transcript = await transcribeAudioMessage(buffer, agentName);
     return transcript || 'Error: Audio transcription failed to return text.';
   } catch (err: any) {
     return `Error reading or transcribing audio: ${err.message}`;

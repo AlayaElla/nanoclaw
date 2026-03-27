@@ -493,6 +493,7 @@ async function generateSummary(
       'ANTHROPIC_BASE_URL',
       'ANTHROPIC_MODEL',
     ]);
+    // Always route internal summary calls through the gateway for token tracking
     const apiKey = envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
     let apiUrl =
       envVars.ANTHROPIC_BASE_URL ||
@@ -532,6 +533,25 @@ async function generateSummary(
 
     if (fetchResponse.ok) {
       const data = (await fetchResponse.json()) as any;
+      const { insertTokenUsage } = await import('./db.js');
+      const crypto = await import('crypto');
+
+      const inputTokens =
+        data?.usage?.input_tokens || data?.usage?.prompt_tokens || 0;
+      const outputTokens =
+        data?.usage?.output_tokens || data?.usage?.completion_tokens || 0;
+
+      insertTokenUsage({
+        id: crypto.randomUUID(),
+        group_id: 'system',
+        task_id: 'summary',
+        timestamp: new Date().toISOString(),
+        model: modelName,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+      });
+
       return (
         data?.choices?.[0]?.message?.content ||
         data?.content?.[0]?.text ||

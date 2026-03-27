@@ -72,7 +72,7 @@ export function startControlCenter(): Server {
           body = new OverviewPage().render({}, lang);
           break;
         case 'usage':
-          body = new UsagePage().render({}, lang);
+          body = new UsagePage().render({ query: url.searchParams }, lang);
           break;
         case 'staff':
           body = new StaffPage().render({}, lang);

@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: TranscriptionConfig = {
 async function transcribeWithDashScope(
   audioBuffer: Buffer,
   config: TranscriptionConfig,
+  groupFolder?: string,
 ): Promise<string | null> {
   const env = readEnvFile(['EMBEDDING_API_KEY']);
   const apiKey = env.EMBEDDING_API_KEY;
@@ -64,13 +65,33 @@ async function transcribeWithDashScope(
       return null;
     }
 
-    const result = (await response.json()) as {
-      choices?: Array<{
-        message?: {
-          content?: string | Array<{ text?: string }>;
-        };
-      }>;
-    };
+    const result = (await response.json()) as any;
+
+    if (result.usage) {
+      try {
+        const { insertTokenUsage } = await import('./db.js');
+        const crypto = await import('crypto');
+
+        insertTokenUsage({
+          id: crypto.randomUUID(),
+          group_id: groupFolder || 'system',
+          task_id: 'transcription',
+          timestamp: new Date().toISOString(),
+          model: config.model,
+          input_tokens:
+            result.usage.audio_tokens ||
+            result.usage.prompt_tokens ||
+            result.usage.input_tokens ||
+            0,
+          output_tokens:
+            result.usage.completion_tokens || result.usage.output_tokens || 0,
+          total_tokens:
+            result.usage.total_tokens || result.usage.audio_tokens || 0,
+        });
+      } catch (err) {
+        console.error('Failed to log transcription token usage:', err);
+      }
+    }
 
     // Extract transcription text from response
     const choice = result.choices?.[0];
@@ -87,7 +108,7 @@ async function transcribeWithDashScope(
     // content may be an array of objects with text field
     if (Array.isArray(content)) {
       return content
-        .map((item) => item.text || '')
+        .map((item: any) => item.text || '')
         .join('')
         .trim();
     }
@@ -106,6 +127,7 @@ async function transcribeWithDashScope(
  */
 export async function transcribeAudioMessage(
   audioBuffer: Buffer,
+  groupFolder?: string,
 ): Promise<string | null> {
   const config = DEFAULT_CONFIG;
 
@@ -121,7 +143,11 @@ export async function transcribeAudioMessage(
   console.log(`Transcribing audio: ${audioBuffer.length} bytes`);
 
   try {
-    const transcript = await transcribeWithDashScope(audioBuffer, config);
+    const transcript = await transcribeWithDashScope(
+      audioBuffer,
+      config,
+      groupFolder,
+    );
 
     if (!transcript) {
       return config.fallbackMessage;

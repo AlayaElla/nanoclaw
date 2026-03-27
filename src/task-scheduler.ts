@@ -204,6 +204,7 @@ async function runTask(
         isMain,
         isGroup,
         isScheduledTask: true,
+        taskId: task.id,
         assistantName: group.assistantName,
       },
       (proc, containerName) =>

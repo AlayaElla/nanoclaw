@@ -179,10 +179,29 @@ export async function getEmbedding(
     output: {
       embeddings: Array<{ embedding: number[] }>;
     };
+    usage?: {
+      total_tokens: number;
+    };
   };
 
   if (!result.output?.embeddings?.[0]?.embedding) {
     throw new Error('Malformed embedding response');
+  }
+
+  // Natively log token usage for RAG
+  if (result.usage?.total_tokens) {
+    const { insertTokenUsage } = await import('./db.js');
+    const crypto = await import('crypto');
+    insertTokenUsage({
+      id: crypto.randomUUID(),
+      group_id: 'system',
+      task_id: 'rag',
+      timestamp: new Date().toISOString(),
+      model: embeddingConfig.model,
+      input_tokens: result.usage.total_tokens,
+      output_tokens: 0,
+      total_tokens: result.usage.total_tokens,
+    });
   }
 
   return result.output.embeddings[0].embedding;

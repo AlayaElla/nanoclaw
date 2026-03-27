@@ -1,6 +1,6 @@
 import { Page, t, esc, fmtNum, fmtDuration, pageHeader } from '../utils.js';
 import { Lang } from '../types.js';
-import { getAgentStatusFiles, getSpendSummary } from '../data.js';
+import { getAgentStatusFiles, getUsageSummary } from '../data.js';
 import { getFullStatus } from '../../status.js';
 import { getAllTasks } from '../../db.js';
 
@@ -9,9 +9,9 @@ export class OverviewPage extends Page<any> {
     const status = getFullStatus();
     const agents = getAgentStatusFiles();
     const tasks = getAllTasks();
-    const spend1d = getSpendSummary(1);
-    const spend7d = getSpendSummary(7);
-    const spend30d = getSpendSummary(30);
+    const spend1d = getUsageSummary(1);
+    const spend7d = getUsageSummary(7);
+    const spend30d = getUsageSummary(30);
 
     const activeContainers = agents.reduce(
       (n: number, a: any) =>
@@ -42,7 +42,7 @@ export class OverviewPage extends Page<any> {
       `<div class="card">` +
       `<div class="card-title">${label}</div>` +
       `<div class="card-value" style="font-size:28px; margin-bottom: 8px;">${fmtNum(d.total_tokens)}</div>` +
-      `<div class="card-detail" style="margin-top:0">${t(lang, 'Input', '输入')}: ${fmtNum(d.prompt_tokens)} · ${t(lang, 'Output', '输出')}: ${fmtNum(d.completion_tokens)}</div>` +
+      `<div class="card-detail" style="margin-top:0">${t(lang, 'Input', '输入')}: ${fmtNum(d.input_tokens)} · ${t(lang, 'Output', '输出')}: ${fmtNum(d.output_tokens)}</div>` +
       `<div class="card-detail" style="margin-top:4px">${fmtNum(d.request_count)} ${t(lang, 'requests', '次请求')}</div>` +
       `</div>`;
 

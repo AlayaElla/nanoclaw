@@ -1,12 +1,19 @@
-import { createServer, IncomingMessage, ServerResponse, Server } from 'http';
+import {
+  createServer,
+  IncomingMessage,
+  ServerResponse,
+  Server,
+  request as httpRequest,
+} from 'http';
 import { logger } from './logger.js';
 import { IpcDeps, processTaskIpc } from './ipc.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { resolveAgentName } from './agents-config.js';
 import fs from 'fs';
 import path from 'path';
+import * as crypto from 'crypto';
 import { GATEWAY_PORT, WORKSPACE_DIR } from './config.js';
-import { storeMessage } from './db.js';
+import { storeMessage, insertTokenUsage } from './db.js';
 import { searchMemory, isRagEnabled } from './rag.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -144,6 +151,11 @@ export class GatewayServer {
 
     try {
       if (req.method === 'POST') {
+        if (req.url.startsWith('/llm/v1/')) {
+          await this.handleLlmProxy(req, res);
+          return;
+        }
+
         const body = await this.parseBody(req);
 
         switch (req.url) {
@@ -164,6 +176,172 @@ export class GatewayServer {
       this.sendJson(res, 500, {
         error: err.message || 'Internal Server Error',
       });
+    }
+  }
+
+  /**
+   * Proxies traffic to LiteLLM, sniffing SSE streams to extract Token Usage & Tools
+   */
+  private async handleLlmProxy(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    try {
+      // API Key contains injected context: nc_meta_group=xxx;task=yyy
+      const apiKey =
+        (req.headers['x-api-key'] as string) ||
+        req.headers['authorization']?.replace('Bearer ', '') ||
+        '';
+      let groupFolder = 'unknown';
+      let taskId = 'none';
+      let intendedModel = '';
+
+      if (apiKey.startsWith('nc_meta_')) {
+        const metaStr = apiKey.substring(8);
+        const parts = metaStr.split(';');
+        for (const p of parts) {
+          if (p.startsWith('group=')) groupFolder = p.substring(6);
+          if (p.startsWith('task=')) taskId = p.substring(5);
+          if (p.startsWith('model=')) intendedModel = p.substring(6);
+        }
+      }
+
+      // Read the literal body bytes (do preserve format perfectly)
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      let bodyBuf = Buffer.concat(chunks);
+
+      let modelName = 'unknown';
+      try {
+        const parsed = JSON.parse(bodyBuf.toString('utf8'));
+        if (parsed.model) modelName = parsed.model;
+
+        // INTERCEPT AND REWRITE MODEL
+        if (
+          req.url?.includes('/v1/messages') ||
+          req.url?.includes('/v1/chat/completions')
+        ) {
+          let targetModel = intendedModel || parsed.model;
+
+          // Apply Claude Code specific model rewrites
+          if (targetModel === 'claude-3-7-sonnet-20250219') {
+            targetModel = 'claude-3-7-sonnet';
+          } else if (targetModel === 'claude-3-5-haiku-20241022') {
+            targetModel = 'claude-3-5-haiku';
+          } else if (
+            parsed.model === 'claude-opus-4-6' ||
+            parsed.model === 'claude-sonnet-4-6'
+          ) {
+            // If a subagent forces these invalid models, forcefully rewrite to intended model
+            targetModel = intendedModel || 'claude-3-5-sonnet';
+          }
+
+          if (targetModel && targetModel !== parsed.model) {
+            parsed.model = targetModel;
+            modelName = targetModel;
+            bodyBuf = Buffer.from(JSON.stringify(parsed), 'utf8');
+          }
+        }
+      } catch {
+        // Ignore
+      }
+
+      // Forward request to local LiteLLM (port 4000)
+      const targetUrl = new URL(
+        `http://127.0.0.1:4000` + req.url!.replace(/^\/llm/, ''),
+      );
+
+      // Build clean headers: replace host, auth, and fix content-length to match actual body
+      const fwdHeaders = { ...req.headers };
+      delete fwdHeaders['content-length'];
+      fwdHeaders['host'] = targetUrl.host;
+      fwdHeaders['x-api-key'] = 'sk-dummy';
+      fwdHeaders['authorization'] = 'Bearer sk-dummy';
+      fwdHeaders['content-length'] = String(bodyBuf.length);
+
+      const proxyReq = httpRequest(
+        targetUrl,
+        {
+          method: req.method,
+          headers: fwdHeaders,
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+
+          let tail = '';
+          let inputTokens = 0;
+          let outputTokens = 0;
+          let toolName: string | null = null;
+
+          proxyRes.on('data', (chunk) => {
+            res.write(chunk);
+
+            // Sniff SSE chunk
+            const text = tail + chunk.toString();
+
+            // Match Anthropic usage format: "usage": {"input_tokens": 15, "output_tokens": 1}
+            const inputMatch = text.match(
+              /"usage"\s*:\s*\{[^}]*"input_tokens"\s*:\s*(\d+)/,
+            );
+            if (inputMatch) inputTokens = parseInt(inputMatch[1], 10);
+
+            // Output tokens accumulate in diffs, so we take the latest match in the stream
+            const outputMatches = [
+              ...text.matchAll(/"output_tokens"\s*:\s*(\d+)/g),
+            ];
+            if (outputMatches.length > 0) {
+              outputTokens = parseInt(
+                outputMatches[outputMatches.length - 1][1],
+                10,
+              );
+            }
+
+            // Match Anthropic tool format: "type":"tool_use"[...]"name":"Bash"
+            const toolMatch = text.match(
+              /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"([^"]+)"/,
+            );
+            if (toolMatch && !toolName) {
+              toolName = toolMatch[1];
+            }
+
+            tail = text.slice(-200); // Keep last 200 chars for cross-chunk matching
+          });
+
+          proxyRes.on('end', () => {
+            res.end();
+
+            // Insert perfectly extracted tokens into independent usage DB
+            if (inputTokens > 0 || outputTokens > 0) {
+              insertTokenUsage({
+                id: crypto.randomUUID(),
+                group_id: groupFolder,
+                task_id: taskId === 'none' ? undefined : taskId,
+                tool_name: toolName || undefined,
+                timestamp: new Date().toISOString(),
+                model: modelName,
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                total_tokens: inputTokens + outputTokens,
+              });
+            }
+          });
+        },
+      );
+
+      proxyReq.on('error', (err) => {
+        logger.error({ err }, 'Proxy connection failed');
+        if (!res.headersSent) res.writeHead(502);
+        res.end(JSON.stringify({ error: 'Bad Gateway' }));
+      });
+
+      proxyReq.write(bodyBuf);
+      proxyReq.end();
+    } catch (err: any) {
+      logger.error({ err }, 'Exception in LLM proxying');
+      if (!res.headersSent) res.writeHead(500);
+      res.end(JSON.stringify({ error: 'Proxy Error' }));
     }
   }
 

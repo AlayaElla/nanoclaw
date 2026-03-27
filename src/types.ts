@@ -127,6 +127,18 @@ export interface TaskRunLog {
   error: string | null;
 }
 
+export interface TokenUsageLog {
+  id: string; // Typically a UUID
+  group_id: string;
+  task_id?: string;
+  tool_name?: string;
+  timestamp: string; // ISO date string
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 // --- Channel abstraction ---
 
 export interface Channel {

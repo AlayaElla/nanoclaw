@@ -101,9 +101,6 @@ export class Layout {
     .nav-item.active .nav-icon{opacity:1;color:var(--accent)}
     .nav-icon{font-size:18px;width:24px;text-align:center;opacity:0.7}
     
-    .main{padding:48px;height:100vh;overflow-y:auto;}
-    .page-header{margin-bottom:40px}.page-title{font-size:32px;font-weight:700;letter-spacing:-1px}.page-subtitle{color:var(--text-muted);font-size:15px;margin-top:8px}
-    
     .grid{display:grid;gap:24px;perspective:1200px}.grid-2{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:repeat(3,1fr)}.grid-4{grid-template-columns:repeat(4,1fr)}
     
     @keyframes float {
@@ -111,6 +108,14 @@ export class Layout {
       50% { transform: translateY(-10px); }
       100% { transform: translateY(0px); }
     }
+    
+    @keyframes fade-in-up {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .main { padding: 48px; height: 100vh; overflow-y: auto; }
+    .main.animate-in { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .page-header{margin-bottom:40px}.page-title{font-size:32px;font-weight:700;letter-spacing:-1px}.page-subtitle{color:var(--text-muted);font-size:15px;margin-top:8px}
 
     /* Standard Card (Light Glass + Interactive) */
     .card{
@@ -158,7 +163,7 @@ export class Layout {
     .section-group{margin-bottom:40px}.section-label{font-size:18px;font-weight:600;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid rgba(0,0,0,0.05);color:var(--text-main)}
     
     /* Buttons */
-    .btn{padding:10px 20px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(255,255,255,0.6);color:var(--text-main);cursor:pointer;font-size:14px;font-weight:500;transition:all .3s;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow: 0 2px 6px rgba(0,0,0,0.02), inset 0 1px 1px #fff}.btn:hover{background:#fff;transform:translateY(-1px)}.btn-danger{color:var(--red);background:rgba(239,68,68,0.05)}.btn-primary{color:#fff;background:var(--accent);border-color:transparent;box-shadow:0 6px 16px var(--accent-glow), inset 0 1px 1px rgba(255,255,255,0.2)}
+    .btn{padding:10px 20px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(255,255,255,0.6);color:var(--text-main);cursor:pointer;font-size:14px;font-weight:500;transition:all .3s cubic-bezier(0.16,1,0.3,1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow: 0 2px 6px rgba(0,0,0,0.02), inset 0 1px 1px #fff}.btn:hover{background:#fff;transform:translateY(-2px);box-shadow:0 6px 12px rgba(0,0,0,0.06)}.btn:active{transform:scale(0.95);box-shadow:none}.btn-danger{color:var(--red);background:rgba(239,68,68,0.05)}.btn-primary{color:#fff;background:var(--accent);border-color:transparent;box-shadow:0 6px 16px var(--accent-glow), inset 0 1px 1px rgba(255,255,255,0.2)}
     
     /* Agent Grid */
     .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; align-items: start; }
@@ -331,7 +336,21 @@ export class Layout {
     .agent-claude-content { font-family: "SF Mono", Menlo, monospace; font-size: 11px; background: rgba(0,0,0,0.03); border-radius: 12px; border: 1px solid rgba(0,0,0,0.01); color: var(--text-muted); padding: 14px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
 
     /* Modal Dialog */
+    @keyframes modal-in {
+      from { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    @keyframes modal-out {
+      from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      to { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
+    }
+    @keyframes backdrop-in { from { background: rgba(0,0,0,0); backdrop-filter: blur(0px); } to { background: rgba(0,0,0,0.3); backdrop-filter: blur(4px); } }
+    
     .agent-modal { border: none; border-radius: var(--radius); background: var(--glass-bg); backdrop-filter: blur(40px) saturate(200%); -webkit-backdrop-filter: blur(40px) saturate(200%); padding: 0; max-width: 900px; width: 90vw; max-height: 80vh; box-shadow: 0 30px 80px rgba(0,0,0,0.15); overflow: hidden; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
+    .agent-modal[open] { animation: modal-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .agent-modal.closing { animation: modal-out 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .agent-modal[open]::backdrop { animation: backdrop-in 0.35s ease forwards; }
+    
     .agent-modal::backdrop { background: rgba(0,0,0,0.3); backdrop-filter: blur(4px); }
     .agent-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid rgba(0,0,0,0.05); font-weight: 600; font-size: 15px; }
     .agent-modal-header .btn { padding: 4px 10px; font-size: 14px; min-width: auto; }
@@ -344,15 +363,46 @@ export class Layout {
     .file-tree{font-family:"SF Mono",Menlo,monospace;font-size:13px}.file-tree-item{padding:6px 10px;display:flex;gap:10px;align-items:center;border-radius:8px;transition:background 0.2s}.file-tree-item:hover{background:rgba(0,0,0,0.02)}.file-icon{color:var(--text-muted);width:16px;text-align:center}
 
     @media(max-width:900px){
-      .app{grid-template-columns:1fr;height:auto}
-      .sidebar{position:static;height:auto;display:flex;flex-direction:row;overflow-x:auto;padding:16px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.05);gap:8px}
-      .sidebar-title{display:none}
-      .nav-item{padding:8px 16px;margin:0;border-radius:20px;white-space:nowrap}
+      .app{grid-template-columns:1fr;height:auto;}
+      .main{padding-bottom:90px;}
+      .sidebar{
+        position:fixed;
+        top:auto;
+        bottom:0;
+        left:0;
+        width:100%;
+        height:70px;
+        display:flex;
+        flex-direction:row;
+        justify-content:space-around;
+        align-items:center;
+        padding:0 8px;
+        border-right:none;
+        border-top:1px solid rgba(0,0,0,0.05);
+        background:rgba(255,255,255,0.85);
+        z-index:100;
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.04);
+      }
+      .sidebar-title, .global-status{display:none}
+      .nav-item{
+        flex-direction:column;
+        gap:4px;
+        padding:8px;
+        font-size:10px;
+        border-radius:12px;
+        flex:1;
+        text-align:center;
+      }
+      .nav-item.active{box-shadow:none;background:rgba(0,102,255,0.08);transform:translateY(-2px)}
+      .nav-icon{font-size:20px;width:auto;margin:0 auto}
       .grid-3,.grid-4,.agent-grid{grid-template-columns:repeat(2,1fr)}
+      table{display:block;overflow-x:auto;white-space:nowrap}
     }
     @media(max-width:600px){
       .grid-2,.grid-3,.grid-4,.agent-grid{grid-template-columns:1fr}
-      .main{padding:20px}
+      .main{padding:20px;padding-bottom:100px;}
     }`;
   }
 
@@ -389,6 +439,16 @@ export class Layout {
         </div>
       </div>
       <script>
+        function closeModal(element) {
+          const dialog = element.tagName === 'DIALOG' ? element : element.closest('dialog');
+          if (!dialog) return;
+          dialog.classList.add('closing');
+          setTimeout(() => {
+            dialog.classList.remove('closing');
+            dialog.close();
+          }, 240); // slightly before max animation ends
+        }
+
         function checkSystemStatus() {
           fetch('/health').then(res => {
             document.getElementById('status-nanoclaw').className = res.ok ? 'status-dot green' : 'status-dot red';
@@ -403,10 +463,10 @@ export class Layout {
           });
         }
         checkSystemStatus();
-        setInterval(checkSystemStatus, 5000);
+        setInterval(checkSystemStatus, 3000);
       </script>
     </nav>
-    <div class="main">
+    <div class="main ${section !== 'docs' ? 'animate-in' : ''}">
       ${body}
     </div>
   </div>

@@ -189,7 +189,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
           <dialog id="msg-${groupId}" class="agent-modal">
             <div class="agent-modal-header">
               <span>💬 ${esc(group.name || group.jid)} — ${t(lang, 'Recent Messages', '最近消息')}</span>
-              <button class="btn" onclick="this.closest('dialog').close()">✕</button>
+              <button class="btn" onclick="closeModal(this)">✕</button>
             </div>
             <div class="agent-modal-body">`;
 
@@ -224,7 +224,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
           <dialog id="audit-${groupId}" class="agent-modal">
             <div class="agent-modal-header">
               <span>🔄 ${esc(group.name || group.jid)} — ${t(lang, 'Execution Trace', '执行轨迹')}</span>
-              <button class="btn" onclick="this.closest('dialog').close()">✕</button>
+              <button class="btn" onclick="closeModal(this)">✕</button>
             </div>
             <div class="agent-modal-body">`;
 
@@ -301,9 +301,26 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
     html +=
       '\\n    <script>\\n' +
       '      setInterval(() => {\\n' +
-      "        // Only refresh if no modal is open and user isn't interacting with UI\\n" +
+      "        // Only refresh if no modal is open\\n" +
       "        if (!document.querySelector('dialog[open]')) {\\n" +
-      '          location.reload();\\n' +
+      "          const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();\\n" +
+      "          fetch(url).then(r => r.text()).then(html => {\\n" +
+      "            const parser = new DOMParser();\\n" +
+      "            const doc = parser.parseFromString(html, 'text/html');\\n" +
+      "            const newMain = doc.querySelector('.main');\\n" +
+      "            if (newMain) {\\n" +
+      "              document.querySelector('.main').innerHTML = newMain.innerHTML;\\n" +
+      "              const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];\\n" +
+      "              document.querySelectorAll('.agent-card').forEach(card => {\\n" +
+      "                const name = card.dataset.agent;\\n" +
+      "                const idx = localStorage.getItem('card-color-' + name);\\n" +
+      "                if (idx !== null) {\\n" +
+      "                  const strip = card.querySelector('.color-strip');\\n" +
+      "                  if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];\\n" +
+      "                }\\n" +
+      "              });\\n" +
+      "            }\\n" +
+      "          }).catch(() => {});\\n" +
       '        }\\n' +
       '      }, 3000);\\n' +
       '    </script>\\n';

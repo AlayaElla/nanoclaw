@@ -70,6 +70,15 @@ export interface ToolStatusEvent {
   elapsed?: number;
 }
 
+export interface TaskStatusEvent {
+  type: 'task_status';
+  task_id: string;
+  status: string;
+  summary: string;
+}
+
+export type IpcStatusEvent = ToolStatusEvent | TaskStatusEvent;
+
 interface VolumeMount {
   hostPath: string;
   containerPath: string;
@@ -376,7 +385,7 @@ export async function runContainerAgent(
   input: ContainerInput,
   onProcess: (proc: ChildProcess, containerName: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
-  onToolStatus?: (event: ToolStatusEvent) => void,
+  onIpcStatus?: (event: IpcStatusEvent) => void,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
@@ -457,7 +466,7 @@ export async function runContainerAgent(
     // Poll IPC status directory for tool status events from agent-runner
     const statusDir = path.join(resolveGroupIpcPath(group.folder), 'status');
     let statusPolling = true;
-    const statusQueue: ToolStatusEvent[] = [];
+    const statusQueue: IpcStatusEvent[] = [];
     let processingStatus = false;
 
     const processStatusQueue = async () => {
@@ -466,7 +475,7 @@ export async function runContainerAgent(
       while (statusQueue.length > 0) {
         const event = statusQueue.shift()!;
         try {
-          await onToolStatus!(event);
+          await onIpcStatus!(event);
         } catch (err) {
           logger.debug({ err }, 'Error processing tool status event');
         }
@@ -475,7 +484,7 @@ export async function runContainerAgent(
     };
 
     const pollToolStatus = () => {
-      if (!statusPolling || !onToolStatus) return;
+      if (!statusPolling || !onIpcStatus) return;
       try {
         const files = fs
           .readdirSync(statusDir)
@@ -486,7 +495,7 @@ export async function runContainerAgent(
           try {
             const data = JSON.parse(
               fs.readFileSync(filePath, 'utf-8'),
-            ) as ToolStatusEvent;
+            ) as IpcStatusEvent;
             fs.unlinkSync(filePath);
             statusQueue.push(data);
           } catch {
@@ -507,7 +516,7 @@ export async function runContainerAgent(
       }
       setTimeout(pollToolStatus, 500);
     };
-    if (onToolStatus) {
+    if (onIpcStatus) {
       setTimeout(pollToolStatus, 500);
     }
 

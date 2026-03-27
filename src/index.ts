@@ -14,7 +14,7 @@ import {
 } from './channels/registry.js';
 import {
   ContainerOutput,
-  ToolStatusEvent,
+  IpcStatusEvent,
   runContainerAgent,
   writeGroupsSnapshot,
   writeTasksSnapshot,
@@ -424,7 +424,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return tool;
   };
 
-  const onToolStatus = async (event: ToolStatusEvent) => {
+  const onIpcStatus = async (event: IpcStatusEvent) => {
+    // Dispatch task_status events to status manager
+    if (event.type === 'task_status') {
+      statusEmit('sdk_task', {
+        group: chatJid,
+        detail: JSON.stringify({
+          task_id: event.task_id,
+          status: event.status,
+          summary: event.summary,
+        }),
+      });
+      return;
+    }
+
     if (!channel.sendStatusMessage) return;
 
     // Emit status event for status.json
@@ -526,7 +539,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         hadError = true;
       }
     },
-    onToolStatus,
+    onIpcStatus,
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -579,7 +592,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
-  onToolStatus?: (event: ToolStatusEvent) => void,
+  onIpcStatus?: (event: IpcStatusEvent) => void,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -643,7 +656,7 @@ async function runAgent(
         statusEmit('container_start', { group: chatJid });
       },
       wrappedOnOutput,
-      onToolStatus,
+      onIpcStatus,
     );
 
     statusEmit('container_stop', { group: chatJid });

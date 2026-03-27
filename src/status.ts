@@ -39,7 +39,8 @@ export type StatusEventType =
   | 'task_execute'
   | 'task_change'
   | 'channel_connect'
-  | 'channel_disconnect';
+  | 'channel_disconnect'
+  | 'sdk_task';
 
 export interface StatusEvent {
   type: StatusEventType;
@@ -71,6 +72,8 @@ export interface AgentStatus {
     lastEvent: StatusEvent | null;
     /** Scheduled tasks for this group */
     scheduledTasks: { id: string; prompt: string; status: string }[];
+    /** SDK tasks from Claude agent (sub-tasks created during execution) */
+    sdkTasks: { task_id: string; status: string; summary: string }[];
   }[];
 }
 
@@ -111,6 +114,12 @@ const activeTools = new Map<string, string>();
 
 /** Last event per group (jid → event) */
 const lastEvents = new Map<string, StatusEvent>();
+
+/** SDK tasks per group (jid → task_id → task info) */
+const sdkTasksMap = new Map<
+  string,
+  Map<string, { task_id: string; status: string; summary: string }>
+>();
 
 let deps: StatusDeps | null = null;
 let cachedVersion: string | null = null;
@@ -170,6 +179,7 @@ function buildAgentStatus(
         activeTool: activeTools.get(jid) || null,
         lastEvent: lastEvents.get(jid) || null,
         scheduledTasks: tasks,
+        sdkTasks: Array.from((sdkTasksMap.get(jid) || new Map()).values()),
       };
     });
 
@@ -391,6 +401,38 @@ export function statusEmit(
     lastEvents.set(detail.group, event);
   }
 
+  // Track SDK tasks per group
+  if (type === 'sdk_task' && detail?.group && detail?.detail) {
+    try {
+      const taskInfo = JSON.parse(detail.detail) as {
+        task_id: string;
+        status: string;
+        summary: string;
+      };
+      let groupTasks = sdkTasksMap.get(detail.group);
+      if (!groupTasks) {
+        groupTasks = new Map();
+        sdkTasksMap.set(detail.group, groupTasks);
+      }
+      groupTasks.set(taskInfo.task_id, taskInfo);
+      // Remove completed/stopped tasks after a delay
+      if (taskInfo.status === 'completed' || taskInfo.status === 'stopped') {
+        setTimeout(() => {
+          groupTasks!.delete(taskInfo.task_id);
+          if (groupTasks!.size === 0) sdkTasksMap.delete(detail!.group!);
+          scheduleDiskWrite(agentName);
+        }, 30000); // Keep for 30s then clean up
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+
+  // Clear SDK tasks when container stops
+  if (type === 'container_stop' && detail?.group) {
+    sdkTasksMap.delete(detail.group);
+  }
+
   // Schedule debounced disk write
   scheduleDiskWrite(agentName);
 
@@ -418,6 +460,7 @@ export function statusDestroy(): void {
   deps = null;
   activeTools.clear();
   lastEvents.clear();
+  sdkTasksMap.clear();
 
   try {
     if (fs.existsSync(STATUS_DIR)) {

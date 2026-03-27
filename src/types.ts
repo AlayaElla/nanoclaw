@@ -42,6 +42,7 @@ export interface RegisteredGroup {
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
   botToken?: string; // Env var name for the bot token (e.g., 'TELEGRAM_BOT_TOKEN_1')
   assistantName?: string; // Per-group assistant name (e.g., '星梦', '星月')
+  model?: string; // Override the model for this specific group
 }
 
 export interface MultiPartContent {

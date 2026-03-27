@@ -2,35 +2,29 @@ import { Section, Lang, SECTIONS } from '../types.js';
 
 const SECTION_ICONS: Record<Section, string> = {
   overview: '📊',
-  usage: '📈',
-  staff: '🤖',
-  memory: '💬',
-  docs: '📁',
+  agent: '🤖',
   tasks: '⏰',
+  docs: '📁',
+  usage: '📈',
   alerts: '🔔',
-  replay: '🔄',
   settings: '⚙️',
 };
 const LABELS_ZH: Record<Section, string> = {
   overview: '概览',
-  usage: '用量',
-  staff: '员工',
-  memory: '记忆',
-  docs: '文档',
+  agent: 'Agent',
   tasks: '任务',
+  docs: '文档',
+  usage: '用量',
   alerts: '告警',
-  replay: '回放与审计',
   settings: '设置',
 };
 const LABELS_EN: Record<Section, string> = {
   overview: 'Overview',
-  usage: 'Usage',
-  staff: 'Staff',
-  memory: 'Memory',
-  docs: 'Documents',
+  agent: 'Agent',
   tasks: 'Tasks',
+  docs: 'Documents',
+  usage: 'Usage',
   alerts: 'Alerts',
-  replay: 'Replay & Audit',
   settings: 'Settings',
 };
 
@@ -166,10 +160,10 @@ export class Layout {
     /* Buttons */
     .btn{padding:10px 20px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(255,255,255,0.6);color:var(--text-main);cursor:pointer;font-size:14px;font-weight:500;transition:all .3s;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow: 0 2px 6px rgba(0,0,0,0.02), inset 0 1px 1px #fff}.btn:hover{background:#fff;transform:translateY(-1px)}.btn-danger{color:var(--red);background:rgba(239,68,68,0.05)}.btn-primary{color:#fff;background:var(--accent);border-color:transparent;box-shadow:0 6px 16px var(--accent-glow), inset 0 1px 1px rgba(255,255,255,0.2)}
     
-    /* Staff Grid (Ultra Deep Light Glassmorphism) */
-    .staff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; perspective: 1200px; }
+    /* Agent Grid */
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; align-items: start; }
     
-    .staff-card { 
+    .agent-card { 
       background: var(--glass-bg); 
       backdrop-filter: blur(40px) saturate(200%); 
       -webkit-backdrop-filter: blur(40px) saturate(200%); 
@@ -178,7 +172,7 @@ export class Layout {
       padding: 24px 28px; 
       display: flex; 
       flex-direction: column; 
-      gap: 20px; 
+      gap: 16px; 
       box-shadow: 0 10px 20px rgba(0,0,0,0.03), inset 0 1px 1px #fff; 
       position: relative; 
       transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -186,67 +180,178 @@ export class Layout {
       animation: float 8s ease-in-out infinite;
     }
     
-    .staff-grid .staff-card:nth-child(2n) { animation-delay: -1.5s; }
-    .staff-grid .staff-card:nth-child(3n) { animation-delay: -4s; }
+    .agent-grid .agent-card:nth-child(2n) { animation-delay: -1.5s; }
+    .agent-grid .agent-card:nth-child(3n) { animation-delay: -4s; }
 
-    .staff-card:hover { 
+    .agent-card:hover { 
       animation-play-state: paused;
-      transform: translateY(-12px) rotateX(5deg) rotateY(-3deg); 
+      transform: translateY(-8px) rotateX(3deg) rotateY(-2deg); 
       border-color: #fff; 
       box-shadow: 0 30px 60px rgba(0,0,0,0.08), inset 0 1px 2px #fff; 
       background: rgba(255,255,255,0.7); 
     }
     
-    .staff-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 4px; z-index: 2; position: relative; }
-    .staff-card-title { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; color: var(--text-main); }
-    .staff-card-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+    .agent-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; z-index: 2; position: relative; }
+    .agent-card-title { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; color: var(--text-main); }
+    .agent-card-model { font-size: 12px; color: var(--text-muted); margin-top: 2px; font-family: "SF Mono", Menlo, monospace; }
+    .card-color-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; border-radius: 8px; transition: all 0.2s; opacity: 0.4; }
+    .card-color-btn:hover { opacity: 1; transform: scale(1.2); }
     
-    .staff-info-row { display: flex; flex-direction: column; gap: 8px; z-index: 2; position: relative; }
-    .staff-info-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
-    .staff-info-value { font-size: 14px; font-weight: 500; color: var(--text-main); line-height: 1.5; }
-    
-    .staff-info-output { 
-      font-family: "SF Mono", Menlo, monospace; 
-      font-size: 12px; 
-      background: rgba(0,0,0,0.03); 
-      border-radius: 12px; 
-      border: 1px solid rgba(0,0,0,0.01); 
+    /* Agent Groups */
+    .agent-groups { display: flex; flex-direction: column; gap: 12px; z-index: 2; position: relative; }
+    .agent-group-section { 
+      background: rgba(0,0,0,0.02); 
+      border: 1px solid rgba(0,0,0,0.04); 
+      border-radius: var(--radius-sm); 
+      padding: 14px 16px; 
+      display: flex; 
+      flex-direction: column; 
+      gap: 10px; 
+    }
+    .agent-group-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .agent-group-name { font-size: 14px; font-weight: 600; color: var(--text-main); }
+    .agent-group-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .agent-modal-btn { padding: 6px 14px; font-size: 12px; border-radius: 10px; }
+
+    /* SDK Tasks */
+    .agent-sdk-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    /* Todo list */
+    .agent-todo-list { padding: 8px 0; }
+    .agent-todo-item { font-size: 13px; padding: 3px 0; line-height: 1.5; color: var(--text-main); }
+
+    /* Audit steps */
+    .audit-steps { display: flex; flex-direction: column; gap: 0; }
+    .audit-step { 
+      border-bottom: 1px solid rgba(0,0,0,0.04); 
+      transition: background 0.15s;
+    }
+    .audit-step:hover, .audit-step-inline:hover { background: rgba(0,0,0,0.015); }
+    .audit-step summary { 
+      display: grid; 
+      grid-template-columns: 130px 80px 1fr; 
+      align-items: center; 
+      gap: 10px; 
+      padding: 8px 12px; 
+      cursor: pointer; 
+      list-style: none;
+      font-size: 12px;
+    }
+    .audit-step summary::-webkit-details-marker { display: none; }
+    .audit-step summary::after { 
+      content: '▾'; 
+      font-size: 10px; 
       color: var(--text-muted); 
-      padding: 14px; 
-      box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); 
+      transition: transform 0.2s; 
+      grid-column: -1;
+      justify-self: end;
+    }
+    .audit-step:not([open]) summary::after { transform: rotate(-90deg); }
+    .audit-step-inline { 
+      display: grid; 
+      grid-template-columns: 130px 80px 1fr; 
+      align-items: center; 
+      gap: 10px; 
+      padding: 8px 12px; 
+      font-size: 12px; 
+      border-bottom: 1px solid rgba(0,0,0,0.04);
+      transition: background 0.15s;
+    }
+    .audit-ts { 
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 10px; 
+      color: var(--text-muted); 
+      white-space: nowrap; 
+    }
+    .audit-preview { 
+      font-family: "SF Mono", Menlo, monospace; 
+      font-size: 11px; 
+      color: var(--text-main); 
+      overflow: hidden; 
+      text-overflow: ellipsis; 
+      white-space: nowrap; 
+      min-width: 0;
+    }
+    .audit-full { 
+      font-family: "SF Mono", Menlo, monospace; 
+      font-size: 11px; 
+      background: rgba(0,0,0,0.025); 
+      border-radius: 10px; 
+      padding: 12px 14px; 
+      margin: 4px 12px 10px 12px; 
+      white-space: pre-wrap; 
+      word-break: break-word; 
+      max-height: 260px; 
+      overflow-y: auto; 
+      color: var(--text-muted); 
       line-height: 1.6; 
-      z-index: 2; 
-      position: relative;
+      border: 1px solid rgba(0,0,0,0.03);
     }
-    .staff-card-status { align-self: flex-start; z-index: 2; position: relative; }
-    
+
+    /* Messages */
+    .msg-list { display: flex; flex-direction: column; gap: 12px; }
+    .msg-item { display: flex; flex-direction: column; gap: 4px; }
+    .msg-meta { 
+      font-size: 11px; 
+      color: var(--text-muted); 
+      padding: 0 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .msg-bubble { 
+      padding: 10px 16px; 
+      border-radius: 16px; 
+      max-width: 85%; 
+      font-size: 13px; 
+      line-height: 1.6; 
+      word-break: break-word;
+    }
+    .msg-user { 
+      background: var(--accent); 
+      color: #fff; 
+      align-self: flex-end;
+      border-bottom-right-radius: 4px; 
+      box-shadow: 0 2px 8px rgba(0,122,255,0.15);
+    }
+    .msg-bot { 
+      background: rgba(255,255,255,0.85); 
+      backdrop-filter: blur(20px); 
+      -webkit-backdrop-filter: blur(20px); 
+      border: 1px solid var(--glass-border); 
+      align-self: flex-start;
+      border-bottom-left-radius: 4px; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    }
+
+    /* CLAUDE.md collapsible */
+    .agent-claude-md { z-index: 2; position: relative; }
+    .agent-claude-md summary { font-size: 12px; color: var(--text-muted); cursor: pointer; padding: 8px 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; user-select: none; }
+    .agent-claude-md summary:hover { color: var(--text-main); }
+    .agent-claude-content { font-family: "SF Mono", Menlo, monospace; font-size: 11px; background: rgba(0,0,0,0.03); border-radius: 12px; border: 1px solid rgba(0,0,0,0.01); color: var(--text-muted); padding: 14px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
+
+    /* Modal Dialog */
+    .agent-modal { border: none; border-radius: var(--radius); background: var(--glass-bg); backdrop-filter: blur(40px) saturate(200%); -webkit-backdrop-filter: blur(40px) saturate(200%); padding: 0; max-width: 900px; width: 90vw; max-height: 80vh; box-shadow: 0 30px 80px rgba(0,0,0,0.15); overflow: hidden; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
+    .agent-modal::backdrop { background: rgba(0,0,0,0.3); backdrop-filter: blur(4px); }
+    .agent-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid rgba(0,0,0,0.05); font-weight: 600; font-size: 15px; }
+    .agent-modal-header .btn { padding: 4px 10px; font-size: 14px; min-width: auto; }
+    .agent-modal-body { padding: 20px 24px; max-height: 60vh; overflow-y: auto; }
+
     /* Ethereal pastel glow orbs */
-    .color-strip { 
-      position: absolute; 
-      top: -70px; 
-      right: -70px; 
-      width: 200px; 
-      height: 200px; 
-      border-radius: 50%; 
-      opacity: 0.35; 
-      filter: blur(60px); 
-      z-index: 0; 
-      pointer-events: none; 
-    }
-    
+    .color-strip { position: absolute; top: -70px; right: -70px; width: 200px; height: 200px; border-radius: 50%; opacity: 0.35; filter: blur(60px); z-index: 0; pointer-events: none; }
+
     a{color:var(--accent);text-decoration:none}a:hover{opacity:0.8}
     .file-tree{font-family:"SF Mono",Menlo,monospace;font-size:13px}.file-tree-item{padding:6px 10px;display:flex;gap:10px;align-items:center;border-radius:8px;transition:background 0.2s}.file-tree-item:hover{background:rgba(0,0,0,0.02)}.file-icon{color:var(--text-muted);width:16px;text-align:center}
-    .msg-bubble{padding:12px 16px;border-radius:18px;margin-bottom:8px;max-width:75%;font-size:14px;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,0.02)}.msg-user{background:var(--accent);color:#fff;margin-left:auto;border-bottom-right-radius:4px}.msg-bot{background:rgba(255,255,255,0.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-bottom-left-radius:4px}.msg-meta{font-size:11px;color:var(--text-muted);margin-bottom:6px;padding:0 6px}
 
     @media(max-width:900px){
       .app{grid-template-columns:1fr;height:auto}
       .sidebar{position:static;height:auto;display:flex;flex-direction:row;overflow-x:auto;padding:16px;border-right:none;border-bottom:1px solid rgba(0,0,0,0.05);gap:8px}
       .sidebar-title{display:none}
       .nav-item{padding:8px 16px;margin:0;border-radius:20px;white-space:nowrap}
-      .grid-3,.grid-4,.staff-grid{grid-template-columns:repeat(2,1fr)}
+      .grid-3,.grid-4,.agent-grid{grid-template-columns:repeat(2,1fr)}
     }
     @media(max-width:600px){
-      .grid-2,.grid-3,.grid-4,.staff-grid{grid-template-columns:1fr}
+      .grid-2,.grid-3,.grid-4,.agent-grid{grid-template-columns:1fr}
       .main{padding:20px}
     }`;
   }
@@ -257,11 +362,6 @@ export class Layout {
       const cls = s === section ? 'nav-item active' : 'nav-item';
       return `<a class="${cls}" href="/?section=${s}&lang=${lang}"><span class="nav-icon">${SECTION_ICONS[s]}</span>${labels[s]}</a>`;
     }).join('');
-
-    const langSwitch =
-      lang === 'zh'
-        ? `<a class="nav-item" href="/?section=${section}&lang=en"><span class="nav-icon">🌐</span>English</a>`
-        : `<a class="nav-item" href="/?section=${section}&lang=zh"><span class="nav-icon">🌐</span>中文</a>`;
 
     return `<!doctype html>
 <html lang="${lang}">
@@ -277,7 +377,34 @@ export class Layout {
       <div class="sidebar-title">🦀 NanoClaw CC</div>
       ${nav}
       <div style="flex:1"></div>
-      ${langSwitch}
+      <div class="global-status" style="padding: 16px; border-top: 1px solid rgba(0,0,0,0.05); margin-top: auto;">
+        <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase;">${lang === 'zh' ? '系统状态' : 'System Status'}</div>
+        <div style="display:flex; align-items:center; gap: 8px; margin-bottom: 10px;">
+          <span class="status-dot gray" id="status-nanoclaw"></span>
+          <span style="font-size: 13px;">NanoClaw Core</span>
+        </div>
+        <div style="display:flex; align-items:center; gap: 8px;">
+          <span class="status-dot gray" id="status-litellm"></span>
+          <span style="font-size: 13px;">LiteLLM Proxy</span>
+        </div>
+      </div>
+      <script>
+        function checkSystemStatus() {
+          fetch('/health').then(res => {
+            document.getElementById('status-nanoclaw').className = res.ok ? 'status-dot green' : 'status-dot red';
+          }).catch(() => {
+            document.getElementById('status-nanoclaw').className = 'status-dot red';
+          });
+          
+          fetch('/api/system/litellm-status').then(res => {
+            document.getElementById('status-litellm').className = res.ok ? 'status-dot green' : 'status-dot red';
+          }).catch(() => {
+            document.getElementById('status-litellm').className = 'status-dot red';
+          });
+        }
+        checkSystemStatus();
+        setInterval(checkSystemStatus, 5000);
+      </script>
     </nav>
     <div class="main">
       ${body}

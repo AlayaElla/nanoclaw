@@ -467,7 +467,7 @@ export function getRecentMessages(
   limit: number,
 ): NewMessage[] {
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
+    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages
     WHERE chat_jid = ?
       AND content != '' AND content IS NOT NULL
@@ -792,6 +792,7 @@ export function getRegisteredGroup(
         is_main: number | null;
         bot_token: string | null;
         assistant_name: string | null;
+        model: string | null;
       }
     | undefined;
   if (!row) return undefined;
@@ -816,6 +817,7 @@ export function getRegisteredGroup(
     isMain: row.is_main === 1 ? true : undefined,
     botToken: row.bot_token || undefined,
     assistantName: row.assistant_name || undefined,
+    model: row.model || undefined,
   };
 }
 
@@ -825,8 +827,8 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   }
   groupsDb
     .prepare(
-      `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, bot_token, assistant_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, bot_token, assistant_name, model)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       jid,
@@ -839,6 +841,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
       group.isMain ? 1 : 0,
       group.botToken || null,
       group.assistantName || null,
+      group.model || null,
     );
 }
 
@@ -856,8 +859,9 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     is_main: number | null;
     bot_token: string | null;
     assistant_name: string | null;
+    model: string | null;
   }>;
-  const result: Record<string, RegisteredGroup> = {};
+  const result: Record<string, RegisteredGroup & { jid: string }> = {};
   for (const row of rows) {
     if (!isValidGroupFolder(row.folder)) {
       logger.warn(
@@ -867,6 +871,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       continue;
     }
     result[row.jid] = {
+      jid: row.jid,
       name: row.name,
       folder: row.folder,
       trigger: row.trigger_pattern,
@@ -879,6 +884,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       isMain: row.is_main === 1 ? true : undefined,
       botToken: row.bot_token || undefined,
       assistantName: row.assistant_name || undefined,
+      model: row.model || undefined,
     };
   }
   return result;

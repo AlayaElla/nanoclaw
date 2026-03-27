@@ -8,7 +8,7 @@ import {
 
 export class UsagePage extends Page<any> {
   render(props: { query: URLSearchParams }, lang: Lang): string {
-    const days = parseInt(props.query?.get('days') || '30', 10);
+    const days = parseInt(props.query?.get('days') || '1', 10);
     const dimension = (props.query?.get('dim') || 'total') as
       | 'total'
       | 'model'

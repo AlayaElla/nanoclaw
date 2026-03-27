@@ -1,22 +1,18 @@
 export type Lang = 'en' | 'zh';
 export type Section =
   | 'overview'
-  | 'usage'
-  | 'staff'
-  | 'memory'
-  | 'docs'
+  | 'agent'
   | 'tasks'
+  | 'docs'
+  | 'usage'
   | 'alerts'
-  | 'replay'
   | 'settings';
 export const SECTIONS: Section[] = [
   'overview',
-  'usage',
-  'staff',
-  'memory',
-  'docs',
+  'agent',
   'tasks',
+  'docs',
+  'usage',
   'alerts',
-  'replay',
   'settings',
 ];

@@ -67,10 +67,15 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_STATUS_DIR = '/workspace/ipc/status';
 const IPC_POLL_MS = 500;
 
+type IpcStatusEvent =
+  | { type: 'tool_status'; tool?: string; status: 'running' | 'idle'; elapsed?: number }
+  | { type: 'task_status'; task_id: string; status: string; summary: string };
+
 /**
- * Write a tool status event to IPC so the host can relay it to Telegram.
+ * Write a status event to IPC so the host can relay it.
+ * Supports both tool_status and task_status event types.
  */
-function writeToolStatus(status: { type: 'tool_status'; tool?: string; status: 'running' | 'idle'; elapsed?: number }): void {
+function writeIpcStatus(status: IpcStatusEvent): void {
   try {
     fs.mkdirSync(IPC_STATUS_DIR, { recursive: true });
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
@@ -79,7 +84,7 @@ function writeToolStatus(status: { type: 'tool_status'; tool?: string; status: '
     fs.writeFileSync(tempPath, JSON.stringify(status));
     fs.renameSync(tempPath, filepath);
   } catch (err) {
-    log(`Failed to write tool status: ${err instanceof Error ? err.message : String(err)}`);
+    log(`Failed to write IPC status: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -237,7 +242,7 @@ function createPreToolUseHook(): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preInput = input as PreToolUseHookInput;
     if (preInput.tool_name) {
-      writeToolStatus({ type: 'tool_status', tool: preInput.tool_name, status: 'running' });
+      writeIpcStatus({ type: 'tool_status', tool: preInput.tool_name, status: 'running' });
     }
     return {};
   };
@@ -791,18 +796,19 @@ async function runQuery(
       if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
         const tn = message as { task_id: string; status: string; summary: string };
         log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+        writeIpcStatus({ type: 'task_status', task_id: tn.task_id, status: tn.status, summary: tn.summary });
       }
 
       // Emit tool status events for host-side Telegram updates
       // SDK Hook PreToolUse handles standard tools, but tool_progress adds elapsed times for bash
       if (message.type === 'tool_progress') {
         const tp = message as { tool_name: string; elapsed_time_seconds: number };
-        writeToolStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });
+        writeIpcStatus({ type: 'tool_status', tool: tp.tool_name, status: 'running', elapsed: tp.elapsed_time_seconds });
       }
 
       if (message.type === 'result') {
         // Signal tool status idle when a result arrives
-        writeToolStatus({ type: 'tool_status', status: 'idle' });
+        writeIpcStatus({ type: 'tool_status', status: 'idle' });
         resultCount++;
         const textResult = 'result' in message ? (message as { result?: string }).result : null;
         const subtype = (message as { subtype?: string }).subtype || '';

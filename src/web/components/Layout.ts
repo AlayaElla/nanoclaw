@@ -103,12 +103,6 @@ export class Layout {
     
     .grid{display:grid;gap:24px;perspective:1200px}.grid-2{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:repeat(3,1fr)}.grid-4{grid-template-columns:repeat(4,1fr)}
     
-    @keyframes float {
-      0% { transform: translateY(0px); }
-      50% { transform: translateY(-10px); }
-      100% { transform: translateY(0px); }
-    }
-    
     @keyframes fade-in-up {
       from { opacity: 0; transform: translateY(20px); }
       to { opacity: 1; transform: translateY(0); }
@@ -129,13 +123,8 @@ export class Layout {
       position:relative;
       overflow:hidden;
       transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-      animation: float 8s ease-in-out infinite;
     }
-    .grid > .card:nth-child(2n) { animation-delay: -1.5s; }
-    .grid > .card:nth-child(3n) { animation-delay: -4s; }
-
     .card:hover { 
-      animation-play-state: paused;
       transform: translateY(-12px) rotateX(5deg) rotateY(-3deg); 
       border-color: #fff; 
       box-shadow: 0 30px 60px rgba(0,0,0,0.08), inset 0 1px 2px #fff; 
@@ -182,14 +171,9 @@ export class Layout {
       position: relative; 
       transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
       overflow: hidden;
-      animation: float 8s ease-in-out infinite;
     }
     
-    .agent-grid .agent-card:nth-child(2n) { animation-delay: -1.5s; }
-    .agent-grid .agent-card:nth-child(3n) { animation-delay: -4s; }
-
     .agent-card:hover { 
-      animation-play-state: paused;
       transform: translateY(-8px) rotateX(3deg) rotateY(-2deg); 
       border-color: #fff; 
       box-shadow: 0 30px 60px rgba(0,0,0,0.08), inset 0 1px 2px #fff; 
@@ -464,6 +448,42 @@ export class Layout {
         }
         checkSystemStatus();
         setInterval(checkSystemStatus, 3000);
+
+        // Global Auto Refresh for dashboards
+        const autoRefreshSections = ['overview', 'agent', 'tasks', 'usage'];
+        const currentSection = new URLSearchParams(location.search).get('section') || 'overview';
+        if (autoRefreshSections.includes(currentSection)) {
+          setInterval(() => {
+            if (!document.querySelector('dialog[open]')) {
+              const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();
+              fetch(url).then(r => r.text()).then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const newMain = doc.querySelector('.main');
+                if (newMain) {
+                  document.querySelector('.main').innerHTML = newMain.innerHTML;
+                  newMain.querySelectorAll('script').forEach(s => {
+                    const newScript = document.createElement('script');
+                    newScript.textContent = s.textContent;
+                    document.body.appendChild(newScript);
+                    document.body.removeChild(newScript);
+                  });
+                  if (currentSection === 'agent') {
+                    const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];
+                    document.querySelectorAll('.agent-card').forEach(card => {
+                      const name = card.dataset.agent;
+                      const idx = localStorage.getItem('card-color-' + name);
+                      if (idx !== null) {
+                        const strip = card.querySelector('.color-strip');
+                        if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];
+                      }
+                    });
+                  }
+                }
+              }).catch(() => {});
+            }
+          }, 3000);
+        }
       </script>
     </nav>
     <div class="main ${section !== 'docs' ? 'animate-in' : ''}">

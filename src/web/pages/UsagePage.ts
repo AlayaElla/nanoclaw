@@ -112,7 +112,8 @@ export class UsagePage extends Page<any> {
             document.body.appendChild(tooltip);
           }
           
-          let disabledSeries = new Set();
+          window._usageDisabledSeries = window._usageDisabledSeries || new Set();
+          let disabledSeries = window._usageDisabledSeries;
           
           // 1. Extract all series keys
           const skipKeys = new Set(['date', 'total_tokens']);

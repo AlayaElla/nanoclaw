@@ -297,34 +297,6 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
     });
     </script>`;
 
-    // Auto refresh script
-    html +=
-      '\\n    <script>\\n' +
-      '      setInterval(() => {\\n' +
-      "        // Only refresh if no modal is open\\n" +
-      "        if (!document.querySelector('dialog[open]')) {\\n" +
-      "          const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();\\n" +
-      "          fetch(url).then(r => r.text()).then(html => {\\n" +
-      "            const parser = new DOMParser();\\n" +
-      "            const doc = parser.parseFromString(html, 'text/html');\\n" +
-      "            const newMain = doc.querySelector('.main');\\n" +
-      "            if (newMain) {\\n" +
-      "              document.querySelector('.main').innerHTML = newMain.innerHTML;\\n" +
-      "              const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];\\n" +
-      "              document.querySelectorAll('.agent-card').forEach(card => {\\n" +
-      "                const name = card.dataset.agent;\\n" +
-      "                const idx = localStorage.getItem('card-color-' + name);\\n" +
-      "                if (idx !== null) {\\n" +
-      "                  const strip = card.querySelector('.color-strip');\\n" +
-      "                  if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];\\n" +
-      "                }\\n" +
-      "              });\\n" +
-      "            }\\n" +
-      "          }).catch(() => {});\\n" +
-      '        }\\n' +
-      '      }, 3000);\\n' +
-      '    </script>\\n';
-
     return html;
   }
 }

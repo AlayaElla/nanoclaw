@@ -163,8 +163,12 @@ function fillTimelineGaps(
   }
 
   const dataMap = new Map();
+  const allKeys = new Set<string>();
   for (const row of data) {
     dataMap.set(row.date, row);
+    for (const k of Object.keys(row)) {
+      allKeys.add(k);
+    }
   }
 
   const filled = [];
@@ -172,12 +176,13 @@ function fillTimelineGaps(
     if (dataMap.has(key)) {
       filled.push(dataMap.get(key));
     } else {
-      filled.push({
-        date: key,
-        input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
-      });
+      const emptyRow: any = { date: key, total_tokens: 0 };
+      for (const k of allKeys) {
+        if (k !== 'date' && k !== 'total_tokens') {
+          emptyRow[k] = 0;
+        }
+      }
+      filled.push(emptyRow);
     }
   }
   return filled;
@@ -252,7 +257,10 @@ export function getUsageTimelineByDimension(
       if (!grouped[row.date]) {
         grouped[row.date] = { date: row.date };
       }
-      const key = row.original_task_name || row.dimension_value || 'unknown';
+      const key =
+        dimension === 'task_id' && row.original_task_name
+          ? row.original_task_name
+          : row.dimension_value || 'unknown';
       grouped[row.date][key] = row.total_tokens;
     }
 
@@ -596,13 +604,13 @@ export function listWorkspaceFiles(
   if (!existsSync(wsDir)) return [];
   const entries: FileEntry[] = [];
   const scan = (dir: string, depth: number) => {
-    if (depth >= maxDepth || entries.length >= 500) return;
+    if (depth >= maxDepth || entries.length >= 2000) return; // Increased limit for larger trees
     try {
       for (const item of readdirSync(dir)) {
         if (
-          item.startsWith('.') ||
           item === 'node_modules' ||
-          item === '__pycache__'
+          item === '__pycache__' ||
+          item === '.git'
         )
           continue;
         const full = join(dir, item);

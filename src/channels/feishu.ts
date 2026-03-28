@@ -1722,6 +1722,23 @@ export class FeishuChannel implements Channel {
 
     try {
       if (isTyping && currentMessageId) {
+        // Idempotent: if reaction already exists on this message, don't add another
+        const existing = this.typingReactions.get(jid);
+        if (existing && existing.targetMessageId === currentMessageId) return;
+
+        // If reaction exists on a different (old) message, remove it first
+        if (existing) {
+          await this.client.im.v1.messageReaction
+            .delete({
+              path: {
+                message_id: existing.targetMessageId,
+                reaction_id: existing.reactionId,
+              },
+            })
+            .catch(() => {});
+          this.typingReactions.delete(jid);
+        }
+
         const resp = await this.client.im.v1.messageReaction.create({
           path: { message_id: currentMessageId },
           data: { reaction_type: { emoji_type: 'Typing' } },

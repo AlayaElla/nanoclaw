@@ -91,9 +91,15 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
       if (selectedFile) {
         // === File view & edit mode ===
-        const content = readWorkspaceFile(selectedAgent, selectedFile);
         const fileName = selectedFile.split('/').pop() || selectedFile;
         const ext = (fileName.split('.').pop() || '').toLowerCase();
+        const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(
+          ext,
+        );
+        const isVideo = ['mp4', 'webm', 'ogg'].includes(ext);
+        const isAudio = ['mp3', 'wav', 'm4a', 'aac'].includes(ext);
+        const isMedia = isImage || isVideo || isAudio;
+
         const isCode = [
           'ts',
           'js',
@@ -112,6 +118,10 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
           'md',
           'txt',
         ].includes(ext);
+
+        const content = isMedia
+          ? null
+          : readWorkspaceFile(selectedAgent, selectedFile);
 
         // Breadcrumb
         html += `<div class="fm-breadcrumb">`;
@@ -145,7 +155,22 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
         // File content editor/viewer
         html += `<div class="fm-file-view">`;
-        if (content !== null) {
+        if (isMedia) {
+          const downloadUrl = `/api/fs/download?agent=${encodeURIComponent(selectedAgent)}&file=${encodeURIComponent(selectedFile)}`;
+          html += `
+            <div class="fm-file-header">
+              <div class="fm-file-title">${getFileIcon({ extension: '.' + ext, isDirectory: false } as FileEntry)} ${esc(fileName)}</div>
+            </div>
+            <div class="fm-media-preview">`;
+          if (isImage) {
+            html += `<img src="${downloadUrl}" alt="${esc(fileName)}" class="fm-img-preview" />`;
+          } else if (isVideo) {
+            html += `<video controls src="${downloadUrl}" class="fm-video-preview">${t(lang, 'Your browser does not support the video tag.', '您的浏览器不支持视频标签。')}</video>`;
+          } else if (isAudio) {
+            html += `<audio controls src="${downloadUrl}" class="fm-audio-preview">${t(lang, 'Your browser does not support the audio tag.', '您的浏览器不支持音频标签。')}</audio>`;
+          }
+          html += `</div>`;
+        } else if (content !== null) {
           html += `
             <div class="fm-file-header">
               <div class="fm-file-title">${getFileIcon({ extension: '.' + ext, isDirectory: false } as FileEntry)} ${esc(fileName)}</div>
@@ -725,6 +750,34 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
     .fm-code::-webkit-scrollbar { width: 8px; }
     .fm-code::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
     .fm-code::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
+
+    .fm-media-preview {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f2f5;
+      padding: 20px;
+      border: 1px solid rgba(0,0,0,0.05);
+      border-radius: 0 0 12px 12px;
+      overflow: auto;
+    }
+    .fm-img-preview {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      border-radius: 4px;
+    }
+    .fm-video-preview {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+    }
+    .fm-audio-preview {
+      width: 100%;
+      max-width: 500px;
+    }
 
     .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
 

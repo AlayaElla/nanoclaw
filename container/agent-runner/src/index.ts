@@ -68,7 +68,7 @@ const IPC_STATUS_DIR = '/workspace/ipc/status';
 const IPC_POLL_MS = 500;
 
 type IpcStatusEvent =
-  | { type: 'tool_status'; tool?: string; status: 'running' | 'idle'; elapsed?: number }
+  | { type: 'tool_status'; tool?: string; description?: string; status: 'running' | 'idle'; elapsed?: number }
   | { type: 'task_status'; task_id: string; status: string; summary: string };
 
 /**
@@ -242,7 +242,26 @@ function createPreToolUseHook(): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preInput = input as PreToolUseHookInput;
     if (preInput.tool_name) {
-      writeIpcStatus({ type: 'tool_status', tool: preInput.tool_name, status: 'running' });
+      const toolInput = preInput.tool_input as Record<string, unknown> | undefined;
+      let description = typeof toolInput?.description === 'string' ? toolInput.description : undefined;
+      
+      if (!description) {
+        if (preInput.tool_name === 'Bash') {
+          description = `执行: ${String(toolInput?.command || '').slice(0, 40)}`;
+        } else if (preInput.tool_name === 'Glob') {
+          description = `搜索文件: ${toolInput?.pattern}`;
+        } else if (preInput.tool_name === 'Grep') {
+          description = `内容搜索: ${toolInput?.pattern}`;
+        } else if (preInput.tool_name === 'Read' || preInput.tool_name === 'View') {
+          const file = String(toolInput?.file_path || '').split('/').pop();
+          description = `读取文件: ${file}`;
+        } else if (preInput.tool_name === 'Write' || preInput.tool_name === 'Edit') {
+          const file = String(toolInput?.file_path || toolInput?.target_file || '').split('/').pop();
+          description = `修改文件: ${file}`;
+        }
+      }
+      
+      writeIpcStatus({ type: 'tool_status', tool: preInput.tool_name, description, status: 'running' });
     }
     return {};
   };
@@ -656,6 +675,7 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let hadError = false;
+  let emittedTexts = new Set<string>();
 
   // Inject global rules and group-specific rules
   let additionalContext = '';
@@ -784,8 +804,48 @@ async function runQuery(
       const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
       log(`[msg #${messageCount}] type=${msgType}`);
 
-      if (message.type === 'assistant' && 'uuid' in message) {
-        lastAssistantUuid = (message as { uuid: string }).uuid;
+      if (message.type === 'assistant') {
+        if ('uuid' in message) {
+          lastAssistantUuid = (message as { uuid: string }).uuid;
+        }
+
+        let assistantMsg: any = null;
+        if ('message' in message && typeof (message as any).message === 'object') {
+          assistantMsg = (message as any).message;
+        } else if ('content' in message) {
+          assistantMsg = message;
+        }
+
+        if (assistantMsg && assistantMsg.content && Array.isArray(assistantMsg.content)) {
+          // Protection: if this turn also calls send_message, skip forwarding the
+          // text block here — the Gateway will deliver the actual message content,
+          // and emitting here too would cause a duplicate in the chat window.
+          const hasSendMessageTool = assistantMsg.content.some(
+            (c: any) => c.type === 'tool_use' && (
+              c.name === 'mcp__nanoclaw__send_message' ||
+              c.name === 'SendMessage'
+            )
+          );
+
+          if (hasSendMessageTool) {
+            log('Skipping intermediate text: same turn has send_message tool call (Gateway handles it)');
+          } else {
+            const textParts = assistantMsg.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text);
+            const thisTurnText = textParts.join('');
+
+            if (thisTurnText) {
+              emittedTexts.add(thisTurnText);
+              log(`Emitting intermediate assistant text length: ${thisTurnText.length}`);
+              writeOutput({
+                status: 'success',
+                result: thisTurnText,
+                newSessionId
+              });
+            }
+          }
+        }
       }
 
       if (message.type === 'system' && message.subtype === 'init') {
@@ -810,12 +870,18 @@ async function runQuery(
         // Signal tool status idle when a result arrives
         writeIpcStatus({ type: 'tool_status', status: 'idle' });
         resultCount++;
-        const textResult = 'result' in message ? (message as { result?: string }).result : null;
+        let textResult = 'result' in message ? (message as { result?: string }).result : null;
         const subtype = (message as { subtype?: string }).subtype || '';
         if (subtype === 'error_during_execution' || subtype === 'error_max_turns') {
           hadError = true;
           log(`Result #${resultCount} had error subtype: ${subtype}`);
         }
+
+        if (textResult && emittedTexts.has(textResult)) {
+          log('Skipping duplicate final result text as it was already emitted');
+          textResult = null;
+        }
+
         log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
         writeOutput({
           status: hadError ? 'error' : 'success',

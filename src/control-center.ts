@@ -6,7 +6,7 @@
 import { createServer, type Server } from 'node:http';
 import { execSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, statSync, writeFileSync } from 'node:fs';
 import { GATEWAY_PORT } from './config.js';
 import { logger } from './logger.js';
 import { Section, SECTIONS, Lang } from './web/types.js';
@@ -323,6 +323,30 @@ export function startControlCenter(): Server {
         res.writeHead(405, { 'Content-Type': 'text/plain' });
         return res.end('Method Not Allowed');
       }
+      // ======== ALERTS APIS ========
+      if (url.pathname.startsWith('/api/alerts/')) {
+        const action = url.pathname.replace('/api/alerts/', '');
+        if (action === 'clear' && req.method === 'POST') {
+          try {
+            writeFileSync(
+              join(process.cwd(), 'data', 'system-alerts.jsonl'),
+              '',
+              'utf-8',
+            );
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+          } catch (e: any) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(
+              JSON.stringify({ success: false, error: e.message }),
+            );
+          }
+        }
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        return res.end('Method Not Allowed');
+      }
+      // ======== END ALERTS APIS ========
+
       // ======== END SYSTEM MANAGEMENT APIS ========
 
       // Legacy form actions (fallback)

@@ -66,6 +66,7 @@ export interface ContainerOutput {
 export interface ToolStatusEvent {
   type: 'tool_status';
   tool?: string;
+  description?: string;
   status: 'running' | 'idle';
   elapsed?: number;
 }

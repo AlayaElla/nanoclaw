@@ -326,6 +326,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Typing stays active until the first tool event arrives
   let statusMessageId: number | null = null;
   let lastToolName: string | null = null;
+  let lastStatusText: string | null = null;
 
   const TOOL_DISPLAY_NAMES: Record<string, string> = {
     Bash: '执行命令行',
@@ -447,21 +448,31 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
 
     if (event.status === 'running' && event.tool) {
-      const displayName = getToolDisplayName(event.tool);
+      let displayName = event.description;
+      if (!displayName) {
+        if (event.tool === lastToolName) {
+          return; // Skip tool_progress events without a new description for the same tool
+        }
+        displayName = getToolDisplayName(event.tool);
+      }
       const statusText = `⏳ 正在${displayName}...`;
+
       if (statusMessageId) {
-        // Edit existing status message (tool changed)
-        if (lastToolName !== event.tool) {
+        // Edit existing status message (tool changed or description changed)
+        if (lastToolName !== event.tool || lastStatusText !== statusText) {
           await channel.editStatusMessage?.(
             chatJid,
             statusMessageId,
             statusText,
           );
+          lastStatusText = statusText;
         }
       } else {
-        // First tool — send status message (typing stays active)
+        // First tool — send status message and ensure typing stays active
         statusMessageId = await channel.sendStatusMessage(chatJid, statusText);
+        lastStatusText = statusText;
       }
+      await channel.setTyping?.(chatJid, true);
       lastToolName = event.tool;
     } else if (event.status === 'idle') {
       // Agent finished — delete status message and stop typing indicator
@@ -500,6 +511,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
+
+          // Note: We deliberately do NOT re-enable typing here just because statusMessageId exists.
+          // If a tool actually starts running again, onIpcStatus will re-enable it.
+          // This prevents Telegram's typing indicator from getting "stuck" for 5 seconds after
+          // agent completes its text output and tool processing finishes simultaneously.
 
           // Store bot message in DB so it's included in future context
           storeMessage({

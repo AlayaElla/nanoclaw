@@ -5,6 +5,7 @@ import {
   getUsageTimelineByDimension,
   getUsageByDimension,
 } from '../data.js';
+import { getAllTasks, getAllRegisteredGroups } from '../../db.js';
 
 export class UsagePage extends Page<any> {
   render(props: { query: URLSearchParams }, lang: Lang): string {
@@ -18,11 +19,55 @@ export class UsagePage extends Page<any> {
 
     // Fetch data
     const summary = getUsageSummary(days);
-    const timeline = getUsageTimelineByDimension(
+    const rawTimeline = getUsageTimelineByDimension(
       dimension,
       days,
       days <= 1 ? 'hour' : 'day',
     );
+
+    // Resolve Readable Names
+    const tasks = getAllTasks();
+    const groups = getAllRegisteredGroups();
+    const resolveName = (v: string, dim: string) => {
+      if (!v || v === 'unknown' || v === 'null')
+        return t(lang, 'Standard Output', '常规会话/输出');
+      if (dim === 'task_id') {
+        const task = tasks.find((t) => t.id === v);
+        if (task && task.prompt)
+          return task.prompt.length > 25
+            ? task.prompt.slice(0, 25) + '...'
+            : task.prompt;
+
+        if (v.startsWith('task-')) {
+          const parts = v.split('-');
+          if (parts.length >= 2 && !isNaN(Number(parts[1]))) {
+            const d = new Date(Number(parts[1]));
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            return `[已删除] 任务 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          }
+          return `[已删除] 任务`;
+        }
+      } else if (dim === 'group_id') {
+        const group = Object.values(groups).find((g) => g.folder === v);
+        if (group && group.name) return group.name;
+      }
+      return v;
+    };
+
+    let timeline = rawTimeline;
+    if (dimension === 'task_id' || dimension === 'group_id') {
+      timeline = rawTimeline.map((row) => {
+        const nr: any = { date: row.date };
+        Object.entries(row).forEach(([k, val]) => {
+          if (k === 'date' || k === 'total_tokens') nr[k] = val;
+          else {
+            const label = resolveName(k, dimension);
+            nr[label] = (nr[label] || 0) + (val as number);
+          }
+        });
+        return nr;
+      });
+    }
 
     let html = pageHeader(
       t(lang, 'Usage', '用量'),
@@ -89,10 +134,10 @@ export class UsagePage extends Page<any> {
     // ── Interactive Chart Container ──
     if (timeline.length > 0) {
       html += `
-        <div id="interactive-chart" style="position: relative; height: 280px; margin-bottom: 16px;">
-          <div id="chart-area" style="display: flex; height: 220px; align-items: flex-end; gap: ${timeline.length > 20 ? '2' : '4'}px;"></div>
-          <div id="x-axis" style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 8px;"></div>
-          <div id="chart-legend" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; font-size: 12px; margin-top: 16px; user-select: none;"></div>
+        <div id="interactive-chart" style="position: relative; min-height: 280px; margin-bottom: 16px; display: flex; flex-direction: column;">
+          <div id="chart-area" data-nomorph="true" style="display: flex; height: 220px; align-items: flex-end; gap: ${timeline.length > 20 ? '2' : '4'}px;"></div>
+          <div id="x-axis" data-nomorph="true" style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 8px;"></div>
+          <div id="chart-legend" data-nomorph="true" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; font-size: 12px; margin-top: 16px; user-select: none;"></div>
         </div>
       `;
 
@@ -115,22 +160,46 @@ export class UsagePage extends Page<any> {
           window._usageDisabledSeries = window._usageDisabledSeries || new Set();
           let disabledSeries = window._usageDisabledSeries;
           
-          // 1. Extract all series keys
+          // 1. Extract and aggregate top 10 series
           const skipKeys = new Set(['date', 'total_tokens']);
-          const seriesSet = new Set();
+          const seriesTotals = {};
           rawData.forEach(row => {
             Object.keys(row).forEach(k => {
-              if (!skipKeys.has(k)) seriesSet.add(k);
+              if (!skipKeys.has(k)) {
+                seriesTotals[k] = (seriesTotals[k] || 0) + row[k];
+              }
             });
           });
-          const allSeries = Array.from(seriesSet).sort();
+          const sortedSeries = Object.keys(seriesTotals).sort((a,b) => seriesTotals[b] - seriesTotals[a]);
+          const otherLabel = '${t(lang, 'Other', '其他')}';
+          
+          let allSeries = sortedSeries;
+          if (sortedSeries.length > 15) {
+            const topSeries = new Set(sortedSeries.slice(0, 15));
+            allSeries = [...sortedSeries.slice(0, 15), otherLabel];
+            rawData.forEach(row => {
+              let otherSum = 0;
+              Object.keys(row).forEach(k => {
+                if (!skipKeys.has(k) && !topSeries.has(k)) {
+                  otherSum += row[k];
+                  delete row[k];
+                }
+              });
+              if (otherSum > 0) row[otherLabel] = otherSum;
+            });
+          }
           
           // 2. Assign Colors
-          const colorPalette = ['#0066FF', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#eab308', '#84cc16'];
+          const colorPalette = [
+            '#0066FF', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', 
+            '#ec4899', '#06b6d4', '#eab308', '#84cc16', '#3b82f6', 
+            '#a855f7', '#14b8a6', '#f97316', '#f43f5e', '#6366f1'
+          ];
           const seriesColors = {};
           allSeries.forEach((s, i) => {
             if (s === 'input_tokens') seriesColors[s] = '#8b5cf6';
             else if (s === 'output_tokens') seriesColors[s] = '#0066FF';
+            else if (s === otherLabel) seriesColors[s] = '#94a3b8';
             else seriesColors[s] = colorPalette[i % colorPalette.length];
           });
           
@@ -170,7 +239,10 @@ export class UsagePage extends Page<any> {
               const barWrap = document.createElement('div');
               barWrap.style.width = '100%';
               const hPct = (day.sum / maxTotal) * 100;
-              barWrap.style.height = hPct + '%';
+              barWrap.style.height = '0%';
+              barWrap.style.transition = 'height 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+              setTimeout(() => { barWrap.style.height = hPct + '%'; }, 10);
+              
               barWrap.style.display = 'flex';
               barWrap.style.flexDirection = 'column';
               barWrap.style.borderRadius = '3px 3px 0 0';
@@ -284,7 +356,28 @@ export class UsagePage extends Page<any> {
 
     // ── Generate Dimension Ranking Card if not 'total' ──
     if (dimension !== 'total') {
-      const breakdown = getUsageByDimension(dimension, days, 50);
+      let breakdown = getUsageByDimension(dimension, days, 50);
+      if (dimension === 'task_id' || dimension === 'group_id') {
+        const agg = new Map<string, any>();
+        for (const row of breakdown) {
+          const nm =
+            dimension === 'task_id' && row.original_task_name
+              ? row.original_task_name.length > 25
+                ? row.original_task_name.slice(0, 25) + '...'
+                : row.original_task_name
+              : resolveName(row.name, dimension);
+          if (agg.has(nm)) {
+            const e = agg.get(nm);
+            e.total_tokens += row.total_tokens;
+            e.request_count += row.request_count;
+          } else {
+            agg.set(nm, { ...row, name: nm });
+          }
+        }
+        breakdown = Array.from(agg.values()).sort(
+          (a, b) => b.total_tokens - a.total_tokens,
+        );
+      }
       const titleMap: Record<string, string> = {
         model: t(lang, 'Model Leaderboard', '模型排行'),
         group_id: t(lang, 'Group Leaderboard', '群组排行'),

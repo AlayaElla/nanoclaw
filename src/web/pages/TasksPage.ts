@@ -1,4 +1,4 @@
-import { Page, t, esc, timeAgo, pageHeader } from '../utils.js';
+import { Page, t, esc, timeAgo, pageHeader, fmtDateTime } from '../utils.js';
 import { Lang } from '../types.js';
 import { getTaskRunLogs } from '../data.js';
 import { getAllTasks, getAllRegisteredGroups } from '../../db.js';
@@ -123,7 +123,7 @@ export class TasksPage extends Page<{ query: URLSearchParams }> {
 
         html += `
               <tr>
-                <td>${esc((log.run_at || '').replace('T', ' ').slice(0, 19))}</td>
+                <td>${esc(fmtDateTime(log.run_at || ''))}</td>
                 <td>${((log.duration_ms || 0) / 1000).toFixed(1)}s</td>
                 <td><span class="badge ${badge}">${log.status}</span></td>
                 <td style="font-size:12px">${esc(resultText)}</td>

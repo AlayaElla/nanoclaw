@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import * as crypto from 'crypto';
 import { GATEWAY_PORT, WORKSPACE_DIR } from './config.js';
-import { storeMessage, insertTokenUsage } from './db.js';
+import { storeMessage, insertTokenUsage, getTaskById } from './db.js';
 import { searchMemory, isRagEnabled } from './rag.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -314,10 +314,21 @@ export class GatewayServer {
 
             // Insert perfectly extracted tokens into independent usage DB
             if (inputTokens > 0 || outputTokens > 0) {
+              let taskName: string | undefined = undefined;
+              if (taskId !== 'none') {
+                const task = getTaskById(taskId);
+                if (task)
+                  taskName =
+                    task.prompt.length > 25
+                      ? task.prompt.slice(0, 25) + '...'
+                      : task.prompt;
+              }
+
               insertTokenUsage({
                 id: crypto.randomUUID(),
                 group_id: groupFolder,
                 task_id: taskId === 'none' ? undefined : taskId,
+                task_name: taskName,
                 tool_name: toolName || undefined,
                 timestamp: new Date().toISOString(),
                 model: modelName,

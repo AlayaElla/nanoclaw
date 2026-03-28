@@ -107,7 +107,12 @@ export function getUsageByDimension(
   dimension: 'model' | 'group_id' | 'tool_name' | 'task_id',
   days: number,
   limit: number = 20,
-): { name: string; total_tokens: number; request_count: number }[] {
+): {
+  name: string;
+  total_tokens: number;
+  request_count: number;
+  original_task_name?: string;
+}[] {
   const db = openUsageDb();
   if (!db) return [];
   try {
@@ -116,7 +121,7 @@ export function getUsageByDimension(
 
     return db
       .prepare(
-        `SELECT ${dimension} as name, SUM(total_tokens) as total_tokens, COUNT(*) as request_count 
+        `SELECT ${dimension} as name, MAX(task_name) as original_task_name, SUM(total_tokens) as total_tokens, COUNT(*) as request_count 
          FROM token_usage 
          WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL 
          GROUP BY ${dimension} 
@@ -128,6 +133,54 @@ export function getUsageByDimension(
   } finally {
     db.close();
   }
+}
+
+function fillTimelineGaps(
+  data: any[],
+  days: number,
+  groupBy: 'hour' | 'day',
+): any[] {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const expectedKeys: string[] = [];
+  const now = new Date();
+
+  if (groupBy === 'day') {
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime());
+      d.setDate(d.getDate() - i);
+      expectedKeys.push(
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      );
+    }
+  } else {
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(now.getTime());
+      d.setHours(d.getHours() - i);
+      expectedKeys.push(
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`,
+      );
+    }
+  }
+
+  const dataMap = new Map();
+  for (const row of data) {
+    dataMap.set(row.date, row);
+  }
+
+  const filled = [];
+  for (const key of expectedKeys) {
+    if (dataMap.has(key)) {
+      filled.push(dataMap.get(key));
+    } else {
+      filled.push({
+        date: key,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+      });
+    }
+  }
+  return filled;
 }
 
 export function getUsageTimeline(
@@ -143,9 +196,9 @@ export function getUsageTimeline(
   if (!db) return [];
   const timeFormat = groupBy === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
   try {
-    return db
+    const rawData = db
       .prepare(
-        `SELECT strftime('${timeFormat}', timestamp) as date, 
+        `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
                 SUM(input_tokens) as input_tokens, 
                 SUM(output_tokens) as output_tokens,
                 SUM(total_tokens) as total_tokens 
@@ -155,6 +208,7 @@ export function getUsageTimeline(
          ORDER BY date ASC`,
       )
       .all() as any[];
+    return fillTimelineGaps(rawData, days, groupBy);
   } catch {
     return [];
   } finally {
@@ -181,8 +235,9 @@ export function getUsageTimelineByDimension(
 
     const rows = db
       .prepare(
-        `SELECT strftime('${timeFormat}', timestamp) as date, 
+        `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
                 ${dimension} as dimension_value,
+                MAX(task_name) as original_task_name,
                 SUM(total_tokens) as total_tokens 
          FROM token_usage 
          WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL
@@ -197,10 +252,14 @@ export function getUsageTimelineByDimension(
       if (!grouped[row.date]) {
         grouped[row.date] = { date: row.date };
       }
-      grouped[row.date][row.dimension_value || 'unknown'] = row.total_tokens;
+      const key = row.original_task_name || row.dimension_value || 'unknown';
+      grouped[row.date][key] = row.total_tokens;
     }
 
-    return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
+    const rawData = Object.values(grouped).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+    return fillTimelineGaps(rawData, days, groupBy);
   } catch {
     return [];
   } finally {

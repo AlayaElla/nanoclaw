@@ -295,8 +295,15 @@ export function startControlCenter(): Server {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
 
-            // forcefully exit the current process so the new one can take over
-            setTimeout(() => process.exit(0), 500);
+            // gracefully exit the current process so the new one can take over
+            setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
+            return;
+          }
+
+          if (action === 'stop-nanoclaw') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
             return;
           }
 

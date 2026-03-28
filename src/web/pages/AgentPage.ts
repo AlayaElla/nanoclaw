@@ -1,4 +1,4 @@
-import { Page, t, esc, pageHeader } from '../utils.js';
+import { Page, t, esc, pageHeader, fmtDateTime } from '../utils.js';
 import { Lang } from '../types.js';
 import {
   getAgentStatusFiles,
@@ -202,7 +202,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
                 typeof msg.content === 'string'
                   ? msg.content
                   : JSON.stringify(msg.content);
-              modals += `<div class="msg-item"><div class="msg-meta">${esc(msg.sender_name || msg.sender || '')} · ${(msg.timestamp || '').slice(0, 16).replace('T', ' ')}</div><div class="${cls}">${esc(contentStr || '')}</div></div>`;
+              modals += `<div class="msg-item"><div class="msg-meta">${esc(msg.sender_name || msg.sender || '')} · ${fmtDateTime(msg.timestamp || '').slice(0, 16)}</div><div class="${cls}">${esc(contentStr || '')}</div></div>`;
             }
             modals += `</div>`;
           } else {
@@ -236,7 +236,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
               if (hasMore) {
                 modals += `<details class="audit-step">
                   <summary>
-                    <span class="audit-ts">${esc(step.timestamp.replace('T', ' '))}</span>
+                    <span class="audit-ts">${esc(fmtDateTime(step.timestamp))}</span>
                     <span class="badge badge-blue" style="font-size:10px;padding:2px 6px">${esc(step.tool)}</span>
                     <span class="audit-preview">${esc(preview)}…</span>
                   </summary>
@@ -244,7 +244,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
                 </details>`;
               } else {
                 modals += `<div class="audit-step audit-step-inline">
-                  <span class="audit-ts">${esc(step.timestamp.replace('T', ' '))}</span>
+                  <span class="audit-ts">${esc(fmtDateTime(step.timestamp))}</span>
                   <span class="badge badge-blue" style="font-size:10px;padding:2px 6px">${esc(step.tool)}</span>
                   <span class="audit-preview">${esc(step.summary)}</span>
                 </div>`;

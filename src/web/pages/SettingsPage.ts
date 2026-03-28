@@ -31,6 +31,7 @@ export class SettingsPage extends Page<any> {
     html += `<div style="margin-bottom:24px;display:flex;gap:8px">`;
     html += `<button class="btn btn-primary" onclick="restartService('litellm')">${t(lang, 'Restart LiteLLM', '重启 LiteLLM')}</button>`;
     html += `<button class="btn btn-danger" onclick="restartService('nanoclaw')">${t(lang, 'Restart NanoClaw', '重启 NanoClaw')}</button>`;
+    html += `<button class="btn" style="color:var(--red);border-color:rgba(239,68,68,0.2)" onclick="stopNanoClaw()">${t(lang, 'Stop NanoClaw', '关闭 NanoClaw')}</button>`;
     html += `</div>`;
 
     if (status) {
@@ -105,6 +106,23 @@ export class SettingsPage extends Page<any> {
         }, 2000);
       }).catch(() => {
         modal.innerText = 'Failed to send restart command.';
+        setTimeout(() => modal.remove(), 2000);
+      });
+    }
+    function stopNanoClaw() {
+      if (!confirm('${t(lang, 'Are you sure you want to stop NanoClaw? The service will terminate.', '确定要关闭 NanoClaw 吗？服务将会终止运行。')}')) return;
+      
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;color:white;font-size:24px;backdrop-filter:blur(5px);';
+      modal.innerText = '${t(lang, 'Stopping NanoClaw...', '正在关闭 NanoClaw...')}';
+      document.body.appendChild(modal);
+
+      fetch('/api/system/stop-nanoclaw', { method: 'POST' }).then(() => {
+        setTimeout(() => {
+          modal.innerText = '${t(lang, 'NanoClaw stopped. You can now close this page.', 'NanoClaw 已关闭，您可以关闭此页面了。')}';
+        }, 1000);
+      }).catch(() => {
+        modal.innerText = 'Failed to send stop command.';
         setTimeout(() => modal.remove(), 2000);
       });
     }

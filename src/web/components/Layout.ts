@@ -103,12 +103,7 @@ export class Layout {
     
     .grid{display:grid;gap:24px;perspective:1200px}.grid-2{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:repeat(3,1fr)}.grid-4{grid-template-columns:repeat(4,1fr)}
     
-    @keyframes fade-in-up {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
     .main { padding: 48px; height: 100vh; overflow-y: auto; }
-    .main.animate-in { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .page-header{margin-bottom:40px}.page-title{font-size:32px;font-weight:700;letter-spacing:-1px}.page-subtitle{color:var(--text-muted);font-size:15px;margin-top:8px}
 
     /* Standard Card (Light Glass + Interactive) */
@@ -328,14 +323,22 @@ export class Layout {
       from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
       to { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
     }
-    @keyframes backdrop-in { from { background: rgba(0,0,0,0); backdrop-filter: blur(0px); } to { background: rgba(0,0,0,0.3); backdrop-filter: blur(4px); } }
+    @keyframes backdrop-in { 
+      from { opacity: 0; } 
+      to { opacity: 1; } 
+    }
+    @keyframes backdrop-out { 
+      from { opacity: 1; } 
+      to { opacity: 0; } 
+    }
     
-    .agent-modal { border: none; border-radius: var(--radius); background: var(--glass-bg); backdrop-filter: blur(40px) saturate(200%); -webkit-backdrop-filter: blur(40px) saturate(200%); padding: 0; max-width: 900px; width: 90vw; max-height: 80vh; box-shadow: 0 30px 80px rgba(0,0,0,0.15); overflow: hidden; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
+    .agent-modal { border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); backdrop-filter: blur(40px) saturate(200%); -webkit-backdrop-filter: blur(40px) saturate(200%); padding: 0; max-width: 900px; width: 90vw; max-height: 80vh; box-shadow: 0 30px 80px rgba(0,0,0,0.15); overflow: hidden; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; will-change: transform, opacity; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
     .agent-modal[open] { animation: modal-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .agent-modal.closing { animation: modal-out 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     .agent-modal[open]::backdrop { animation: backdrop-in 0.35s ease forwards; }
+    .agent-modal[open].closing::backdrop { animation: backdrop-out 0.25s ease forwards; }
     
-    .agent-modal::backdrop { background: rgba(0,0,0,0.3); backdrop-filter: blur(4px); }
+    .agent-modal::backdrop { background: rgba(0,0,0,0.5); opacity: 1; }
     .agent-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid rgba(0,0,0,0.05); font-weight: 600; font-size: 15px; }
     .agent-modal-header .btn { padding: 4px 10px; font-size: 14px; min-width: auto; }
     .agent-modal-body { padding: 20px 24px; max-height: 60vh; overflow-y: auto; }
@@ -447,46 +450,111 @@ export class Layout {
           });
         }
         checkSystemStatus();
-        setInterval(checkSystemStatus, 3000);
+        setInterval(checkSystemStatus, 1000);
 
         // Global Auto Refresh for dashboards
         const autoRefreshSections = ['overview', 'agent', 'tasks', 'usage'];
         const currentSection = new URLSearchParams(location.search).get('section') || 'overview';
         if (autoRefreshSections.includes(currentSection)) {
-          setInterval(() => {
-            if (!document.querySelector('dialog[open]')) {
-              const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();
-              fetch(url).then(r => r.text()).then(html => {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const newMain = doc.querySelector('.main');
-                if (newMain) {
-                  document.querySelector('.main').innerHTML = newMain.innerHTML;
-                  newMain.querySelectorAll('script').forEach(s => {
-                    const newScript = document.createElement('script');
-                    newScript.textContent = s.textContent;
-                    document.body.appendChild(newScript);
-                    document.body.removeChild(newScript);
+          function updateDOM(oldNode, newNode) {
+            if (!oldNode || !newNode) return;
+            
+            if (oldNode.tagName === 'DIALOG' && oldNode.open) {
+              let oldBody = oldNode.querySelector('.agent-modal-body');
+              let newBody = newNode.querySelector('.agent-modal-body');
+              if (oldBody && newBody && oldBody.innerHTML !== newBody.innerHTML) {
+                let isScrolled = (oldBody.scrollHeight - oldBody.scrollTop - oldBody.clientHeight) < 20;
+                let openDetails = Array.from(oldBody.querySelectorAll('details[open]')).map(d => d.querySelector('.audit-ts')?.textContent);
+                oldBody.innerHTML = newBody.innerHTML;
+                if (openDetails.length > 0) {
+                  openDetails.forEach(ts => {
+                    let det = Array.from(oldBody.querySelectorAll('details')).find(d => d.querySelector('.audit-ts')?.textContent === ts);
+                    if (det) det.open = true;
                   });
-                  if (currentSection === 'agent') {
-                    const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];
-                    document.querySelectorAll('.agent-card').forEach(card => {
-                      const name = card.dataset.agent;
-                      const idx = localStorage.getItem('card-color-' + name);
-                      if (idx !== null) {
-                        const strip = card.querySelector('.color-strip');
-                        if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];
-                      }
-                    });
-                  }
                 }
-              }).catch(() => {});
+                if (isScrolled) oldBody.scrollTop = oldBody.scrollHeight;
+              }
+              return;
             }
-          }, 3000);
+
+            if (oldNode.nodeType !== newNode.nodeType) {
+              oldNode.replaceWith(newNode.cloneNode(true));
+              return;
+            }
+            if (oldNode.nodeType === Node.TEXT_NODE) {
+              if (oldNode.textContent !== newNode.textContent) {
+                oldNode.textContent = newNode.textContent;
+              }
+              return;
+            }
+            if (oldNode.nodeType === Node.ELEMENT_NODE) {
+              if (['INPUT', 'TEXTAREA', 'SELECT'].includes(oldNode.tagName) && document.activeElement === oldNode) {
+                return;
+              }
+              if (oldNode.getAttribute('data-nomorph') === 'true' && newNode.getAttribute('data-nomorph') === 'true') {
+                return;
+              }
+              if (oldNode.tagName === 'DETAILS' && oldNode.open && !newNode.hasAttribute('open')) {
+                newNode.setAttribute('open', '');
+              }
+              const oldAttrs = oldNode.attributes;
+              const newAttrs = newNode.attributes;
+              for (let i = oldAttrs.length - 1; i >= 0; i--) {
+                const name = oldAttrs[i].name;
+                if (!newNode.hasAttribute(name)) {
+                  if (oldNode.tagName === 'DIALOG' && name === 'open') continue;
+                  oldNode.removeAttribute(name);
+                }
+              }
+              for (let i = 0; i < newAttrs.length; i++) {
+                const name = newAttrs[i].name;
+                const val = newAttrs[i].value;
+                if (oldNode.getAttribute(name) !== val) {
+                  oldNode.setAttribute(name, val);
+                }
+              }
+              const oldChildren = Array.from(oldNode.childNodes);
+              const newChildren = Array.from(newNode.childNodes);
+              const max = Math.max(oldChildren.length, newChildren.length);
+              for (let i = 0; i < max; i++) {
+                if (i >= oldChildren.length) {
+                  oldNode.appendChild(newChildren[i].cloneNode(true));
+                } else if (i >= newChildren.length) {
+                  oldNode.removeChild(oldChildren[i]);
+                } else {
+                  updateDOM(oldChildren[i], newChildren[i]);
+                }
+              }
+            }
+          }
+
+          setInterval(() => {
+            const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();
+            fetch(url).then(r => r.text()).then(html => {
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const newMain = doc.querySelector('.main');
+              const oldMain = document.querySelector('.main');
+              if (newMain && oldMain) {
+                updateDOM(oldMain, newMain);
+                if (currentSection === 'agent') {
+                  const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];
+                  document.querySelectorAll('.agent-card').forEach(card => {
+                    const name = card.dataset.agent;
+                    const idx = localStorage.getItem('card-color-' + name);
+                    if (idx !== null) {
+                      const strip = card.querySelector('.color-strip');
+                      if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];
+                    }
+                  });
+                }
+              }
+            }).catch(() => {});
+          }, 1000);
         }
       </script>
     </nav>
-    <div class="main ${section !== 'docs' ? 'animate-in' : ''}">
+    <div class="main">
       ${body}
     </div>
   </div>

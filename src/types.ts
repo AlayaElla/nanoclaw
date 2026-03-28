@@ -132,6 +132,7 @@ export interface TokenUsageLog {
   id: string; // Typically a UUID
   group_id: string;
   task_id?: string;
+  task_name?: string;
   tool_name?: string;
   timestamp: string; // ISO date string
   model: string;

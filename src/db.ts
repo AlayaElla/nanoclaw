@@ -152,6 +152,7 @@ function createUsageSchema(database: Database.Database): void {
       id TEXT PRIMARY KEY,
       group_id TEXT,
       task_id TEXT,
+      task_name TEXT,
       tool_name TEXT,
       timestamp TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -165,6 +166,13 @@ function createUsageSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_usage_tool ON token_usage(tool_name);
     CREATE INDEX IF NOT EXISTS idx_usage_model ON token_usage(model);
   `);
+
+  // Add task_name column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE token_usage ADD COLUMN task_name TEXT`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -601,14 +609,15 @@ export function insertTokenUsage(log: TokenUsageLog): void {
     usageDb
       .prepare(
         `
-      INSERT INTO token_usage (id, group_id, task_id, tool_name, timestamp, model, input_tokens, output_tokens, total_tokens)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO token_usage (id, group_id, task_id, task_name, tool_name, timestamp, model, input_tokens, output_tokens, total_tokens)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
         log.id,
         log.group_id,
         log.task_id || null,
+        log.task_name || null,
         log.tool_name || null,
         log.timestamp,
         log.model,

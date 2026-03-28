@@ -85,11 +85,11 @@ export class SettingsPage extends Page<any> {
       modal.innerText = service === 'litellm' ? '${t(lang, 'Restarting LiteLLM...', '正在重启 LiteLLM...')}' : '${t(lang, 'Restarting NanoClaw...', '正在重启 NanoClaw...')}';
       document.body.appendChild(modal);
 
-      fetch('/api/system/restart-' + service, { method: 'POST' }).then(() => {
+      fetch('/cc/api/system/restart-' + service, { method: 'POST' }).then(() => {
         let attempts = 0;
         const interval = setInterval(() => {
           attempts++;
-          const checkUrl = service === 'litellm' ? '/api/system/litellm-status' : '/health';
+          const checkUrl = service === 'litellm' ? '/cc/api/system/litellm-status' : '/cc/health';
           fetch(checkUrl).then(res => {
             if (res.ok) {
               clearInterval(interval);
@@ -117,7 +117,7 @@ export class SettingsPage extends Page<any> {
       modal.innerText = '${t(lang, 'Stopping NanoClaw...', '正在关闭 NanoClaw...')}';
       document.body.appendChild(modal);
 
-      fetch('/api/system/stop-nanoclaw', { method: 'POST' }).then(() => {
+      fetch('/cc/api/system/stop-nanoclaw', { method: 'POST' }).then(() => {
         setTimeout(() => {
           modal.innerText = '${t(lang, 'NanoClaw stopped. You can now close this page.', 'NanoClaw 已关闭，您可以关闭此页面了。')}';
         }, 1000);
@@ -130,9 +130,9 @@ export class SettingsPage extends Page<any> {
     `;
     html += `<div class="section-group"><div class="section-label">${t(lang, 'Language Options', '语言选项')}</div><div class="card" style="display:flex; gap:12px;">`;
     if (lang === 'zh') {
-      html += `<a class="btn" href="/?section=settings&lang=en">🌐 Switch to English</a>`;
+      html += `<a class="btn" href="/cc/?section=settings&lang=en">🌐 Switch to English</a>`;
     } else {
-      html += `<a class="btn" href="/?section=settings&lang=zh">🌐 切换为中文</a>`;
+      html += `<a class="btn" href="/cc/?section=settings&lang=zh">🌐 切换为中文</a>`;
     }
     html += `</div></div>`;
     html += `<div class="section-group"><div class="section-label">${t(lang, 'Environment (.env)', '环境变量 (.env)')}</div><div class="card"><table><thead><tr><th>${t(lang, 'Key', '键')}</th><th>${t(lang, 'Value', '值')}</th></tr></thead><tbody>`;
@@ -217,7 +217,7 @@ export class SettingsPage extends Page<any> {
         isUpdate: !!document.getElementById('agent-is-update').value
       };
       if (payload.token === '********') delete payload.token; // Do not override if unchanged pseudo-token
-      fetch('/api/config/agent', {
+      fetch('/cc/api/config/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -253,7 +253,7 @@ export class SettingsPage extends Page<any> {
         bot_token: document.getElementById('group-token').value,
         model: document.getElementById('group-model').value
       };
-      fetch('/api/config/group', {
+      fetch('/cc/api/config/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

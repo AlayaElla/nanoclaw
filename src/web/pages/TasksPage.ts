@@ -78,7 +78,7 @@ export class TasksPage extends Page<{ query: URLSearchParams }> {
               <td data-label="${t(lang, 'Schedule', '排程')}"><span class="badge badge-blue">${esc(task.schedule_type)}</span> ${esc(task.schedule_value)}</td>
               <td data-label="${t(lang, 'Next Run', '下次执行')}">${nextRun}</td>
               <td data-label="${t(lang, 'Status', '状态')}"><span class="badge ${badge}">${task.status}</span></td>
-              <td data-label="${t(lang, 'Logs', '日志')}"><a href="/?section=tasks&task=${encodeURIComponent(task.id)}&lang=${lang}">${t(lang, 'View', '查看')}</a></td>
+              <td data-label="${t(lang, 'Logs', '日志')}"><a href="/cc/?section=tasks&task=${encodeURIComponent(task.id)}&lang=${lang}">${t(lang, 'View', '查看')}</a></td>
             </tr>`;
     }
 

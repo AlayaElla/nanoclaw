@@ -113,7 +113,7 @@ export class AlertsPage extends Page<any> {
         btn.textContent = '${t(lang, 'Clearing...', '清除中...')}';
         btn.disabled = true;
         try {
-          const r = await fetch('/api/alerts/clear', { method: 'POST' });
+          const r = await fetch('/cc/api/alerts/clear', { method: 'POST' });
           const d = await r.json();
           if (d.success) location.reload();
           else { btn.textContent = '${t(lang, 'Failed', '失败')}'; btn.disabled = false; }

@@ -19,6 +19,8 @@ import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { getFullStatus } from './status.js';
 
+import { getControlCenterHandler } from './control-center.js';
+
 export interface TokenPayload {
   sourceGroup: string;
   isMain: boolean;
@@ -31,16 +33,17 @@ export class GatewayServer {
   private server: Server;
   private deps: IpcDeps;
 
+  private ccHandler: ReturnType<typeof getControlCenterHandler>;
+
   constructor(deps: IpcDeps) {
     this.deps = deps;
+    this.ccHandler = getControlCenterHandler();
     this.server = createServer(this.handleRequest.bind(this));
   }
 
   public start(port = GATEWAY_PORT): void {
-    this.server.listen(port, '127.0.0.1', () => {
-      logger.info(
-        `[Gateway] Internal IPC server listening on 127.0.0.1:${port}`,
-      );
+    this.server.listen(port, '0.0.0.0', () => {
+      logger.info(`[Gateway] Internal IPC server listening on 0.0.0.0:${port}`);
     });
   }
 
@@ -133,6 +136,12 @@ export class GatewayServer {
       } else {
         this.sendJson(res, 503, { error: 'Status not ready' });
       }
+      return;
+    }
+
+    // Serve Control Center UI
+    if (req.url.startsWith('/cc')) {
+      await this.ccHandler(req, res);
       return;
     }
 

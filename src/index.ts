@@ -44,7 +44,6 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
-import { startControlCenter } from './control-center.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
@@ -1021,7 +1020,6 @@ async function main(): Promise<void> {
   };
 
   startGatewayServer(ipcDeps);
-  startControlCenter();
 
   // Initialize status manager and emit startup
   statusInit({

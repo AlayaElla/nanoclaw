@@ -70,7 +70,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       html += `
         <div class="fm-agent-section ${isSelected ? 'active' : ''}">
           <a class="fm-agent-item ${isSelected ? 'active' : ''}" 
-             href="/?section=docs&agent=${encodeURIComponent(agent.name)}&lang=${lang}">
+             href="/cc/?section=docs&agent=${encodeURIComponent(agent.name)}&lang=${lang}">
             <span class="fm-agent-icon">🤖</span>
             <span class="fm-agent-name">${esc(agent.name)}</span>
           </a>
@@ -125,14 +125,14 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
         // Breadcrumb
         html += `<div class="fm-breadcrumb">`;
-        html += `<a href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}" class="fm-crumb">🏠 ${esc(selectedAgent)}</a>`;
+        html += `<a href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}" class="fm-crumb">🏠 ${esc(selectedAgent)}</a>`;
 
         const parts = selectedFile.split('/');
         let pathAcc = '';
         for (let i = 0; i < parts.length - 1; i++) {
           pathAcc += (i > 0 ? '/' : '') + parts[i];
           html += `<span class="fm-crumb-sep">›</span>`;
-          html += `<a href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(pathAcc)}&lang=${lang}" class="fm-crumb">${esc(parts[i])}</a>`;
+          html += `<a href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(pathAcc)}&lang=${lang}" class="fm-crumb">${esc(parts[i])}</a>`;
         }
         html += `<span class="fm-crumb-sep">›</span>`;
         html += `<span class="fm-crumb-current">${esc(fileName)}</span>`;
@@ -156,7 +156,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
         // File content editor/viewer
         html += `<div class="fm-file-view">`;
         if (isMedia) {
-          const downloadUrl = `/api/fs/download?agent=${encodeURIComponent(selectedAgent)}&file=${encodeURIComponent(selectedFile)}`;
+          const downloadUrl = `/cc/api/fs/download?agent=${encodeURIComponent(selectedAgent)}&file=${encodeURIComponent(selectedFile)}`;
           html += `
             <div class="fm-file-header">
               <div class="fm-file-title">${getFileIcon({ extension: '.' + ext, isDirectory: false } as FileEntry)} ${esc(fileName)}</div>
@@ -192,7 +192,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
         // Breadcrumb
         html += `<div class="fm-breadcrumb">`;
-        html += `<a href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}" class="fm-crumb ${!currentDir ? 'active' : ''}">🏠 ${esc(selectedAgent)}</a>`;
+        html += `<a href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}" class="fm-crumb ${!currentDir ? 'active' : ''}">🏠 ${esc(selectedAgent)}</a>`;
 
         if (currentDir) {
           const parts = currentDir.split('/');
@@ -204,7 +204,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
             if (isLast) {
               html += `<span class="fm-crumb-current">${esc(parts[i])}</span>`;
             } else {
-              html += `<a href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(pathAcc)}&lang=${lang}" class="fm-crumb">${esc(parts[i])}</a>`;
+              html += `<a href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(pathAcc)}&lang=${lang}" class="fm-crumb">${esc(parts[i])}</a>`;
             }
           }
         }
@@ -218,8 +218,8 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
             ? currentDir.substring(0, currentDir.lastIndexOf('/'))
             : '';
           const parentHref = parentDir
-            ? `/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(parentDir)}&lang=${lang}`
-            : `/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}`;
+            ? `/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(parentDir)}&lang=${lang}`
+            : `/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&lang=${lang}`;
           html += `
             <a class="fm-back-link" href="${parentHref}">
               <span>←</span> ${t(lang, 'Back', '返回上级')}
@@ -262,7 +262,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
             const subCount = dirSubItems.length;
             html += `
               <div class="fm-item-wrapper">
-                <a class="fm-item fm-item-dir" href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(dir.relativePath)}&lang=${lang}">
+                <a class="fm-item fm-item-dir" href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&dir=${encodeURIComponent(dir.relativePath)}&lang=${lang}">
                   <div class="fm-item-icon">📁</div>
                   <div class="fm-item-info">
                     <div class="fm-item-name">${esc(dir.name)}</div>
@@ -286,7 +286,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
           for (const file of files) {
             html += `
               <div class="fm-item-wrapper">
-                <a class="fm-item fm-item-file" href="/?section=docs&agent=${encodeURIComponent(selectedAgent)}&file=${encodeURIComponent(file.relativePath)}&lang=${lang}">
+                <a class="fm-item fm-item-file" href="/cc/?section=docs&agent=${encodeURIComponent(selectedAgent)}&file=${encodeURIComponent(file.relativePath)}&lang=${lang}">
                   <div class="fm-item-icon">${getFileIcon(file)}</div>
                   <div class="fm-item-info">
                     <div class="fm-item-name">${esc(file.name)}</div>
@@ -358,7 +358,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
       async function postFs(action, payload) {
         try {
-          const res = await fetch('/api/fs/' + action, {
+          const res = await fetch('/cc/api/fs/' + action, {
             method: 'POST',
             body: JSON.stringify(payload)
           });
@@ -470,7 +470,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       }
 
       function fmDownload(agent, path) {
-        window.open('/api/fs/download?agent=' + encodeURIComponent(agent) + '&file=' + encodeURIComponent(path), '_blank');
+        window.open('/cc/api/fs/download?agent=' + encodeURIComponent(agent) + '&file=' + encodeURIComponent(path), '_blank');
       }
 
       // Init UI state

@@ -476,7 +476,7 @@ export class Layout {
     const labels = lang === 'zh' ? LABELS_ZH : LABELS_EN;
     const nav = SECTIONS.map((s) => {
       const cls = s === section ? 'nav-item active' : 'nav-item';
-      return `<a class="${cls}" href="/?section=${s}&lang=${lang}"><span class="nav-icon">${SECTION_ICONS[s]}</span>${labels[s]}</a>`;
+      return `<a class="${cls}" href="/cc/?section=${s}&lang=${lang}"><span class="nav-icon">${SECTION_ICONS[s]}</span>${labels[s]}</a>`;
     }).join('');
 
     return `<!doctype html>
@@ -516,13 +516,13 @@ export class Layout {
         }
 
         function checkSystemStatus() {
-          fetch('/health').then(res => {
+          fetch('/cc/health').then(res => {
             document.getElementById('status-nanoclaw').className = res.ok ? 'status-dot green' : 'status-dot red';
           }).catch(() => {
             document.getElementById('status-nanoclaw').className = 'status-dot red';
           });
           
-          fetch('/api/system/litellm-status').then(res => {
+          fetch('/cc/api/system/litellm-status').then(res => {
             document.getElementById('status-litellm').className = res.ok ? 'status-dot green' : 'status-dot red';
           }).catch(() => {
             document.getElementById('status-litellm').className = 'status-dot red';

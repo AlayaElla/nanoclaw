@@ -34,11 +34,20 @@ import {
 const LITELLM_DIR = join(process.cwd(), 'litellm');
 const CC_PORT = GATEWAY_PORT + 1;
 
-export function startControlCenter(): Server {
+export function getControlCenterHandler() {
   const defaultLang: Lang = 'zh';
-  const server = createServer(async (req, res) => {
+  return async (
+    req: import('node:http').IncomingMessage,
+    res: import('node:http').ServerResponse,
+  ) => {
     try {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      let rawUrl = req.url ?? '/';
+      if (rawUrl.startsWith('/cc')) {
+        rawUrl = rawUrl.substring(3);
+        if (rawUrl === '') rawUrl = '/';
+      }
+      const url = new URL(rawUrl, 'http://127.0.0.1');
+
       const lang: Lang =
         (url.searchParams.get('lang') || defaultLang) === 'en' ? 'en' : 'zh';
 
@@ -367,7 +376,7 @@ export function startControlCenter(): Server {
             /* ok */
           }
         }
-        res.writeHead(302, { Location: `/?section=settings&lang=${lang}` });
+        res.writeHead(302, { Location: `/cc/?section=settings&lang=${lang}` });
         res.end();
         return;
       }
@@ -418,10 +427,5 @@ export function startControlCenter(): Server {
       res.writeHead(500, { 'Content-Type': 'text/plain' });
       res.end('Internal Server Error');
     }
-  });
-
-  server.listen(CC_PORT, '127.0.0.1', () => {
-    logger.info(`[control-center] UI listening on http://127.0.0.1:${CC_PORT}`);
-  });
-  return server;
+  };
 }

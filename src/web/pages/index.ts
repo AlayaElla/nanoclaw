@@ -5,3 +5,4 @@ export * from './DocsPage.js';
 export * from './TasksPage.js';
 export * from './AlertsPage.js';
 export * from './SettingsPage.js';
+export * from './LoginPage.js';

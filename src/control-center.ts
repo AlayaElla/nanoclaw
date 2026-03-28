@@ -19,6 +19,7 @@ import {
   TasksPage,
   AlertsPage,
   SettingsPage,
+  LoginPage,
 } from './web/pages/index.js';
 import {
   getWorkspaceFilePath,
@@ -30,6 +31,7 @@ import {
   writeWorkspaceBase64File,
   createWorkspaceDir,
 } from './web/data.js';
+import { GATEWAY_AUTH_TOKEN } from './config.js';
 
 const LITELLM_DIR = join(process.cwd(), 'litellm');
 const CC_PORT = GATEWAY_PORT + 1;
@@ -50,6 +52,83 @@ export function getControlCenterHandler() {
 
       const lang: Lang =
         (url.searchParams.get('lang') || defaultLang) === 'en' ? 'en' : 'zh';
+
+      // ======== AUTHENTICATION MIDDLEWARE ========
+      const remoteIp = req.socket.remoteAddress || '';
+      const isLocal =
+        remoteIp === '127.0.0.1' ||
+        remoteIp === '::1' ||
+        remoteIp === '::ffff:127.0.0.1';
+
+      let isAuthenticated = isLocal;
+      if (!isAuthenticated) {
+        // Check Authorization header
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          isAuthenticated = authHeader.substring(7) === GATEWAY_AUTH_TOKEN;
+        }
+        // Check Cookies
+        if (!isAuthenticated && req.headers.cookie) {
+          const cookies = Object.fromEntries(
+            req.headers.cookie.split(';').map((c) => {
+              const [k, v] = c.split('=');
+              return [k?.trim(), v?.trim()];
+            }),
+          );
+          isAuthenticated = cookies['nc_auth'] === GATEWAY_AUTH_TOKEN;
+        }
+      }
+
+      // Handle Authentication Routes (Skipping middleware loop if matched)
+      if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            if (data.token === GATEWAY_AUTH_TOKEN) {
+              res.writeHead(200, {
+                'Content-Type': 'application/json',
+                'Set-Cookie': `nc_auth=${GATEWAY_AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Strict`,
+              });
+              res.end(JSON.stringify({ success: true }));
+            } else {
+              res.writeHead(401, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({ success: false, error: 'Invalid token' }),
+              );
+            }
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ success: false, error: 'Invalid request' }),
+            );
+          }
+        });
+        return;
+      }
+
+      if (url.pathname === '/login') {
+        const html = new LoginPage().render(lang);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      }
+
+      // Enforce Authentication
+      if (!isAuthenticated) {
+        if (req.headers.accept?.includes('text/html') || url.pathname === '/') {
+          res.writeHead(302, { Location: `/cc/login?lang=${lang}` });
+          return res.end();
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(
+            JSON.stringify({ success: false, error: 'Unauthorized' }),
+          );
+        }
+      }
+      // ======== END AUTHENTICATION ========
 
       // ======== FILE MANAGEMENT APIS ========
       if (url.pathname.startsWith('/api/fs/')) {
@@ -289,8 +368,7 @@ export function getControlCenterHandler() {
 
         if (req.method === 'POST') {
           if (action === 'restart-nanoclaw') {
-            // Spawn bash start_nanoclaw.sh detached
-            const scriptPath = join(process.cwd(), 'start_nanoclaw.sh');
+            const scriptPath = join(process.cwd(), 'restart_nanoclaw.sh');
             const child = spawn(
               'bash',
               ['-c', `sleep 1 && bash "${scriptPath}"`],
@@ -302,18 +380,23 @@ export function getControlCenterHandler() {
             child.unref();
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true }));
-
-            // gracefully exit the current process so the new one can take over
-            setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
-            return;
+            return res.end(JSON.stringify({ success: true }));
           }
 
           if (action === 'stop-nanoclaw') {
+            const scriptPath = join(process.cwd(), 'stop_nanoclaw.sh');
+            const child = spawn(
+              'bash',
+              ['-c', `sleep 1 && bash "${scriptPath}"`],
+              {
+                detached: true,
+                stdio: 'ignore',
+              },
+            );
+            child.unref();
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true }));
-            setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
-            return;
+            return res.end(JSON.stringify({ success: true }));
           }
 
           if (action === 'restart-litellm') {

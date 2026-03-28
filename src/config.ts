@@ -1,5 +1,6 @@
 import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 
 import { readEnvFile } from './env.js';
 
@@ -15,6 +16,30 @@ export const INSTANCE_ID = process.env.INSTANCE_ID || 'default';
 export const GATEWAY_PORT = parseInt(process.env.GATEWAY_PORT || '18789', 10);
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
+
+export const GATEWAY_AUTH_TOKEN = (() => {
+  let token = process.env.GATEWAY_AUTH_TOKEN || envConfig.GATEWAY_AUTH_TOKEN;
+  if (!token) {
+    token = crypto.randomBytes(16).toString('hex');
+    console.log(
+      `\n\x1b[33m=================================================================\x1b[0m`,
+    );
+    console.log(
+      `\x1b[33m[SECURITY] No GATEWAY_AUTH_TOKEN found in .env\x1b[0m`,
+    );
+    console.log(
+      `\x1b[33m[SECURITY] A dynamic token was generated for this session:\x1b[0m`,
+    );
+    console.log(`\x1b[32m           ${token}\x1b[0m`);
+    console.log(
+      `\x1b[33m           You will need this to log into the Control Center from external IPs.\x1b[0m`,
+    );
+    console.log(
+      `\x1b[33m=================================================================\x1b[0m\n`,
+    );
+  }
+  return token;
+})();
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();

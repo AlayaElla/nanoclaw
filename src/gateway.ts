@@ -12,7 +12,7 @@ import { resolveAgentName } from './agents-config.js';
 import fs from 'fs';
 import path from 'path';
 import * as crypto from 'crypto';
-import { GATEWAY_PORT, WORKSPACE_DIR } from './config.js';
+import { GATEWAY_PORT, WORKSPACE_DIR, GATEWAY_AUTH_TOKEN } from './config.js';
 import { storeMessage, insertTokenUsage, getTaskById } from './db.js';
 import { searchMemory, isRagEnabled } from './rag.js';
 import { RegisteredGroup } from './types.js';
@@ -128,8 +128,30 @@ export class GatewayServer {
       return;
     }
 
+    const remoteIp = req.socket.remoteAddress || '';
+    const isLocal =
+      remoteIp === '127.0.0.1' ||
+      remoteIp === '::1' ||
+      remoteIp === '::ffff:127.0.0.1';
+
+    // Global Auth Parsing
+    const authHeader = req.headers.authorization;
+    let explicitToken =
+      authHeader && authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : null;
+    if (!explicitToken && req.headers['x-api-key']) {
+      explicitToken = req.headers['x-api-key'] as string;
+    }
+    const isGlobalAuthenticated =
+      isLocal || explicitToken === GATEWAY_AUTH_TOKEN;
+
     // Full status snapshot (all agents + host)
     if (req.method === 'GET' && req.url === '/status') {
+      if (!isGlobalAuthenticated) {
+        this.sendJson(res, 401, { error: 'Unauthorized' });
+        return;
+      }
       const status = getFullStatus();
       if (status) {
         this.sendJson(res, 200, status);
@@ -161,6 +183,23 @@ export class GatewayServer {
     try {
       if (req.method === 'POST') {
         if (req.url.startsWith('/llm/v1/')) {
+          let isLlmAuthorized = isGlobalAuthenticated;
+          if (!isLlmAuthorized && explicitToken?.startsWith('nc_meta_')) {
+            const match = explicitToken.match(/group=([^;]+)/);
+            if (match) {
+              const groupFolder = match[1];
+              const registeredGroups = this.deps.registeredGroups();
+              const isValidGroup = Object.values(registeredGroups).some(
+                (g) => g.folder === groupFolder,
+              );
+              if (isValidGroup) isLlmAuthorized = true;
+            }
+          }
+          if (!isLlmAuthorized) {
+            this.sendJson(res, 401, { error: 'Unauthorized LLM Access' });
+            return;
+          }
+
           await this.handleLlmProxy(req, res);
           return;
         }

@@ -53,7 +53,7 @@ docker run -d \
   -v $(pwd)/litellm.log:/app/litellm.log \
   -v $(pwd)/spend.db:/app/spend.db \
   $ENV_ARGS \
-  -p 4000:4000 \
+  -p 127.0.0.1:4000:4000 \
   --name nanoclaw-litellm-proxy \
   ghcr.io/berriai/litellm:main-latest \
   --config /app/config.yaml

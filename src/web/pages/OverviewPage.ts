@@ -1,4 +1,12 @@
-import { Page, t, esc, fmtNum, fmtDuration, pageHeader } from '../utils.js';
+import {
+  Page,
+  t,
+  esc,
+  fmtNum,
+  fmtCompactNum,
+  fmtDuration,
+  pageHeader,
+} from '../utils.js';
 import { Lang } from '../types.js';
 import { getAgentStatusFiles, getUsageSummary } from '../data.js';
 import { getFullStatus } from '../../status.js';
@@ -27,7 +35,7 @@ export class OverviewPage extends Page<any> {
       t(lang, 'Overview', '概览'),
       t(lang, 'System health at a glance', '系统健康一览'),
     );
-    html += `<div class="grid grid-4" style="margin-bottom:20px">`;
+    html += `<div class="grid grid-4 mobile-4col" style="margin-bottom:20px">`;
     html += `<div class="card"><div class="card-title">${t(lang, 'Uptime', '运行时间')}</div><div class="card-value">${status ? fmtDuration(status.uptime) : '—'}</div><div class="card-detail">v${esc(status?.version || '?')}</div></div>`;
     html += `<div class="card"><div class="card-title">${t(lang, 'Active Containers', '活跃容器')}</div><div class="card-value">${activeContainers}</div><div class="card-detail">${t(lang, 'of max', '最大')} ${status?.system?.maxConcurrentContainers || '?'}</div></div>`;
     html += `<div class="card"><div class="card-title">${t(lang, 'Groups', '群组')}</div><div class="card-value">${totalGroups}</div><div class="card-detail">${agents.length} ${t(lang, 'agents', '个 Agent')}</div></div>`;
@@ -36,14 +44,14 @@ export class OverviewPage extends Page<any> {
 
     html += `<div class="section-group">`;
     html += `<div class="section-label">${t(lang, 'Token Usage', 'Token 用量')}</div>`;
-    html += `<div class="grid grid-3">`;
+    html += `<div class="grid grid-3 mobile-3col">`;
 
     const renderUsageCard = (label: string, d: any) =>
       `<div class="card">` +
       `<div class="card-title">${label}</div>` +
-      `<div class="card-value" style="font-size:28px; margin-bottom: 8px;">${fmtNum(d.total_tokens)}</div>` +
-      `<div class="card-detail" style="margin-top:0">${t(lang, 'Input', '输入')}: ${fmtNum(d.input_tokens)} · ${t(lang, 'Output', '输出')}: ${fmtNum(d.output_tokens)}</div>` +
-      `<div class="card-detail" style="margin-top:4px">${fmtNum(d.request_count)} ${t(lang, 'requests', '次请求')}</div>` +
+      `<div class="card-value">${fmtCompactNum(d.total_tokens)}</div>` +
+      `<div class="card-detail" style="margin-top:0">${t(lang, 'In', '入')}: ${fmtCompactNum(d.input_tokens)} · ${t(lang, 'Out', '出')}: ${fmtCompactNum(d.output_tokens)}</div>` +
+      `<div class="card-detail" style="margin-top:4px">${fmtNum(d.request_count)} ${t(lang, 'reqs', '个')}</div>` +
       `</div>`;
 
     html += renderUsageCard(t(lang, 'Today', '今日'), spend1d);
@@ -93,11 +101,11 @@ export class OverviewPage extends Page<any> {
 
       html +=
         `<tr>` +
-        `<td><strong>${esc(agent.name)}</strong></td>` +
-        `<td><div style="display:flex;align-items:center;gap:6px"><span class="status-dot ${dot}"></span><span>${esc(agent.channel || '—')}</span><span style="font-size:11px;color:var(--text-muted)">(${chLabel})</span></div></td>` +
-        `<td><span class="badge badge-purple">${esc(agent.model || '—')}</span></td>` +
-        `<td>${(agent.groups || []).length}</td>` +
-        `<td>${badge}</td>` +
+        `<td data-label="Agent"><strong>${esc(agent.name)}</strong></td>` +
+        `<td data-label="Channel"><div style="display:flex;align-items:center;gap:6px"><span class="status-dot ${dot}"></span><span>${esc(agent.channel || '—')}</span><span style="font-size:var(--fs-xs);color:var(--text-muted)">(${chLabel})</span></div></td>` +
+        `<td data-label="${t(lang, 'Model', '模型')}"><span class="badge badge-purple">${esc(agent.model || '—')}</span></td>` +
+        `<td data-label="${t(lang, 'Groups', '群组')}">${(agent.groups || []).length}</td>` +
+        `<td data-label="${t(lang, 'Status', '状态')}">${badge}</td>` +
         `</tr>`;
     }
     html += `</tbody></table></div></div>`;

@@ -36,31 +36,31 @@ export class SettingsPage extends Page<any> {
 
     if (status) {
       html += `<div class="section-group"><div class="section-label">${t(lang, 'System Information', '系统信息')}</div><div class="grid grid-3">`;
-      html += `<div class="card"><div class="card-title">Node.js</div><div class="card-value" style="font-size:18px">${esc(status.system.nodeVersion)}</div><div class="card-detail">${esc(status.system.platform)} / ${esc(status.system.arch)}</div></div>`;
-      html += `<div class="card"><div class="card-title">${t(lang, 'Container Image', '容器镜像')}</div><div class="card-value" style="font-size:14px;word-break:break-all">${esc(status.system.containerImage)}</div></div>`;
+      html += `<div class="card"><div class="card-title">Node.js</div><div class="card-value" style="font-size:var(--fs-lg)">${esc(status.system.nodeVersion)}</div><div class="card-detail">${esc(status.system.platform)} / ${esc(status.system.arch)}</div></div>`;
+      html += `<div class="card"><div class="card-title">${t(lang, 'Container Image', '容器镜像')}</div><div class="card-value" style="font-size:var(--fs-base);word-break:break-all">${esc(status.system.containerImage)}</div></div>`;
       html += `<div class="card"><div class="card-title">${t(lang, 'Max Containers', '最大容器')}</div><div class="card-value">${status.system.maxConcurrentContainers}</div><div class="card-detail">${t(lang, 'Timezone', '时区')}: ${esc(status.system.timezone)}</div></div>`;
       html += `</div></div>`;
     }
-    html += `<div class="section-group"><div class="section-label">${t(lang, 'Agents Configuration', 'Agent 配置')} <button class="btn btn-primary" style="float:right;padding:4px 10px;font-size:12px;" onclick="openAgentModal()">${t(lang, '➕ Add Agent', '➕ 新建 Agent')}</button></div><div class="card"><table><thead><tr><th>${t(lang, 'Name', '名称')}</th><th>${t(lang, 'Channel', '渠道')}</th><th>${t(lang, 'Model', '模型')}</th><th>${t(lang, 'Actions', '操作')}</th></tr></thead><tbody>`;
+    html += `<div class="section-group"><div class="section-label">${t(lang, 'Agents Configuration', 'Agent 配置')} <button class="btn btn-primary" style="float:right;padding:4px 10px;font-size:var(--fs-sm);" onclick="openAgentModal()">${t(lang, '➕ Add Agent', '➕ 新建 Agent')}</button></div><div class="card"><table><thead><tr><th>${t(lang, 'Name', '名称')}</th><th>${t(lang, 'Channel', '渠道')}</th><th>${t(lang, 'Model', '模型')}</th><th>${t(lang, 'Actions', '操作')}</th></tr></thead><tbody>`;
     for (const a of agents) {
-      html += `<tr><td><strong>${esc(a.name)}</strong></td><td><span class="badge badge-blue">${esc(a.channel || 'telegram')}</span></td><td style="font-size:12px">${esc(a.model || '—')}</td><td><button class="btn" style="padding:4px 8px;font-size:12px" onclick="openAgentModal('${esc(a.name)}', '${esc(a.channel || 'telegram')}', '${esc(a.token || '')}', '${esc(a.model || '')}')">⚙️ ${t(lang, 'Edit', '修改')}</button></td></tr>`;
+      html += `<tr><td><strong>${esc(a.name)}</strong></td><td><span class="badge badge-blue">${esc(a.channel || 'telegram')}</span></td><td style="font-size:var(--fs-sm)">${esc(a.model || '—')}</td><td><button class="btn" style="padding:4px 8px;font-size:var(--fs-sm)" onclick="openAgentModal('${esc(a.name)}', '${esc(a.channel || 'telegram')}', '${esc(a.token || '')}', '${esc(a.model || '')}')">⚙️ ${t(lang, 'Edit', '修改')}</button></td></tr>`;
     }
     if (agents.length === 0)
       html += `<tr><td colspan="4" class="empty-state">${t(lang, 'No agents configured', '未配置 Agent')}</td></tr>`;
     html += `</tbody></table></div></div>`;
 
-    html += `<div class="section-group"><div class="section-label">${t(lang, 'Registered Groups', '已注册群组')} <button class="btn btn-primary" style="float:right;padding:4px 10px;font-size:12px;" onclick="openGroupModal()">${t(lang, '➕ Register Group', '➕ 注册群组')}</button></div><div class="card"><table><thead><tr><th>${t(lang, 'JID', '群组/联系人 JID')}</th><th>${t(lang, 'Name / Folder', '名称 / 文件夹')}</th><th>${t(lang, 'Routing Config', '路由配置')}</th><th>${t(lang, 'Actions', '操作')}</th></tr></thead><tbody>`;
+    html += `<div class="section-group"><div class="section-label">${t(lang, 'Registered Groups', '已注册群组')} <button class="btn btn-primary" style="float:right;padding:4px 10px;font-size:var(--fs-sm);" onclick="openGroupModal()">${t(lang, '➕ Register Group', '➕ 注册群组')}</button></div><div class="card"><table><thead><tr><th>${t(lang, 'JID', '群组/联系人 JID')}</th><th>${t(lang, 'Name / Folder', '名称 / 文件夹')}</th><th>${t(lang, 'Routing Config', '路由配置')}</th><th>${t(lang, 'Actions', '操作')}</th></tr></thead><tbody>`;
     for (const jid of Object.keys(groups)) {
       const g = groups[jid];
       html += `<tr>
-        <td style="font-family:monospace;font-size:12px">${esc(jid)}</td>
-        <td><strong>${esc(g.name)}</strong><div style="font-size:11px;color:var(--text-muted)">${esc(g.folder)}</div></td>
-        <td style="font-size:11px">
+        <td style="font-family:monospace;font-size:var(--fs-sm)">${esc(jid)}</td>
+        <td><strong>${esc(g.name)}</strong><div style="font-size:var(--fs-xs);color:var(--text-muted)">${esc(g.folder)}</div></td>
+        <td style="font-size:var(--fs-xs)">
           ${g.isMain ? `<span class="badge badge-green" style="margin-right:4px">Main</span>` : ''}
           ${g.model ? `<span class="badge badge-purple" style="margin-right:4px">${esc(g.model)}</span>` : ''}
           ${esc(g.trigger || '')}
         </td>
-        <td><button class="btn" style="padding:4px 8px;font-size:12px" onclick="openGroupModal('${esc(jid)}', '${esc(g.name).replace(/'/g, "\\'")}', '${esc(g.folder).replace(/'/g, "\\'")}', '${esc(g.trigger || '').replace(/'/g, "\\'")}', ${g.isMain ? 'true' : 'false'}, '${esc(g.assistantName || '').replace(/'/g, "\\'")}', '${esc(g.botToken || '').replace(/'/g, "\\'")}', '${esc(g.model || '').replace(/'/g, "\\'")}')">⚙️ ${t(lang, 'Edit', '修改')}</button></td>
+        <td><button class="btn" style="padding:4px 8px;font-size:var(--fs-sm)" onclick="openGroupModal('${esc(jid)}', '${esc(g.name).replace(/'/g, "\\'")}', '${esc(g.folder).replace(/'/g, "\\'")}', '${esc(g.trigger || '').replace(/'/g, "\\'")}', ${g.isMain ? 'true' : 'false'}, '${esc(g.assistantName || '').replace(/'/g, "\\'")}', '${esc(g.botToken || '').replace(/'/g, "\\'")}', '${esc(g.model || '').replace(/'/g, "\\'")}')">⚙️ ${t(lang, 'Edit', '修改')}</button></td>
       </tr>`;
     }
     if (Object.keys(groups).length === 0)
@@ -69,7 +69,7 @@ export class SettingsPage extends Page<any> {
 
     html += `<div class="section-group"><div class="section-label">${t(lang, 'LiteLLM Models', 'LiteLLM 模型')}</div><div class="card"><table><thead><tr><th>${t(lang, 'Model Name', '模型名')}</th><th>${t(lang, 'Backend', '后端')}</th><th>${t(lang, 'API Base', 'API 地址')}</th></tr></thead><tbody>`;
     for (const m of models)
-      html += `<tr><td><span class="badge badge-purple">${esc(m.model_name)}</span></td><td style="font-size:12px">${esc(m.model || '—')}</td><td style="font-size:12px;color:var(--muted)">${esc(m.api_base || '—')}</td></tr>`;
+      html += `<tr><td><span class="badge badge-purple">${esc(m.model_name)}</span></td><td style="font-size:var(--fs-sm)">${esc(m.model || '—')}</td><td style="font-size:var(--fs-sm);color:var(--muted)">${esc(m.api_base || '—')}</td></tr>`;
     if (models.length === 0)
       html += `<tr><td colspan="3" class="empty-state">${t(lang, 'No models configured', '未配置模型')}</td></tr>`;
     html += `</tbody></table></div></div>`;
@@ -137,7 +137,7 @@ export class SettingsPage extends Page<any> {
     html += `</div></div>`;
     html += `<div class="section-group"><div class="section-label">${t(lang, 'Environment (.env)', '环境变量 (.env)')}</div><div class="card"><table><thead><tr><th>${t(lang, 'Key', '键')}</th><th>${t(lang, 'Value', '值')}</th></tr></thead><tbody>`;
     for (const v of envVars)
-      html += `<tr><td style="font-family:monospace;font-size:12px">${esc(v.key)}</td><td style="font-size:12px">${esc(v.value)}</td></tr>`;
+      html += `<tr><td style="font-family:monospace;font-size:var(--fs-sm)">${esc(v.key)}</td><td style="font-size:var(--fs-sm)">${esc(v.value)}</td></tr>`;
     html += `</tbody></table></div></div>`;
 
     // Config modals and scripts
@@ -182,7 +182,7 @@ export class SettingsPage extends Page<any> {
     </dialog>
     
     <style>
-      .input { padding:8px 12px; border:1px solid rgba(0,0,0,0.1); border-radius:8px; display:block; margin-top:4px; font-size:14px; background:rgba(255,255,255,0.8); }
+      .input { padding:8px 12px; border:1px solid rgba(0,0,0,0.1); border-radius:8px; display:block; margin-top:4px; font-size:var(--fs-base); background:rgba(255,255,255,0.8); }
     </style>
     
     <script>

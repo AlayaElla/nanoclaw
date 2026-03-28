@@ -1,4 +1,4 @@
-import { Page, t, esc, fmtNum, pageHeader } from '../utils.js';
+import { Page, t, esc, fmtNum, fmtCompactNum, pageHeader } from '../utils.js';
 import { Lang } from '../types.js';
 import {
   getUsageSummary,
@@ -73,7 +73,7 @@ export class UsagePage extends Page<any> {
       t(lang, 'Usage', '用量'),
       t(lang, 'Multi-dimensional Token Analytics', '多维度 Token 消耗分析'),
     );
-    html += `<style>.card { animation: none !important; } .card:hover { transform: none !important; box-shadow: 0 10px 20px rgba(0,0,0,0.03), inset 0 1px 1px #fff !important; background: var(--glass-bg) !important; border-color: var(--glass-border) !important; }</style>`;
+    html += `<style>.card:hover { transform: none !important; box-shadow: 0 10px 20px rgba(0,0,0,0.03), inset 0 1px 1px #fff !important; background: var(--glass-bg) !important; border-color: var(--glass-border) !important; }</style>`;
 
     // ── UI Controls ──
     const tabs = [
@@ -108,25 +108,34 @@ export class UsagePage extends Page<any> {
         const style = active
           ? 'background: var(--purple); color: #fff; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);'
           : 'background: rgba(0,0,0,0.04); color: var(--text-muted);';
-        return `<a href="?section=usage&days=${days}&dim=${dim.value}" style="padding: 6px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${dim.label}</a>`;
+        return `<a href="?section=usage&days=${days}&dim=${dim.value}" style="padding: 6px 16px; border-radius: 8px; font-size: var(--fs-sm); font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${dim.label}</a>`;
       })
       .join('');
 
-    html += `<div class="section-group"><div class="card" style="padding: 28px; animation: none;">`;
+    html += `<style>
+      .usage-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
+      @media(max-width: 600px) {
+        .usage-header { flex-direction: column; align-items: stretch; margin-bottom: 16px; }
+        .usage-card-main { padding: 16px !important; }
+        .usage-summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+        .usage-summary-item { text-align: left !important; }
+      }
+    </style>`;
+    html += `<div class="section-group"><div class="card usage-card-main" style="padding: 28px;">`;
 
     // Card header
     html += `
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+    <div class="usage-header">
       <div>
-        <div style="font-size: 17px; font-weight: 700; color: var(--text-main); letter-spacing: -0.3px; margin-bottom: 12px;">
+        <div style="font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); letter-spacing: -0.3px; margin-bottom: 12px;">
           ${t(lang, 'Token Consumption Trend', 'Token 消耗趋势')}
         </div>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <span style="font-size: 12px; color: var(--text-muted); margin-right: 4px;">${t(lang, 'Breakdown:', '拆分维度:')}</span>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: var(--fs-sm); color: var(--text-muted); margin-right: 4px;">${t(lang, 'Breakdown:', '拆分维度:')}</span>
           ${dimsHtml}
         </div>
       </div>
-      <div style="display: flex; gap: 6px; align-items: center;">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
         ${tabsHtml}
       </div>
     </div>`;
@@ -136,8 +145,8 @@ export class UsagePage extends Page<any> {
       html += `
         <div id="interactive-chart" style="position: relative; min-height: 280px; margin-bottom: 16px; display: flex; flex-direction: column;">
           <div id="chart-area" data-nomorph="true" style="display: flex; height: 220px; align-items: flex-end; gap: ${timeline.length > 20 ? '2' : '4'}px;"></div>
-          <div id="x-axis" data-nomorph="true" style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 8px;"></div>
-          <div id="chart-legend" data-nomorph="true" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; font-size: 12px; margin-top: 16px; user-select: none;"></div>
+          <div id="x-axis" data-nomorph="true" style="display: flex; justify-content: space-between; font-size: var(--fs-sm); color: var(--text-muted); margin-top: 8px;"></div>
+          <div id="chart-legend" data-nomorph="true" style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; font-size: var(--fs-sm); margin-top: 16px; user-select: none;"></div>
         </div>
       `;
 
@@ -326,7 +335,7 @@ export class UsagePage extends Page<any> {
 
     // ── Summary Stats Footer ──
     html += `
-    <div style="
+    <div class="usage-summary-grid" style="
       margin-top: 24px;
       padding-top: 20px;
       border-top: 1px solid rgba(0,0,0,0.06);
@@ -334,21 +343,21 @@ export class UsagePage extends Page<any> {
       grid-template-columns: repeat(4, 1fr);
       gap: 16px;
     ">
-      <div style="text-align: center;">
-        <div style="font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Total Tokens', 'Token 总量')}</div>
-        <div style="font-size: 24px; font-weight: 700; color: var(--text-main); letter-spacing: -0.5px;">${fmtNum(summary.total_tokens)}</div>
+      <div class="usage-summary-item" style="text-align: center;">
+        <div style="font-size: var(--fs-sm); color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Total Tokens', 'Token 总量')}</div>
+        <div style="font-size: var(--fs-xl); font-weight: 700; color: var(--text-main); letter-spacing: -0.5px;">${fmtCompactNum(summary.total_tokens)}</div>
       </div>
-      <div style="text-align: center;">
-        <div style="font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Input', '输入')}</div>
-        <div style="font-size: 24px; font-weight: 700; color: var(--purple); letter-spacing: -0.5px;">${fmtNum(summary.input_tokens)}</div>
+      <div class="usage-summary-item" style="text-align: center;">
+        <div style="font-size: var(--fs-sm); color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Input', '输入')}</div>
+        <div style="font-size: var(--fs-xl); font-weight: 700; color: var(--purple); letter-spacing: -0.5px;">${fmtCompactNum(summary.input_tokens)}</div>
       </div>
-      <div style="text-align: center;">
-        <div style="font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Output', '输出')}</div>
-        <div style="font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px;">${fmtNum(summary.output_tokens)}</div>
+      <div class="usage-summary-item" style="text-align: center;">
+        <div style="font-size: var(--fs-sm); color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Output', '输出')}</div>
+        <div style="font-size: var(--fs-xl); font-weight: 700; color: var(--accent); letter-spacing: -0.5px;">${fmtCompactNum(summary.output_tokens)}</div>
       </div>
-      <div style="text-align: center;">
-        <div style="font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Requests', '请求次数')}</div>
-        <div style="font-size: 24px; font-weight: 700; color: var(--text-main); letter-spacing: -0.5px;">${fmtNum(summary.request_count)}</div>
+      <div class="usage-summary-item" style="text-align: center;">
+        <div style="font-size: var(--fs-sm); color: var(--text-muted); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${t(lang, 'Requests', '请求次数')}</div>
+        <div style="font-size: var(--fs-xl); font-weight: 700; color: var(--text-main); letter-spacing: -0.5px;">${fmtCompactNum(summary.request_count)}</div>
       </div>
     </div>`;
 
@@ -392,9 +401,9 @@ export class UsagePage extends Page<any> {
 
       for (const row of breakdown) {
         html += `<tr>
-          <td><span class="badge badge-purple">${esc(row.name)}</span></td>
-          <td>${fmtNum(row.total_tokens)}</td>
-          <td>${fmtNum(row.request_count)}</td>
+          <td data-label="${t(lang, 'Name', '名称')}"><span class="badge badge-purple">${esc(row.name)}</span></td>
+          <td data-label="${t(lang, 'Tokens', '消耗 Token')}">${fmtNum(row.total_tokens)}</td>
+          <td data-label="${t(lang, 'Requests', '请求次数')}">${fmtNum(row.request_count)}</td>
         </tr>`;
       }
       if (breakdown.length === 0) {

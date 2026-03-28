@@ -66,7 +66,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
           if (!hasContainer || !isActive) {
             statusBadge = `<span class="badge badge-gray">○ ${t(lang, 'Hibernating', '休眠')}</span>`;
           } else if (activeTool) {
-            statusBadge = `<span class="badge badge-green">● ${t(lang, 'Executing', '执行中')} <span style="font-size:11px;opacity:0.8">(${esc(activeTool)})</span></span>`;
+            statusBadge = `<span class="badge badge-green">● ${t(lang, 'Executing', '执行中')} <span style="font-size:var(--fs-xs);opacity:0.8">(${esc(activeTool)})</span></span>`;
           } else {
             statusBadge = `<span class="badge badge-blue">◉ ${t(lang, 'Standby', '待命')}</span>`;
           }

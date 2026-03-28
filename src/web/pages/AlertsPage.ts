@@ -90,7 +90,7 @@ export class AlertsPage extends Page<any> {
     const clearBtn = `
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;justify-content:space-between">
         <div>
-          <span style="font-size:24px;font-weight:700">${t(lang, 'Alerts', '告警')}</span>
+          <span style="font-size:var(--fs-xl);font-weight:700">${t(lang, 'Alerts', '告警')}</span>
           ${alerts.length > 0 ? `<span class="badge badge-red" style="margin-left:10px;vertical-align:middle">${alerts.length}</span>` : ''}
         </div>
         <button id="btn-clear-alerts" onclick="clearAlerts()" style="
@@ -100,7 +100,7 @@ export class AlertsPage extends Page<any> {
           padding:6px 16px;
           border-radius:8px;
           cursor:pointer;
-          font-size:13px;
+          font-size:var(--fs-sm);
           font-weight:600;
           transition:background 0.2s;
         " onmouseover="this.style.background='rgba(239,68,68,0.25)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">
@@ -124,11 +124,11 @@ export class AlertsPage extends Page<any> {
     html += clearBtn;
 
     if (alerts.length === 0) {
-      html += `<div class="card" style="text-align:center;padding:60px"><div style="font-size:48px;margin-bottom:16px">✅</div><div style="font-size:16px;font-weight:600">${t(lang, 'All Clear', '一切正常')}</div><div style="color:var(--muted);margin-top:8px">${t(lang, 'No active alerts', '没有活跃告警')}</div></div>`;
+      html += `<div class="card" style="text-align:center;padding:60px"><div style="font-size:48px;margin-bottom:16px">✅</div><div style="font-size:var(--fs-md);font-weight:600">${t(lang, 'All Clear', '一切正常')}</div><div style="color:var(--muted);margin-top:8px;font-size:var(--fs-base)">${t(lang, 'No active alerts', '没有活跃告警')}</div></div>`;
     } else {
       html += `<div class="card"><table><thead><tr><th>${t(lang, 'Level', '级别')}</th><th>${t(lang, 'Message', '消息')}</th><th>${t(lang, 'Time', '时间')}</th></tr></thead><tbody>`;
       for (const a of alerts)
-        html += `<tr><td><span class="badge ${a.badge}">${a.level}</span></td><td>${esc(a.message)}</td><td style="font-size:12px">${esc((a.time || '').replace('T', ' ').slice(0, 19))}</td></tr>`;
+        html += `<tr><td><span class="badge ${a.badge}">${a.level}</span></td><td>${esc(a.message)}</td><td style="font-size:var(--fs-sm)">${esc((a.time || '').replace('T', ' ').slice(0, 19))}</td></tr>`;
       html += `</tbody></table></div>`;
     }
     return html;

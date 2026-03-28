@@ -16,6 +16,15 @@ export function fmtNum(n: number): string {
   return (n || 0).toLocaleString();
 }
 
+export function fmtCompactNum(n: number): string {
+  if (!n) return '0';
+  if (n < 1000) return n.toString();
+  if (n < 10000) return (n / 1000).toFixed(1) + 'k';
+  if (n < 1000000) return Math.round(n / 1000) + 'k';
+  if (n < 10000000) return (n / 1000000).toFixed(2) + 'M';
+  return (n / 1000000).toFixed(1) + 'M';
+}
+
 export function fmtDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;

@@ -503,7 +503,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       padding: 0;
     }
     .fm-sidebar-header {
-      font-size: 11px;
+      font-size: var(--fs-xs);
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1px;
@@ -538,7 +538,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       font-size: 18px;
     }
     .fm-agent-name {
-      font-size: 14px;
+      font-size: var(--fs-base);
       font-weight: 500;
     }
 
@@ -569,7 +569,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       gap: 6px;
       flex-wrap: wrap;
       margin-bottom: 16px;
-      font-size: 13px;
+      font-size: var(--fs-sm);
     }
     .fm-crumb {
       color: var(--accent);
@@ -582,7 +582,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       background: rgba(0,102,255,0.06);
     }
     .fm-crumb.active { font-weight: 600; }
-    .fm-crumb-sep { color: var(--text-muted); font-size: 12px; opacity: 0.5; }
+    .fm-crumb-sep { color: var(--text-muted); font-size: var(--fs-xs); opacity: 0.5; }
     .fm-crumb-current { color: var(--text-main); font-weight: 600; padding: 4px 8px; }
 
     /* Back link */
@@ -592,7 +592,7 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       gap: 6px;
       color: var(--text-main);
       text-decoration: none;
-      font-size: 13px;
+      font-size: var(--fs-sm);
       font-weight: 500;
       padding: 6px 12px;
       border-radius: 10px;
@@ -637,6 +637,14 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
       cursor: pointer;
       height: 100%;
     }
+    .app.animate-in .fm-item {
+      animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    }
+    .fm-item-wrapper:nth-child(1) .fm-item { animation-delay: 0.05s; }
+    .fm-item-wrapper:nth-child(2) .fm-item { animation-delay: 0.1s; }
+    .fm-item-wrapper:nth-child(3) .fm-item { animation-delay: 0.15s; }
+    .fm-item-wrapper:nth-child(4) .fm-item { animation-delay: 0.2s; }
+    
     .fm-item:hover {
       border-color: rgba(0,0,0,0.08);
       background: rgba(255,255,255,0.9);
@@ -783,9 +791,23 @@ export class DocsPage extends Page<{ query: URLSearchParams }> {
 
     /* Responsive */
     @media (max-width: 900px) {
-      .fm-container { grid-template-columns: 1fr; height: auto; min-height: 600px; }
-      .fm-sidebar { border-right: none; border-bottom: 1px solid rgba(0,0,0,0.05); max-height: 140px; }
+      .fm-container { grid-template-columns: 1fr; height: auto; min-height: 500px; }
+      .fm-sidebar { border-right: none; border-bottom: 1px solid rgba(0,0,0,0.05); max-height: 160px; }
       .fm-agent-item { padding: 10px 16px; }
+      .fm-main { padding: 16px 20px; }
+      .fm-item { padding: 8px 12px; font-size: 13px; }
+      .fm-item-icon { font-size: 18px; }
+      .fm-grid { gap: 8px; }
+      .fm-breadcrumb { font-size: 12px; margin-bottom: 12px; }
+      .fm-crumb, .fm-crumb-current { padding: 2px 4px; }
+    }
+    @media (max-width: 600px) {
+      .fm-sidebar { max-height: 140px; }
+      .fm-main { padding: 12px 14px; }
+      .fm-grid { grid-template-columns: 1fr !important; }
+      .fm-action-bar { gap: 8px; margin-bottom: 12px; }
+      .fm-actions-right { width: 100%; justify-content: space-between; gap: 4px; }
+      .btn-sm { padding: 5px 10px; font-size: 11px; flex: 1; text-align: center; }
     }
     `;
   }

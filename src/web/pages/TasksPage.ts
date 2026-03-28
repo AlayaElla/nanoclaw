@@ -25,7 +25,7 @@ export class TasksPage extends Page<{ query: URLSearchParams }> {
 
     // ── Summary cards ──
     html += `
-    <div class="grid grid-3" style="margin-bottom:20px">
+    <div class="grid grid-3 mobile-3col" style="margin-bottom:20px">
       <div class="card">
         <div class="card-title">${t(lang, 'Active', '活跃')}</div>
         <div class="card-value" style="color:var(--green)">${active}</div>
@@ -72,13 +72,13 @@ export class TasksPage extends Page<{ query: URLSearchParams }> {
 
       html += `
             <tr>
-              <td style="font-family:monospace;font-size:11px">${esc(task.id)}</td>
-              <td><span class="badge badge-blue" style="font-size:11px">${esc(groupName)}</span></td>
-              <td>${esc(task.prompt)}</td>
-              <td><span class="badge badge-blue">${esc(task.schedule_type)}</span> ${esc(task.schedule_value)}</td>
-              <td>${nextRun}</td>
-              <td><span class="badge ${badge}">${task.status}</span></td>
-              <td><a href="/?section=tasks&task=${encodeURIComponent(task.id)}&lang=${lang}">${t(lang, 'View', '查看')}</a></td>
+              <td data-label="ID" style="font-family:monospace;font-size:var(--fs-xs)">${esc(task.id)}</td>
+              <td data-label="Agent"><span class="badge badge-blue" style="font-size:var(--fs-xs)">${esc(groupName)}</span></td>
+              <td data-label="${t(lang, 'Prompt', '提示')}">${esc(task.prompt)}</td>
+              <td data-label="${t(lang, 'Schedule', '排程')}"><span class="badge badge-blue">${esc(task.schedule_type)}</span> ${esc(task.schedule_value)}</td>
+              <td data-label="${t(lang, 'Next Run', '下次执行')}">${nextRun}</td>
+              <td data-label="${t(lang, 'Status', '状态')}"><span class="badge ${badge}">${task.status}</span></td>
+              <td data-label="${t(lang, 'Logs', '日志')}"><a href="/?section=tasks&task=${encodeURIComponent(task.id)}&lang=${lang}">${t(lang, 'View', '查看')}</a></td>
             </tr>`;
     }
 
@@ -123,10 +123,10 @@ export class TasksPage extends Page<{ query: URLSearchParams }> {
 
         html += `
               <tr>
-                <td>${esc(fmtDateTime(log.run_at || ''))}</td>
-                <td>${((log.duration_ms || 0) / 1000).toFixed(1)}s</td>
-                <td><span class="badge ${badge}">${log.status}</span></td>
-                <td style="font-size:12px">${esc(resultText)}</td>
+                <td data-label="${t(lang, 'Run At', '执行时间')}">${esc(fmtDateTime(log.run_at || ''))}</td>
+                <td data-label="${t(lang, 'Duration', '耗时')}">${((log.duration_ms || 0) / 1000).toFixed(1)}s</td>
+                <td data-label="${t(lang, 'Status', '状态')}"><span class="badge ${badge}">${log.status}</span></td>
+                <td data-label="${t(lang, 'Result', '结果')}" style="font-size:12px">${esc(resultText)}</td>
               </tr>`;
       }
 

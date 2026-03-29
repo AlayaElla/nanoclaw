@@ -181,6 +181,33 @@ export class GroupQueue {
   }
 
   /**
+   * Notify an active message container that new pending messages are available.
+   * The container will fetch the full pending batch from the host before its next turn.
+   */
+  notifyPendingMessages(groupJid: string): boolean {
+    const state = this.getGroup(groupJid);
+    if (!state.active || !state.groupFolder || state.isTaskContainer)
+      return false;
+    state.idleWaiting = false;
+
+    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    try {
+      fs.mkdirSync(inputDir, { recursive: true });
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
+      const filepath = path.join(inputDir, filename);
+      const tempPath = `${filepath}.tmp`;
+      fs.writeFileSync(
+        tempPath,
+        JSON.stringify({ type: 'pending_available' }),
+      );
+      fs.renameSync(tempPath, filepath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Signal the active container to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {

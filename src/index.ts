@@ -44,6 +44,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
+import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
@@ -72,6 +73,7 @@ let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
+const visibleOutputSeqByGroupFolder: Record<string, number> = {};
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
@@ -136,6 +138,61 @@ function loadState(): void {
 function saveState(): void {
   setRouterState('last_rowid', lastRowid.toString());
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
+}
+
+function recordVisibleOutput(groupFolder: string): void {
+  visibleOutputSeqByGroupFolder[groupFolder] =
+    (visibleOutputSeqByGroupFolder[groupFolder] || 0) + 1;
+}
+
+function getVisibleOutputSeq(groupFolder: string): number {
+  return visibleOutputSeqByGroupFolder[groupFolder] || 0;
+}
+
+function getPendingBatch(sourceGroup: string): PendingBatchResult {
+  const entry = Object.entries(registeredGroups).find(
+    ([, group]) => group.folder === sourceGroup,
+  );
+  if (!entry) {
+    return {
+      success: false,
+      pending: false,
+      error: `Unknown source group: ${sourceGroup}`,
+    };
+  }
+
+  const [chatJid, group] = entry;
+  const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
+  const pendingMessages = getMessagesSince(chatJid, sinceTimestamp);
+
+  if (pendingMessages.length === 0) {
+    return {
+      success: true,
+      pending: false,
+      messageCount: 0,
+    };
+  }
+
+  const consumedThroughTimestamp =
+    pendingMessages[pendingMessages.length - 1].timestamp;
+
+  logger.debug(
+    {
+      sourceGroup,
+      chatJid,
+      messageCount: pendingMessages.length,
+      consumedThroughTimestamp,
+    },
+    'Prepared pending batch for container pull',
+  );
+
+  return {
+    success: true,
+    pending: true,
+    prompt: formatMessages(pendingMessages, TIMEZONE),
+    consumedThroughTimestamp,
+    messageCount: pendingMessages.length,
+  };
 }
 
 function registerGroup(jid: string, group: RegisteredGroup): void {
@@ -298,15 +355,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
-
-  // Advance cursor so the piping path in startMessageLoop won't re-fetch
-  // these messages. Save the old cursor so we can roll back on error.
-  const previousCursor = lastAgentTimestamp[chatJid] || '';
-  lastAgentTimestamp[chatJid] =
-    missedMessages[missedMessages.length - 1].timestamp;
-  saveState();
-
   logger.info(
     { group: group.name, messageCount: missedMessages.length },
     'Processing messages',
@@ -329,6 +377,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
+  let committedCursor = false;
+  let currentQueryCursor: string | undefined;
+  let currentQueryHadDirectOutput = false;
+  let currentQueryVisibleBaseline = getVisibleOutputSeq(group.folder);
 
   // Track tool status message for send → edit → delete pattern
   // Typing stays active until the first tool event arrives
@@ -495,10 +547,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const output = await runAgent(
     group,
-    prompt,
+    '',
     chatJid,
     async (result) => {
       // Streaming output callback — called for each agent result
+      if (
+        result.consumedThroughTimestamp &&
+        result.consumedThroughTimestamp !== currentQueryCursor
+      ) {
+        currentQueryCursor = result.consumedThroughTimestamp;
+        currentQueryHadDirectOutput = false;
+      }
+
       if (result.result) {
         const raw =
           typeof result.result === 'string'
@@ -519,6 +579,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
+          currentQueryHadDirectOutput = true;
 
           // Note: We deliberately do NOT re-enable typing here just because statusMessageId exists.
           // If a tool actually starts running again, onIpcStatus will re-enable it.
@@ -555,15 +616,51 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         resetIdleTimer();
       }
 
-      if (result.status === 'success') {
+      if (result.queryCompleted && result.status === 'success') {
         queue.notifyIdle(chatJid);
+        resetIdleTimer();
       }
 
       if (result.status === 'error') {
         hadError = true;
       }
+
+      if (result.queryCompleted && result.consumedThroughTimestamp) {
+        const gatewayVisibleOutput =
+          getVisibleOutputSeq(group.folder) > currentQueryVisibleBaseline;
+        const queryHadVisibleOutput =
+          currentQueryHadDirectOutput || gatewayVisibleOutput;
+
+        if (queryHadVisibleOutput) {
+          lastAgentTimestamp[chatJid] = result.consumedThroughTimestamp;
+          saveState();
+          committedCursor = true;
+          logger.info(
+            {
+              group: group.name,
+              chatJid,
+              consumedThroughTimestamp: result.consumedThroughTimestamp,
+            },
+            'Advanced message cursor after visible query output',
+          );
+        } else {
+          logger.info(
+            {
+              group: group.name,
+              chatJid,
+              consumedThroughTimestamp: result.consumedThroughTimestamp,
+            },
+            'Query completed without visible output; cursor not advanced',
+          );
+        }
+
+        currentQueryVisibleBaseline = getVisibleOutputSeq(group.folder);
+        currentQueryCursor = undefined;
+        currentQueryHadDirectOutput = false;
+      }
     },
     onIpcStatus,
+    { pullPendingOnStart: true },
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -574,38 +671,48 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
   if (idleTimer) clearTimeout(idleTimer);
 
+  const interruptedQueryHadVisibleOutput =
+    !!currentQueryCursor &&
+    (currentQueryHadDirectOutput ||
+      getVisibleOutputSeq(group.folder) > currentQueryVisibleBaseline);
+
+  if (currentQueryCursor && interruptedQueryHadVisibleOutput) {
+    lastAgentTimestamp[chatJid] = currentQueryCursor;
+    saveState();
+    committedCursor = true;
+    logger.warn(
+      {
+        group: group.name,
+        chatJid,
+        consumedThroughTimestamp: currentQueryCursor,
+      },
+      'Advanced message cursor after interrupted query produced visible output',
+    );
+  }
+
   if (output === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
-    if (outputSentToUser) {
+    if (committedCursor || outputSentToUser) {
       logger.warn(
         { group: group.name },
-        'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+        'Agent error after visible output, keeping committed cursor',
       );
       return true;
     }
-    // Roll back cursor so retries can re-process these messages
-    lastAgentTimestamp[chatJid] = previousCursor;
-    saveState();
     logger.warn(
       { group: group.name },
-      'Agent error, rolled back message cursor for retry',
+      'Agent error before any visible output; leaving cursor unchanged for retry',
     );
     return false;
   }
 
-  // If the agent completed successfully but produced no visible output,
-  // roll back the cursor so these messages will be re-processed on next check.
-  // This handles the SDK v2.1.72 resume bug where piped messages on fresh
-  // sessions produce empty results. The next check will spawn a fresh container.
-  if (!outputSentToUser) {
-    lastAgentTimestamp[chatJid] = previousCursor;
-    saveState();
+  if (!committedCursor) {
     logger.warn(
       { group: group.name },
-      'Agent produced no output, rolled back message cursor for re-processing',
+      'Agent produced no visible output, cursor not advanced',
     );
-    return false; // Trigger retry via GroupQueue.scheduleRetry()
+    return false;
   }
 
   return true;
@@ -613,10 +720,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
 async function runAgent(
   group: RegisteredGroup,
-  prompt: string,
+  prompt: string | any[],
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   onIpcStatus?: (event: IpcStatusEvent) => void,
+  options?: {
+    pullPendingOnStart?: boolean;
+  },
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -674,6 +784,7 @@ async function runAgent(
         isMain,
         isGroup,
         assistantName: group.assistantName,
+        pullPendingOnStart: options?.pullPendingOnStart,
       },
       (proc, containerName) => {
         queue.registerProcess(chatJid, proc, containerName, group.folder);
@@ -785,26 +896,11 @@ async function startMessageLoop(): Promise<void> {
             }
           }
 
-          // Pull all messages since lastAgentTimestamp so non-trigger
-          // context that accumulated between triggers is included.
-          const allPending = getMessagesSince(
-            chatJid,
-            lastAgentTimestamp[chatJid] || '',
-          );
-          const messagesToSend =
-            allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
-
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (queue.notifyPendingMessages(chatJid)) {
             logger.debug(
-              { chatJid, count: messagesToSend.length },
-              'Piped messages to active container',
+              { chatJid, count: groupMessages.length },
+              'Notified active container about pending messages',
             );
-            // DO NOT advance the cursor here. The actual cursor advancement
-            // is governed by processGroupMessages once the agent emits its result.
-            // If we advance here, an empty response from the agent means the
-            // messages are lost because the active query loop won't roll back.
-            // Show typing indicator while the container processes the piped message
             channel
               .setTyping?.(chatJid, true)
               ?.catch((err) =>
@@ -1026,6 +1122,8 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf: any, im: any, ag: any, rj: any) =>
       writeGroupsSnapshot(gf, im, ag, rj),
+    getPendingBatch,
+    recordVisibleOutput,
   };
 
   startGatewayServer(ipcDeps);

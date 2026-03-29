@@ -3,6 +3,9 @@ name: superpowers-session-start
 hookEvent: SessionStart
 matcher: ""
 entry: ./run.sh
+requires:
+  bins:
+    - bash
 description: 在会话开始时向 Agent 强制注入 using-superpowers 技能的核心大纲内容，以确保其优先按照规范进行深度思考开发。
 ---
 

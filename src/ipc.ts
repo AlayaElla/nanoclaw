@@ -25,6 +25,15 @@ import { searchMemory, isRagEnabled } from './rag.js';
 import { resolveAgentName } from './agents-config.js';
 import { RegisteredGroup } from './types.js';
 
+export interface PendingBatchResult {
+  success: boolean;
+  pending: boolean;
+  prompt?: string;
+  consumedThroughTimestamp?: string;
+  messageCount?: number;
+  error?: string;
+}
+
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
   sendMedia: (
@@ -44,6 +53,8 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
+  getPendingBatch: (sourceGroup: string) => PendingBatchResult;
+  recordVisibleOutput?: (sourceGroup: string) => void;
 }
 
 export async function processTaskIpc(

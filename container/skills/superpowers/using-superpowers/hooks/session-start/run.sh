@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Superpowers Session Start Hook
 # Dumps the using-superpowers SKILL.md into context
 

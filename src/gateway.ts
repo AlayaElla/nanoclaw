@@ -213,6 +213,9 @@ export class GatewayServer {
           case '/ipc/tasks':
             await this.handleTasksIpc(body, identity!, res);
             break;
+          case '/ipc/pending':
+            await this.handlePendingIpc(identity!, res);
+            break;
           default:
             this.sendJson(res, 404, { error: 'Not Found' });
         }
@@ -489,6 +492,7 @@ export class GatewayServer {
         { chatJid: data.chatJid, sourceGroup, sender: data.sender },
         'Gateway IPC message sent',
       );
+      this.deps.recordVisibleOutput?.(sourceGroup);
 
       this.sendJson(res, 200, { success: true });
       return;
@@ -543,6 +547,7 @@ export class GatewayServer {
           { chatJid: data.chatJid, sourceGroup, mediaType, mediaId: safeId },
           'Gateway IPC media message sent',
         );
+        this.deps.recordVisibleOutput?.(sourceGroup);
         this.sendJson(res, 200, { success: true });
         return;
       } catch (readErr) {
@@ -556,6 +561,20 @@ export class GatewayServer {
     }
 
     this.sendJson(res, 400, { error: 'Invalid message payload' });
+  }
+
+  private async handlePendingIpc(
+    identity: TokenPayload,
+    res: ServerResponse,
+  ) {
+    const batch = this.deps.getPendingBatch(identity.sourceGroup);
+    if (!batch.success) {
+      const statusCode = batch.error ? 404 : 500;
+      this.sendJson(res, statusCode, batch);
+      return;
+    }
+
+    this.sendJson(res, 200, batch);
   }
 
   /**

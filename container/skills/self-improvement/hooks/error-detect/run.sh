@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Self-Improvement Error Detector Hook
 # Triggers on PostToolUse for Bash to detect command failures
 

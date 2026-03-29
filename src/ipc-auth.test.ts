@@ -63,6 +63,12 @@ beforeEach(() => {
     syncGroups: async () => {},
     getAvailableGroups: () => [],
     writeGroupsSnapshot: () => {},
+    getPendingBatch: () => ({
+      success: true,
+      pending: false,
+      messageCount: 0,
+    }),
+    recordVisibleOutput: () => {},
   };
 });
 

@@ -539,20 +539,6 @@ export class Layout {
             if (!oldNode || !newNode) return;
             
             if (oldNode.tagName === 'DIALOG' && oldNode.open) {
-              let oldBody = oldNode.querySelector('.agent-modal-body');
-              let newBody = newNode.querySelector('.agent-modal-body');
-              if (oldBody && newBody && oldBody.innerHTML !== newBody.innerHTML) {
-                let isScrolled = (oldBody.scrollHeight - oldBody.scrollTop - oldBody.clientHeight) < 20;
-                let openDetails = Array.from(oldBody.querySelectorAll('details[open]')).map(d => d.querySelector('.audit-ts')?.textContent);
-                oldBody.innerHTML = newBody.innerHTML;
-                if (openDetails.length > 0) {
-                  openDetails.forEach(ts => {
-                    let det = Array.from(oldBody.querySelectorAll('details')).find(d => d.querySelector('.audit-ts')?.textContent === ts);
-                    if (det) det.open = true;
-                  });
-                }
-                if (isScrolled) oldBody.scrollTop = oldBody.scrollHeight;
-              }
               return;
             }
 
@@ -572,9 +558,6 @@ export class Layout {
               }
               if (oldNode.getAttribute('data-nomorph') === 'true' && newNode.getAttribute('data-nomorph') === 'true') {
                 return;
-              }
-              if (oldNode.tagName === 'DETAILS' && oldNode.open && !newNode.hasAttribute('open')) {
-                newNode.setAttribute('open', '');
               }
               const oldAttrs = oldNode.attributes;
               const newAttrs = newNode.attributes;

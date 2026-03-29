@@ -54,6 +54,7 @@ export interface ContainerInput {
   secrets?: Record<string, string>;
   gatewayToken?: string;
   gatewayUrl?: string;
+  pullPendingOnStart?: boolean;
 }
 
 export interface ContainerOutput {
@@ -61,6 +62,8 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  consumedThroughTimestamp?: string;
+  queryCompleted?: boolean;
 }
 
 export interface ToolStatusEvent {

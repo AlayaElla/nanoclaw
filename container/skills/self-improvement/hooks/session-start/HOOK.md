@@ -3,6 +3,9 @@ name: self-improvement-session-start
 hookEvent: SessionStart
 matcher: ""
 entry: ./run.sh
+requires:
+  bins:
+    - bash
 description: 在会话建立初期隐式提醒 Agent，若会话中涌现值得记录的发现或方案，在结束时应萃取保存至 .learnings/ 目录。
 ---
 

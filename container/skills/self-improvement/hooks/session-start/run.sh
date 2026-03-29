@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Self-Improvement Activator Hook
 # Triggers on SessionStart to remind the agent about learning capture.
 

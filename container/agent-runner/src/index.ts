@@ -38,12 +38,24 @@ interface ContainerInput {
   secrets?: Record<string, string>;
   gatewayToken?: string;
   gatewayUrl?: string;
+  pullPendingOnStart?: boolean;
 }
 
 interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  error?: string;
+  consumedThroughTimestamp?: string;
+  queryCompleted?: boolean;
+}
+
+interface PendingBatchResponse {
+  success: boolean;
+  pending: boolean;
+  prompt?: string;
+  consumedThroughTimestamp?: string;
+  messageCount?: number;
   error?: string;
 }
 
@@ -167,6 +179,7 @@ let bootHookFired = false;
 
 function scanExternalHooks(dir: string) {
   try {
+    log(`Scanning external hooks in ${dir}`);
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const d of entries) {
       if (d.isDirectory()) {
@@ -178,7 +191,8 @@ function scanExternalHooks(dir: string) {
           if (fs.statSync(fullDir).isDirectory()) scanExternalHooks(fullDir);
         } catch (e) { /* ignore broken symlinks */ }
       } else if (d.name === 'HOOK.md') {
-        const fileContent = fs.readFileSync(path.join(dir, d.name), 'utf-8');
+        const hookFilePath = path.join(dir, d.name);
+        const fileContent = fs.readFileSync(hookFilePath, 'utf-8');
         let name = '', hookEvent = '', matcher = '', entry = '';
         let requiresBins: string[] = [];
         const lines = fileContent.split('\n');
@@ -204,15 +218,24 @@ function scanExternalHooks(dir: string) {
           }
         }
         if (name && hookEvent && entry) {
+          log(`Discovered external hook ${name} (${hookEvent}) from ${hookFilePath}`);
           externalHooks.push({ name, hookEvent, matcher, entry, baseDir: dir, requirements: requiresBins });
+        } else {
+          log(`Skipping malformed HOOK.md at ${hookFilePath}`);
         }
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    log(`Hook scan skipped for ${dir}: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 function loadExternalHooks(): { hooks: Array<{ event: string; matcher: string; caller: HookCallback }>; bootLog: string } {
-  scanExternalHooks('/workspace/group/.claude/skills');
+  return loadExternalHooksWithLogging();
+}
+
+/*
+Legacy loader implementation retained only in git history.
   const loadedHooks: Array<{ event: string; matcher: string; caller: HookCallback }> = [];
   let loadedCount = 0;
   
@@ -269,8 +292,124 @@ function loadExternalHooks(): { hooks: Array<{ event: string; matcher: string; c
   bootLogLines.splice(1, 0, `✅ 成功扫描并挂载了 ${loadedCount} 个原生外部 Script Hooks。`);
   return { hooks: loadedHooks, bootLog: bootLogLines.join('\n') };
 }
+*/
 
-const { hooks: extHooks, bootLog: extBootLog } = loadExternalHooks();
+function isBinaryAvailable(bin: string): boolean {
+  const pathValue = process.env.PATH || '';
+  const pathDirs = pathValue
+    .split(path.delimiter)
+    .map(dir => dir.trim())
+    .filter(Boolean);
+
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, bin);
+    if (fs.existsSync(candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function formatHookExecutionError(err: unknown): string {
+  if (!(err instanceof Error)) {
+    return String(err);
+  }
+
+  const parts: string[] = [err.message];
+  const withDetails = err as Error & { code?: string; stderr?: string | Buffer };
+  if (withDetails.code) {
+    parts.push(`code=${withDetails.code}`);
+  }
+  if (withDetails.stderr) {
+    const stderr = String(withDetails.stderr).trim();
+    if (stderr) {
+      parts.push(`stderr=${stderr}`);
+    }
+  }
+
+  return parts.join(' | ');
+}
+
+function loadExternalHooksWithLogging(): { hooks: Array<{ event: string; matcher: string; caller: HookCallback }>; bootLog: string } {
+  externalHooks = [];
+  bootLogLines = ['[NanoClaw External Script Hooks Loader]'];
+  scanExternalHooks('/workspace/group/.claude/skills');
+
+  const loadedHooks: Array<{ event: string; matcher: string; caller: HookCallback }> = [];
+  let loadedCount = 0;
+
+  for (const def of externalHooks) {
+    const entryPath = path.resolve(def.baseDir, def.entry);
+    if (!fs.existsSync(entryPath)) {
+      const reason = `Skipping external hook ${def.name}: entry not found at ${entryPath}`;
+      log(reason);
+      bootLogLines.push(reason);
+      continue;
+    }
+
+    let checkPassed = true;
+    for (const bin of def.requirements) {
+      if (!isBinaryAvailable(bin)) {
+        checkPassed = false;
+        const reason = `Skipping external hook ${def.name}: missing required binary ${bin}`;
+        log(reason);
+        bootLogLines.push(reason);
+        break;
+      }
+    }
+
+    if (!checkPassed) continue;
+
+    loadedCount++;
+    log(`Loaded external hook ${def.name} (${def.hookEvent}) from ${entryPath}`);
+    bootLogLines.push(`Loaded external hook ${def.name} (${def.hookEvent})`);
+    loadedHooks.push({
+      event: def.hookEvent,
+      matcher: def.matcher,
+      caller: async (input: unknown) => {
+        try {
+          let toolOutput = '';
+          if (input && typeof input === 'object' && 'tool_response' in input) {
+            toolOutput = (input as any).tool_response || '';
+          }
+
+          log(`Running external hook ${def.name}`);
+
+          const { stdout } = await execFileAsync(entryPath, [], {
+            cwd: def.baseDir,
+            env: {
+              ...process.env,
+              CLAUDE_TOOL_OUTPUT: toolOutput,
+              CLAUDE_TOOL_NAME: (input as any)?.tool_name || '',
+              CLAUDE_HOOK_EVENT: def.hookEvent,
+            }
+          });
+
+          if (stdout.trim()) {
+            log(`External hook ${def.name} returned additional context`);
+            return {
+              hookSpecificOutput: {
+                hookEventName: def.hookEvent as any,
+                additionalContext: stdout.trim()
+              }
+            };
+          }
+
+          log(`External hook ${def.name} completed with no additional context`);
+        } catch (err) {
+          log(`Error running external hook ${def.name}: ${formatHookExecutionError(err)}`);
+        }
+        return {};
+      }
+    });
+  }
+
+  bootLogLines.splice(1, 0, `Loaded ${loadedCount} external script hook(s).`);
+  return { hooks: loadedHooks, bootLog: bootLogLines.join('\n') };
+}
+
+const { hooks: extHooks, bootLog: extBootLog } = loadExternalHooksWithLogging();
 
 function createExternalBootHook(): HookCallback {
   return async () => {
@@ -661,65 +800,139 @@ function shouldClose(): boolean {
   return false;
 }
 
+interface IpcDrainResult {
+  pendingAvailable: boolean;
+  legacyMessages: string[];
+}
+
+function appendPromptText(prompt: string | any[], text: string): string | any[] {
+  if (!text) return prompt;
+  if (typeof prompt === 'string') {
+    return prompt ? `${prompt}\n${text}` : text;
+  }
+
+  return [...prompt, { type: 'text', text: `\n${text}` }];
+}
+
 /**
- * Drain all pending IPC input messages.
- * Returns messages found, or empty array.
+ * Drain all pending IPC control messages.
+ * Legacy {type:"message"} payloads are still supported for compatibility.
  */
-function drainIpcInput(): string[] {
+function drainIpcInput(): IpcDrainResult {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
     const files = fs.readdirSync(IPC_INPUT_DIR)
       .filter(f => f.endsWith('.json'))
       .sort();
 
-    const messages: string[] = [];
+    const result: IpcDrainResult = {
+      pendingAvailable: false,
+      legacyMessages: [],
+    };
+
     for (const file of files) {
       const filePath = path.join(IPC_INPUT_DIR, file);
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
-        if (data.type === 'message' && data.text) {
-          messages.push(data.text);
+
+        if (data.type === 'pending_available') {
+          result.pendingAvailable = true;
+          continue;
         }
+
+        if (data.type === 'message' && data.text) {
+          result.legacyMessages.push(data.text);
+          continue;
+        }
+
+        log(`Ignoring unknown IPC payload type from ${file}: ${String(data.type || 'unknown')}`);
       } catch (err) {
         log(`Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`);
         try { fs.unlinkSync(filePath); } catch { /* ignore */ }
       }
     }
-    return messages;
+
+    return result;
   } catch (err) {
     log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
+    return {
+      pendingAvailable: false,
+      legacyMessages: [],
+    };
   }
 }
 
 /**
- * Wait for a new IPC message or _close sentinel.
- * Returns the messages as a single string, or null if _close.
+ * Wait for a new IPC control signal or _close sentinel.
  */
-function waitForIpcMessage(): Promise<string | null> {
+function waitForIpcSignal(): Promise<IpcDrainResult | null> {
   return new Promise((resolve) => {
     const poll = () => {
       if (shouldClose()) {
         resolve(null);
         return;
       }
-      const messages = drainIpcInput();
-      if (messages.length > 0) {
-        resolve(messages.join('\n'));
+
+      const drain = drainIpcInput();
+      if (drain.pendingAvailable || drain.legacyMessages.length > 0) {
+        resolve(drain);
         return;
       }
+
       setTimeout(poll, IPC_POLL_MS);
     };
+
     poll();
   });
+}
+
+async function fetchPendingBatch(
+  containerInput: ContainerInput,
+): Promise<PendingBatchResponse> {
+  if (!containerInput.gatewayUrl || !containerInput.gatewayToken) {
+    return {
+      success: false,
+      pending: false,
+      error: 'Missing gateway URL or token for pending batch pull',
+    };
+  }
+
+  try {
+    const response = await fetch(`${containerInput.gatewayUrl}/ipc/pending`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${containerInput.gatewayToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+
+    const body = await response.json() as PendingBatchResponse;
+    if (!response.ok) {
+      return {
+        success: false,
+        pending: false,
+        error: body.error || `Pending batch request failed with status ${response.status}`,
+      };
+    }
+
+    return body;
+  } catch (err) {
+    return {
+      success: false,
+      pending: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
  * allowing agent teams subagents to run to completion.
- * Also pipes IPC messages into the stream during the query.
+ * While the query is active, it only records pending_available signals and
+ * defers fetching the full batch until the current turn finishes.
  */
 async function runQuery(
   prompt: string | any[],
@@ -728,13 +941,21 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean }> {
+  consumedThroughTimestamp?: string,
+): Promise<{
+  newSessionId?: string;
+  lastAssistantUuid?: string;
+  closedDuringQuery: boolean;
+  hadError: boolean;
+  pendingAvailableDuringQuery: boolean;
+}> {
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // Poll IPC for follow-up messages and _close sentinel during the query
+  // Poll IPC for control signals and _close sentinel during the query
   let ipcPolling = true;
   let closedDuringQuery = false;
+  let pendingAvailableDuringQuery = false;
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
     if (shouldClose()) {
@@ -744,10 +965,14 @@ async function runQuery(
       ipcPolling = false;
       return;
     }
-    const messages = drainIpcInput();
-    for (const text of messages) {
-      log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
+    const drain = drainIpcInput();
+    if (drain.pendingAvailable) {
+      pendingAvailableDuringQuery = true;
+      log('Received pending_available signal during active query');
+    }
+    if (drain.legacyMessages.length > 0) {
+      pendingAvailableDuringQuery = true;
+      log(`Received ${drain.legacyMessages.length} legacy IPC message payload(s) during query; deferring to next query`);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -929,7 +1154,8 @@ async function runQuery(
               writeOutput({
                 status: 'success',
                 result: thisTurnText,
-                newSessionId
+                newSessionId,
+                consumedThroughTimestamp,
               });
             }
           }
@@ -975,6 +1201,8 @@ async function runQuery(
           status: hadError ? 'error' : 'success',
           result: textResult || null,
           newSessionId,
+          consumedThroughTimestamp,
+          queryCompleted: true,
           ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
         });
       }
@@ -986,7 +1214,13 @@ async function runQuery(
 
   ipcPolling = false;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, hadError: ${hadError}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery, hadError };
+  return {
+    newSessionId,
+    lastAssistantUuid,
+    closedDuringQuery,
+    hadError,
+    pendingAvailableDuringQuery,
+  };
 }
 
 async function main(): Promise<void> {
@@ -1023,8 +1257,9 @@ async function main(): Promise<void> {
   // Clean up stale _close sentinel from previous container runs
   try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
 
-  // Build initial prompt (drain any pending IPC messages too)
+  // Build the initial prompt.
   let prompt: string | any[] = containerInput.prompt;
+  let consumedThroughTimestamp: string | undefined;
   if (containerInput.isScheduledTask) {
     if (typeof prompt === 'string') {
       prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
@@ -1035,48 +1270,80 @@ async function main(): Promise<void> {
       ];
     }
   }
-  const pending = drainIpcInput();
-  if (pending.length > 0) {
-    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    if (typeof prompt === 'string') {
-      prompt += '\n' + pending.join('\n');
-    } else {
-      prompt.push({ type: 'text', text: '\n' + pending.join('\n') });
+  const initialDrain = drainIpcInput();
+  let pendingRequested = initialDrain.pendingAvailable;
+  if (initialDrain.legacyMessages.length > 0) {
+    log(`Draining ${initialDrain.legacyMessages.length} legacy IPC message payload(s) into initial prompt`);
+    prompt = appendPromptText(prompt, initialDrain.legacyMessages.join('\n'));
+  }
+
+  if (containerInput.pullPendingOnStart) {
+    const batch = await fetchPendingBatch(containerInput);
+    if (!batch.success) {
+      writeOutput({
+        status: 'error',
+        result: null,
+        newSessionId: sessionId,
+        error: batch.error || 'Failed to fetch initial pending batch'
+      });
+      process.exit(1);
     }
+
+    if (batch.pending && batch.prompt) {
+      prompt = batch.prompt;
+      consumedThroughTimestamp = batch.consumedThroughTimestamp;
+      pendingRequested = false;
+      log(`Fetched initial pending batch (${batch.messageCount || 0} messages) through ${consumedThroughTimestamp || 'unknown'}`);
+    } else {
+      log('No pending batch available on startup pull');
+    }
+  }
+
+  if (
+    containerInput.pullPendingOnStart &&
+    !consumedThroughTimestamp &&
+    typeof prompt === 'string' &&
+    prompt.trim() === ''
+  ) {
+    log('No pending work available after startup pull, exiting without starting a query');
+    return;
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat
   let resumeAt: string | undefined;
   try {
-    while (true) {
+    queryLoop: while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      let queryResult: { newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; hadError: boolean };
+      let queryResult: {
+        newSessionId?: string;
+        lastAssistantUuid?: string;
+        closedDuringQuery: boolean;
+        hadError: boolean;
+        pendingAvailableDuringQuery: boolean;
+      };
       try {
-        queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+        queryResult = await runQuery(
+          prompt,
+          sessionId,
+          mcpServerPath,
+          containerInput,
+          sdkEnv,
+          resumeAt,
+          consumedThroughTimestamp,
+        );
       } catch (queryErr) {
-        // SDK threw during query (e.g. resuming from an error state).
-        // Recover by clearing resume state and starting fresh on next message.
         const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-        log(`Query threw error, recovering: ${msg}`);
+        log(`Query threw error, exiting for host-side retry: ${msg}`);
         writeOutput({
           status: 'error',
           result: null,
           newSessionId: sessionId,
-          error: msg
+          error: msg,
+          consumedThroughTimestamp,
+          queryCompleted: true,
         });
-        resumeAt = undefined;
-        sessionId = undefined;
-
-        // Wait for next IPC message instead of crashing
-        log('Waiting for next IPC message after error recovery...');
-        const nextMessage = await waitForIpcMessage();
-        if (nextMessage === null) {
-          log('Close sentinel received during error recovery, exiting');
-          break;
-        }
-        prompt = nextMessage;
-        continue;
+        process.exit(1);
       }
 
       if (queryResult.newSessionId) {
@@ -1092,6 +1359,7 @@ async function main(): Promise<void> {
           result: null,
           newSessionId: sessionId,
           error: 'Query ended with error, container will restart',
+          consumedThroughTimestamp,
         });
         process.exit(1);
       }
@@ -1107,17 +1375,51 @@ async function main(): Promise<void> {
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
-      log('Query ended, waiting for next IPC message...');
+      pendingRequested = pendingRequested || queryResult.pendingAvailableDuringQuery;
 
-      // Wait for the next message or _close sentinel
-      const nextMessage = await waitForIpcMessage();
-      if (nextMessage === null) {
-        log('Close sentinel received, exiting');
-        break;
+      while (true) {
+        if (pendingRequested) {
+          const batch = await fetchPendingBatch(containerInput);
+          if (!batch.success) {
+            log(`Pending batch fetch failed after query: ${batch.error || 'unknown error'}`);
+            writeOutput({
+              status: 'error',
+              result: null,
+              newSessionId: sessionId,
+              error: batch.error || 'Failed to fetch pending batch',
+            });
+            process.exit(1);
+          }
+
+          pendingRequested = false;
+          if (batch.pending && batch.prompt) {
+            prompt = batch.prompt;
+            consumedThroughTimestamp = batch.consumedThroughTimestamp;
+            log(`Fetched pending batch for next query (${batch.messageCount || 0} messages) through ${consumedThroughTimestamp || 'unknown'}`);
+            break;
+          }
+
+          log('pending_available signal received but no pending batch was available');
+        }
+
+        log('Query ended, waiting for next IPC signal...');
+        const nextSignal = await waitForIpcSignal();
+        if (nextSignal === null) {
+          log('Close sentinel received, exiting');
+          break queryLoop;
+        }
+
+        if (nextSignal.pendingAvailable) {
+          pendingRequested = true;
+        }
+
+        if (nextSignal.legacyMessages.length > 0 && !pendingRequested) {
+          log(`Received ${nextSignal.legacyMessages.length} legacy IPC message payload(s) while idle`);
+          prompt = appendPromptText('', nextSignal.legacyMessages.join('\n'));
+          consumedThroughTimestamp = undefined;
+          break;
+        }
       }
-
-      log(`Got new message, starting new query`);
-      prompt = nextMessage;
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1126,7 +1428,8 @@ async function main(): Promise<void> {
       status: 'error',
       result: null,
       newSessionId: sessionId,
-      error: errorMessage
+      error: errorMessage,
+      consumedThroughTimestamp,
     });
     process.exit(1);
   }

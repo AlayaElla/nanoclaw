@@ -42,3 +42,4 @@ agents-sdk-docs
 .openclaw_temp
 litellm/spend.db
 litellm/litellm.log
+litellm/litellm.jsonl

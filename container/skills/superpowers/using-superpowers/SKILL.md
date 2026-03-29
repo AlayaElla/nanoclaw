@@ -19,11 +19,11 @@ description: 在任何对话开始时使用 —— 确立如何查找和使用 S
 
 Superpowers 系列 Skill 会覆盖默认的系统提示词行为，但**用户的指令始终具有最高优先级**：
 
-1. **用户的明确指令** (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`，或直接请求) —— 最高优先级。
+1. **用户的明确指令** (`CLAUDE.md`, `GEMINI.md`, `USER.md`，或直接请求) —— 最高优先级。
 2. **Superpowers Skills** —— 在冲突时覆盖默认系统行为。
 3. **默认系统提示词** —— 最低优先级。
 
-如果 `CLAUDE.md`、`GEMINI.md` 或 `AGENTS.md` 说“不要使用 TDD”，而某个 Skill 说“始终使用 TDD”，请遵循用户的指令。用户拥有最终控制权。
+如果 `CLAUDE.md`、`GEMINI.md` 或 `USER.md` 说“不要使用 TDD”，而某个 Skill 说“始终使用 TDD”，请遵循用户的指令。用户拥有最终控制权。
 
 ## 如何访问 Skill
 

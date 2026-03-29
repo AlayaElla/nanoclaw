@@ -40,18 +40,15 @@ ENV_ARGS=""
 [ -n "$WHATAI_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e WHATAI_API_KEY=$WHATAI_API_KEY"
 [ -n "$VOLCANO_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e VOLCANO_API_KEY=$VOLCANO_API_KEY"
 
-# 启动容器前确保日志文件和数据库文件存在并可写
-touch $(pwd)/litellm.log
-chmod 666 $(pwd)/litellm.log
-touch $(pwd)/spend.db
-chmod 666 $(pwd)/spend.db
+# 启动容器前确保日志文件存在并可写
+touch $(pwd)/litellm.jsonl
+chmod 666 $(pwd)/litellm.jsonl
 
 # 启动容器并挂载配置文件
 docker run -d \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/raw_logger.py:/app/raw_logger.py \
-  -v $(pwd)/litellm.log:/app/litellm.log \
-  -v $(pwd)/spend.db:/app/spend.db \
+  -v $(pwd)/litellm.jsonl:/app/litellm.jsonl \
   $ENV_ARGS \
   -p 127.0.0.1:4000:4000 \
   --name nanoclaw-litellm-proxy \

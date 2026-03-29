@@ -16,6 +16,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
@@ -147,6 +150,141 @@ function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
 }
 
+// ─── External External Script Hooks Loader ─────────────────────────────────
+
+interface ExternalHookDef {
+  name: string;
+  hookEvent: string;
+  matcher: string;
+  entry: string;
+  baseDir: string;
+  requirements: string[];
+}
+
+let externalHooks: ExternalHookDef[] = [];
+let bootLogLines: string[] = ['[NanoClaw External Script Hooks Loader]'];
+let bootHookFired = false;
+
+function scanExternalHooks(dir: string) {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const d of entries) {
+      if (d.isDirectory()) {
+        const fullDir = path.join(dir, d.name);
+        scanExternalHooks(fullDir);
+      } else if (d.isSymbolicLink()) {
+        const fullDir = path.join(dir, d.name);
+        try {
+          if (fs.statSync(fullDir).isDirectory()) scanExternalHooks(fullDir);
+        } catch (e) { /* ignore broken symlinks */ }
+      } else if (d.name === 'HOOK.md') {
+        const fileContent = fs.readFileSync(path.join(dir, d.name), 'utf-8');
+        let name = '', hookEvent = '', matcher = '', entry = '';
+        let requiresBins: string[] = [];
+        const lines = fileContent.split('\n');
+        let inYaml = false, inRequiresBins = false;
+        
+        for (const line of lines) {
+          if (line.trim() === '---') {
+            if (inYaml) break;
+            inYaml = true; continue;
+          }
+          if (inYaml) {
+            if (line.startsWith('name:')) name = line.substring(5).trim();
+            else if (line.startsWith('hookEvent:')) hookEvent = line.substring(10).trim();
+            else if (line.startsWith('matcher:')) matcher = line.substring(8).trim().replace(/^"|"$/g, '');
+            else if (line.startsWith('entry:')) entry = line.substring(6).trim();
+            else if (line.startsWith('requires:')) { /* ok */ }
+            else if (line.startsWith('  bins:')) { inRequiresBins = true; }
+            else if (inRequiresBins && line.trim().startsWith('- ')) {
+              requiresBins.push(line.trim().substring(2).trim());
+            } else if (!line.startsWith(' ') && line.trim() !== '') {
+              inRequiresBins = false;
+            }
+          }
+        }
+        if (name && hookEvent && entry) {
+          externalHooks.push({ name, hookEvent, matcher, entry, baseDir: dir, requirements: requiresBins });
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function loadExternalHooks(): { hooks: Array<{ event: string; matcher: string; caller: HookCallback }>; bootLog: string } {
+  scanExternalHooks('/workspace/group/.claude/skills');
+  const loadedHooks: Array<{ event: string; matcher: string; caller: HookCallback }> = [];
+  let loadedCount = 0;
+  
+  for (const def of externalHooks) {
+    let checkPassed = true;
+    for (const bin of def.requirements) {
+      try {
+        const { execSync } = require('child_process');
+        execSync(`which ${bin}`, { stdio: 'ignore' });
+      } catch (e) {
+        checkPassed = false;
+        bootLogLines.push(`⚠️ WARNING: 跳过加载外部 Hook '${def.name}'，由于系统缺少二进制依赖项: [${bin}]`);
+        break;
+      }
+    }
+
+    if (checkPassed) {
+      loadedCount++;
+      loadedHooks.push({
+        event: def.hookEvent,
+        matcher: def.matcher,
+        caller: async (input: unknown) => {
+          try {
+            const entryPath = path.resolve(def.baseDir, def.entry);
+            if (!fs.existsSync(entryPath)) return {};
+            
+            let toolOutput = '';
+            if (input && typeof input === 'object' && 'tool_response' in input) {
+              toolOutput = (input as any).tool_response || '';
+            }
+
+            const { stdout } = await execFileAsync(entryPath, [], {
+              cwd: def.baseDir,
+              env: {
+                ...process.env,
+                CLAUDE_TOOL_OUTPUT: toolOutput,
+                CLAUDE_TOOL_NAME: (input as any)?.tool_name || '',
+                CLAUDE_HOOK_EVENT: def.hookEvent,
+              }
+            });
+
+            if (stdout.trim()) {
+              return { hookSpecificOutput: { hookEventName: def.hookEvent as any, additionalContext: stdout.trim() } };
+            }
+          } catch (err) {
+            console.error(`Error running external hook ${def.name}:`, err);
+          }
+          return {};
+        }
+      });
+    }
+  }
+
+  bootLogLines.splice(1, 0, `✅ 成功扫描并挂载了 ${loadedCount} 个原生外部 Script Hooks。`);
+  return { hooks: loadedHooks, bootLog: bootLogLines.join('\n') };
+}
+
+const { hooks: extHooks, bootLog: extBootLog } = loadExternalHooks();
+
+function createExternalBootHook(): HookCallback {
+  return async () => {
+    if (bootHookFired) return {};
+    bootHookFired = true;
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: `<system-boot-log>\n${extBootLog}\n</system-boot-log>`
+      }
+    };
+  };
+}
+
 function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
   const projectDir = path.dirname(transcriptPath);
   const indexPath = path.join(projectDir, 'sessions-index.json');
@@ -275,26 +413,6 @@ function createPostToolUseHook(): HookCallback {
   };
 }
 
-function createSelfImprovementSessionStartHook(): HookCallback {
-  return async () => {
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'SessionStart',
-        additionalContext: `
-<self-improvement-reminder>
-任务开始。在此会话结束时，请评估是否出现了可提取的知识：
-- 是否通过调查发现了非直观的解决方案？
-- 是否发现了应对意外行为的变通方法？
-- 是否学习到了本项目特有的模式？
-- 是否有错误需要调试才能解决？
-
-若是，请按照 Tools.md 中的指南将其记录到 .learnings/ 目录中。
-</self-improvement-reminder>
-`.trim(),
-      },
-    };
-  };
-}
 
 /**
  * PostToolUse hook: when a tool call fails validation, return the correct
@@ -355,41 +473,6 @@ function createToolUsageHintHook(): HookCallback {
   };
 }
 
-function createSelfImprovementPostToolUseHook(): HookCallback {
-  return async (input) => {
-    const postToolUseInput = input as any; // PostToolUseHookInput is not exported from sdk but present in type defs
-    const toolOutput = postToolUseInput.tool_response;
-
-    if (!toolOutput) return {};
-
-    const outputStr = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
-    const ERROR_PATTERNS = [
-      "error:", "Error:", "ERROR:", "failed", "FAILED",
-      "command not found", "No such file", "Permission denied",
-      "fatal:", "Exception", "Traceback", "npm ERR!",
-      "ModuleNotFoundError", "SyntaxError", "TypeError",
-      "exit code", "non-zero"
-    ];
-
-    const containsError = ERROR_PATTERNS.some(pattern => outputStr.includes(pattern));
-
-    if (containsError) {
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'PostToolUse',
-          additionalContext: `
-<error-detected>
-检测到命令错误。如果该错误是非预期的、非直观的，或者需要调查才能解决，请考虑将其记录到 .learnings/ERRORS.md 中。
-使用格式：[ERR-YYYYMMDD-XXX]
-</error-detected>
-`.trim(),
-        },
-      };
-    }
-
-    return {};
-  };
-}
 
 /**
  * Native, single-process hook adapter for context-mode.
@@ -781,20 +864,25 @@ async function runQuery(
             },
           } : {}),
         },
+        // Use the native SDK format for hooks and dynamically inject our extHooks
         hooks: {
           PreCompact: [
             { hooks: [createPreCompactHook(containerInput.assistantName)] },
-            { hooks: [createContextModeHook('precompact')] }
+            { hooks: [createContextModeHook('precompact')] },
+            ...extHooks.filter(h => h.event === 'PreCompact').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           PreToolUse: [
             { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-            { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] }
+            { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] },
+            ...extHooks.filter(h => h.event === 'PreToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createSelfImprovementPostToolUseHook(), createContextModeHook('posttooluse')] }
+            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttooluse')] },
+            ...extHooks.filter(h => h.event === 'PostToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           SessionStart: [
-            { matcher: '', hooks: [createSelfImprovementSessionStartHook(), createContextModeHook('sessionstart')] }
+            { matcher: '', hooks: [createExternalBootHook(), createContextModeHook('sessionstart')] },
+            ...extHooks.filter(h => h.event === 'SessionStart').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
         },
         includePartialMessages: true,

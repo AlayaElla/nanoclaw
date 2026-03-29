@@ -563,10 +563,7 @@ export class GatewayServer {
     this.sendJson(res, 400, { error: 'Invalid message payload' });
   }
 
-  private async handlePendingIpc(
-    identity: TokenPayload,
-    res: ServerResponse,
-  ) {
+  private async handlePendingIpc(identity: TokenPayload, res: ServerResponse) {
     const batch = this.deps.getPendingBatch(identity.sourceGroup);
     if (!batch.success) {
       const statusCode = batch.error ? 404 : 500;

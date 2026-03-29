@@ -426,8 +426,7 @@ describe('GroupQueue', () => {
     expect(result).toBe(true);
     expect(
       writeFileSync.mock.calls.some(
-        (call) =>
-          call[1] === JSON.stringify({ type: 'pending_available' }),
+        (call) => call[1] === JSON.stringify({ type: 'pending_available' }),
       ),
     ).toBe(true);
 

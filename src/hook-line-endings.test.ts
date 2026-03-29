@@ -28,7 +28,10 @@ function collectHookShellScripts(dir: string): string[] {
 
 describe('hook shell scripts', () => {
   it('use LF line endings so Linux direct exec keeps the shebang valid', () => {
-    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const repoRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+    );
     const scripts = collectHookShellScripts(
       path.join(repoRoot, 'container', 'skills'),
     );

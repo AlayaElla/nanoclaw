@@ -251,6 +251,15 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Clear the current active session for a group from memory and DB.
+ * Used when starting a new session or clearing a workspace.
+ */
+export function clearSessionForGroup(groupFolder: string): void {
+  delete sessions[groupFolder];
+  deleteSession(groupFolder);
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */

@@ -97,7 +97,7 @@ Always include correlation ID passthrough in API handlers.
 ---
 ```
 
-## Learning: Promoted to AGENTS.md
+## Learning: Promoted to USER.md
 
 ```markdown
 ## [LRN-20250116-001] best_practice
@@ -105,7 +105,7 @@ Always include correlation ID passthrough in API handlers.
 **Logged**: 2025-01-16T09:00:00Z
 **Priority**: high
 **Status**: promoted
-**Promoted**: AGENTS.md
+**Promoted**: USER.md
 **Area**: backend
 
 ### Summary

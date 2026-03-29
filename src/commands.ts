@@ -137,6 +137,9 @@ registerCommand('/new', '新建会话（保留工作区和记忆）', async (ctx
   // 3. Clear IPC input state
   clearIpcInput(ctx.group!.folder);
 
+  const { clearSessionForGroup } = await import('./index.js');
+  clearSessionForGroup(ctx.group!.folder);
+
   await new Promise((r) => setTimeout(r, 1000));
 
   await ctx.reply(
@@ -166,6 +169,9 @@ registerCommand('/clear', '硬重置 — 清空工作区和所有历史数据', 
   // Clear Database Data (Tasks, Messages) for this JID
   const { clearChatData } = await import('./db.js');
   clearChatData(ctx.chatJid);
+
+  const { clearSessionForGroup } = await import('./index.js');
+  clearSessionForGroup(ctx.group!.folder);
 
   await ctx.reply(
     '✅ 清理成功！您的工作区和所有历史对话已完全清空，可以直接开始全新的会话。',
@@ -203,6 +209,9 @@ registerCommand('/compact', '软重置 — 生成对话总结后重置会话', a
   clearClaudeSessionState(ctx.group!.folder);
   clearIpcInput(ctx.group!.folder);
 
+  const { clearSessionForGroup } = await import('./index.js');
+  clearSessionForGroup(ctx.group!.folder);
+
   await new Promise((r) => setTimeout(r, 1000));
 
   // 5. Inject system message with summary
@@ -227,6 +236,36 @@ registerCommand('/compact', '软重置 — 生成对话总结后重置会话', a
   );
   return true;
 });
+
+// ─── /restart ─────────────────────────────────────────────────────────
+
+registerCommand(
+  '/restart',
+  '重启智能体容器（应用新加入的 Skill 和 Hooks 等体验）',
+  async (ctx) => {
+    await ctx.reply('🔄 正在重启执行器容器...');
+
+    // 1. Gracefully shut down active container
+    await gracefulShutdown(ctx);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 2. Inject system message to poke the container to start back up immediately and process any boot warnings
+    const content = `[System Command: The user has restarted your container to reload External Skills, Configuration, and Hooks. Please acknowledge the restart and review any system boot warnings sent to you. Respond briefly with "重启成功" directly to the user.]`;
+
+    ctx.onMessage(ctx.chatJid, {
+      id: `restart-${Date.now()}`,
+      chat_jid: ctx.chatJid,
+      sender: 'system',
+      sender_name: 'SystemAdmin',
+      content,
+      timestamp: ctx.timestamp,
+      is_from_me: false,
+    });
+
+    logger.info({ chatJid: ctx.chatJid }, 'Container restarted via /restart');
+    return true;
+  },
+);
 
 // ─── /stop ──────────────────────────────────────────────────────────
 

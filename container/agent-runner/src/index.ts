@@ -1147,14 +1147,18 @@ async function runQuery(
             const thisTurnText = textParts.join('');
 
             if (thisTurnText) {
-              emittedTexts.add(thisTurnText);
-              log(`Emitting intermediate assistant text length: ${thisTurnText.length}`);
-              writeOutput({
-                status: 'success',
-                result: thisTurnText,
-                newSessionId,
-                consumedThroughTimestamp,
-              });
+              if (emittedTexts.has(thisTurnText)) {
+                log(`Skipping duplicate intermediate assistant text length: ${thisTurnText.length}`);
+              } else {
+                emittedTexts.add(thisTurnText);
+                log(`Emitting intermediate assistant text length: ${thisTurnText.length}`);
+                writeOutput({
+                  status: 'success',
+                  result: thisTurnText,
+                  newSessionId,
+                  consumedThroughTimestamp,
+                });
+              }
             }
           }
         }

@@ -1011,6 +1011,28 @@ async function runQuery(
     log('Injecting GroupRule.md into system prompt for group chat');
   }
 
+  // --- Manually dispatch SessionStart hooks ---
+  // The SDK's query() loop does not natively dispatch SessionStart for us,
+  // so we must do it here to capture any boot logs or plugin context.
+  const sessionStartHooks = [
+    createExternalBootHook(),
+    createContextModeHook('sessionstart'),
+    ...extHooks.filter(h => h.event === 'SessionStart').map(h => h.caller)
+  ];
+
+  for (const hook of sessionStartHooks) {
+    try {
+      const result = await hook({ hook_event_name: 'SessionStart' } as any, undefined, { signal: new AbortController().signal } as any);
+      const output = result as any;
+      if (output && output.hookSpecificOutput && output.hookSpecificOutput.additionalContext) {
+        additionalContext += '\n' + output.hookSpecificOutput.additionalContext + '\n';
+        log('Injected context from SessionStart hook');
+      }
+    } catch (err) {
+      log(`SessionStart hook error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const finalAdditionalContext = additionalContext.trim() || undefined;
 
   // Discover additional directories mounted at /workspace/extra/*

@@ -1,4 +1,4 @@
-import { Page, t, esc, pageHeader } from '../utils.js';
+import { Page, t, esc, pageHeader, fmtDateTime } from '../utils.js';
 import { Lang } from '../types.js';
 import { getAgentStatusFiles, getTaskRunLogs } from '../data.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -128,7 +128,7 @@ export class AlertsPage extends Page<any> {
     } else {
       html += `<div class="card"><table><thead><tr><th>${t(lang, 'Level', '级别')}</th><th>${t(lang, 'Message', '消息')}</th><th>${t(lang, 'Time', '时间')}</th></tr></thead><tbody>`;
       for (const a of alerts)
-        html += `<tr><td><span class="badge ${a.badge}">${a.level}</span></td><td>${esc(a.message)}</td><td style="font-size:var(--fs-sm)">${esc((a.time || '').replace('T', ' ').slice(0, 19))}</td></tr>`;
+        html += `<tr><td><span class="badge ${a.badge}">${a.level}</span></td><td>${esc(a.message)}</td><td style="font-size:var(--fs-sm)">${esc(fmtDateTime(a.time || ''))}</td></tr>`;
       html += `</tbody></table></div>`;
     }
     return html;

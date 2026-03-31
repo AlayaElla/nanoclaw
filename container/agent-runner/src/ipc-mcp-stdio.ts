@@ -835,7 +835,7 @@ function getCachedMediaPath(mediaId: string): string | null {
 }
 
 server.tool(
-  'mcp__media__get_cached_media',
+  'get_cached_media',
   '获取本地持久化缓存的历史图片、视频或语音的绝对物理路径。你可以使用任何本机 CLI 或 Python 脚本、图像处理工具对获得的绝对路径文件进行处理。',
   { mediaId: z.string().describe('历史消息中带有的 MediaID (例如 img_171000.._.jpg)') },
   async (args) => {
@@ -848,7 +848,7 @@ server.tool(
 );
 
 server.tool(
-  'mcp__media__describe_cached_image',
+  'describe_cached_image',
   '重新使用云端大视觉模型分析缓存的历史图片。如果原图描述不满足你的需求，可以用这个工具指定特定的 prompt 重新问图片细节。',
   {
     mediaId: z.string().describe('图片的 MediaID (例如 xxx.jpg)'),
@@ -893,7 +893,7 @@ server.tool(
 );
 
 server.tool(
-  'mcp__media__describe_cached_video',
+  'describe_cached_video',
   '重新分析缓存的历史视频。',
   {
     mediaId: z.string().describe('视频的 MediaID (例如 xxx.mp4)'),
@@ -940,7 +940,7 @@ server.tool(
 );
 
 server.tool(
-  'mcp__media__transcribe_cached_audio',
+  'transcribe_cached_audio',
   '重新提取缓存历史语音的文本。可以用于语音遗漏或者听不清的场景。',
   { mediaId: z.string().describe('语音的 MediaID (例如 xxx.ogg)') },
   async (args) => {

@@ -197,7 +197,7 @@ function scanExternalHooks(dir: string) {
         let requiresBins: string[] = [];
         const lines = fileContent.split('\n');
         let inYaml = false, inRequiresBins = false;
-        
+
         for (const line of lines) {
           if (line.trim() === '---') {
             if (inYaml) break;
@@ -521,7 +521,7 @@ function createPreToolUseHook(): HookCallback {
     if (preInput.tool_name) {
       const toolInput = preInput.tool_input as Record<string, unknown> | undefined;
       let description = typeof toolInput?.description === 'string' ? toolInput.description : undefined;
-      
+
       if (!description) {
         if (preInput.tool_name === 'Bash') {
           description = `执行: ${String(toolInput?.command || '').slice(0, 40)}`;
@@ -537,7 +537,7 @@ function createPreToolUseHook(): HookCallback {
           description = `修改文件: ${file}`;
         }
       }
-      
+
       writeIpcStatus({ type: 'tool_status', tool: preInput.tool_name, description, status: 'running' });
     }
     return {};
@@ -640,7 +640,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
           try {
             const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
             if (pkg.name === 'context-mode') break;
-          } catch {}
+          } catch { }
         }
         cmRoot = path.dirname(cmRoot);
       }
@@ -1003,6 +1003,7 @@ async function runQuery(
     additionalContext += '\n' + containerInput.teamRuleContent + '\n';
     log('Injecting GroupRule.md into system prompt for group chat');
   }
+
   const finalAdditionalContext = additionalContext.trim() || undefined;
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -1043,10 +1044,12 @@ async function runQuery(
           'NotebookEdit',
           'mcp__nanoclaw__*',
           'mcp__context-mode__*',
-          'mcp__parallel-search__*',
-          'mcp__parallel-task__*'
+          'mcp__parallel-search__*'
+          //'mcp__parallel-task__*'
         ],
+        disallowedTools: ['CronCreate', 'CronDelete', 'CronList', 'WebSearch', 'WebFetch'],
         env: sdkEnv,
+        effort: 'high',
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
@@ -1080,11 +1083,6 @@ async function runQuery(
             'parallel-search': {
               type: 'http' as const,
               url: 'https://search-mcp.parallel.ai/mcp',
-              headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
-            },
-            'parallel-task': {
-              type: 'http' as const,
-              url: 'https://task-mcp.parallel.ai/mcp',
               headers: { 'Authorization': `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
             },
           } : {}),

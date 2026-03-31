@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
 
-
 class RawLogger(CustomLogger):
     """Log raw request/response payloads to jsonl."""
 

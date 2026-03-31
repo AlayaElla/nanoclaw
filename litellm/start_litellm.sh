@@ -1,7 +1,23 @@
 #!/bin/bash
 
 # 启动 LiteLLM 本地代理服务器
+# 兼容 PM2 管理: 前台运行 + 信号捕获自动清理容器
 # 请在使用前确保系统安装了 Docker 并且已经启动
+
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+CONTAINER_NAME="nanoclaw-litellm-proxy"
+
+# === 信号捕获: PM2 stop/restart 时自动清理 Docker 容器 ===
+cleanup() {
+    echo -e "\e[33m收到停止信号，正在清理 Docker 容器: ${CONTAINER_NAME}...\e[0m"
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    echo -e "\e[32m容器已清理。\e[0m"
+    exit 0
+}
+trap cleanup SIGTERM SIGINT SIGHUP
 
 # === 从 .env 读取 API Key (如果存在) ===
 # 优先读取当前目录的 .env (LiteLLM 专用配置)
@@ -16,23 +32,16 @@ fi
 # 用 DASHSCOPE_API_KEY 做 QWEN_API_KEY 的后备
 QWEN_API_KEY="${QWEN_API_KEY:-$DASHSCOPE_API_KEY}"
 
-# 如果没有环境变量，则提示输入
-if [ -z "$QWEN_API_KEY" ]; then
-    read -p "请输入阿里云百炼 API Key (sk-..., 用于千问模型): " QWEN_API_KEY
-fi
-if [ -z "$WHATAI_API_KEY" ]; then
-    read -p "请输入 WhatAI API Key (sk-..., 用于 Grok 模型): " WHATAI_API_KEY
-fi
-
 if [ -z "$QWEN_API_KEY" ] && [ -z "$WHATAI_API_KEY" ]; then
-    echo -e "\e[31m错误: 至少需要提供一个 API Key\e[0m"
+    echo -e "\e[31m错误: 至少需要提供一个 API Key (QWEN_API_KEY 或 WHATAI_API_KEY)\e[0m"
+    echo -e "\e[31m请在 litellm/.env 或项目根目录 .env 中配置\e[0m"
     exit 1
 fi
 
-echo -e "\e[36m正在拉取并启动 LiteLLM 代理容器 (端口 4000)...\e[0m"
+echo -e "\e[36m正在启动 LiteLLM 代理容器 (端口 4000)...\e[0m"
 
 # 停止可能已经存在的旧容器
-docker rm -f nanoclaw-litellm-proxy 2>/dev/null
+docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
 # 构建环境变量参数
 ENV_ARGS=""
@@ -41,27 +50,22 @@ ENV_ARGS=""
 [ -n "$VOLCANO_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e VOLCANO_API_KEY=$VOLCANO_API_KEY"
 
 # 启动容器前确保日志文件存在并可写
-touch $(pwd)/litellm.jsonl
-chmod 666 $(pwd)/litellm.jsonl
+touch "$(pwd)/litellm.jsonl"
+chmod 666 "$(pwd)/litellm.jsonl"
 
-# 启动容器并挂载配置文件
-docker run -d \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  -v $(pwd)/raw_logger.py:/app/raw_logger.py \
-  -v $(pwd)/litellm.jsonl:/app/litellm.jsonl \
-  $ENV_ARGS \
-  -p 127.0.0.1:4000:4000 \
-  --name nanoclaw-litellm-proxy \
-  ghcr.io/berriai/litellm:main-latest \
-  --config /app/config.yaml
-
-echo -e "\e[32mLiteLLM 已启动！运行 docker logs -f nanoclaw-litellm-proxy 查看日志。\e[0m"
-echo ""
 echo -e "\e[33m可用模型:\e[0m"
 [ -n "$QWEN_API_KEY" ] && echo -e "  \e[36mqwen-plus\e[0m        → DashScope 千问"
 [ -n "$WHATAI_API_KEY" ] && echo -e "  \e[36mgrok-4-fast-reasoning\e[0m → WhatAI.cc Grok"
 echo ""
-echo -e "\e[33m请确保 .env 文件中包含:\e[0m"
-echo -e "  ANTHROPIC_BASE_URL=http://<宿主机IP>:4000"
-echo -e "  ANTHROPIC_API_KEY=sk-proxy-dummy-key"
-echo -e "  ANTHROPIC_MODEL=qwen-plus  # 默认模型 (每个 group 可单独配置)"
+
+# 前台运行容器 (--rm 在容器退出时自动清理)
+# PM2 通过此前台进程管理生命周期
+exec docker run --rm \
+  -v "$(pwd)/config.yaml:/app/config.yaml" \
+  -v "$(pwd)/raw_logger.py:/app/raw_logger.py" \
+  -v "$(pwd)/litellm.jsonl:/app/litellm.jsonl" \
+  $ENV_ARGS \
+  -p 127.0.0.1:4000:4000 \
+  --name "$CONTAINER_NAME" \
+  ghcr.io/berriai/litellm:main-latest \
+  --config /app/config.yaml

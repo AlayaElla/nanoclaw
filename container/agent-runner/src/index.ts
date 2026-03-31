@@ -1203,6 +1203,12 @@ async function runQuery(
           queryCompleted: true,
           ...(hadError ? { error: `Agent result: ${subtype}` } : {}),
         });
+        // Break out of the for-await loop after receiving a result.
+        // With isSingleUserTurn=false (MessageStream prompt), the SDK
+        // will block waiting for the next user message from the stream
+        // instead of terminating. Breaking here lets the query loop
+        // fetch pending messages and start a new query turn.
+        break;
       }
     }
   } finally {

@@ -325,7 +325,7 @@ export class GatewayServer {
           let inputTokens = 0;
           let outputTokens = 0;
           let toolName: string | null = null;
-          
+
           let sseBuffer = '';
           let isThinking = false;
 
@@ -336,33 +336,48 @@ export class GatewayServer {
             chunkStr = chunkStr.replace(/\r\n/g, '\n');
             sseBuffer += chunkStr;
             let emitBuffer = '';
-            
+
             let boundary = sseBuffer.indexOf('\n\n');
             while (boundary !== -1) {
               let block = sseBuffer.slice(0, boundary);
               sseBuffer = sseBuffer.slice(boundary + 2);
-              
+
               if (/"type"\s*:\s*"thinking"/.test(block)) {
                 isThinking = true;
                 // Anthropic start block: "content_block": {"type": "thinking" ...}
-                block = block.replace(/"type"\s*:\s*"thinking"/g, '"type":"text"');
+                block = block.replace(
+                  /"type"\s*:\s*"thinking"/g,
+                  '"type":"text"',
+                );
                 block = block.replace(/"thinking"\s*:/g, '"text":');
                 if (block.includes('content_block_start')) {
-                  block = block.replace(/"text"\s*:\s*"/, '"text":"<internal>\\n');
+                  block = block.replace(
+                    /"text"\s*:\s*"/,
+                    '"text":"<internal>\\n',
+                  );
                 }
               } else if (/"type"\s*:\s*"thinking_delta"/.test(block)) {
                 let injectInternal = !isThinking;
                 isThinking = true;
-                block = block.replace(/"type"\s*:\s*"thinking_delta"/g, '"type":"text_delta"');
+                block = block.replace(
+                  /"type"\s*:\s*"thinking_delta"/g,
+                  '"type":"text_delta"',
+                );
                 block = block.replace(/"thinking"\s*:/g, '"text":');
                 if (injectInternal) {
-                  block = block.replace(/"text"\s*:\s*"/, '"text":"<internal>\\n');
+                  block = block.replace(
+                    /"text"\s*:\s*"/,
+                    '"text":"<internal>\\n',
+                  );
                 }
               } else if (/"type"\s*:\s*"text_delta"/.test(block)) {
                 if (isThinking) {
                   // End of thinking block, resume to text block
                   isThinking = false;
-                  block = block.replace(/"text"\s*:\s*"/, '"text":"\\n</internal>\\n');
+                  block = block.replace(
+                    /"text"\s*:\s*"/,
+                    '"text":"\\n</internal>\\n',
+                  );
                 }
               }
               emitBuffer += block + '\n\n';

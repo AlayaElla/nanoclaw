@@ -325,12 +325,55 @@ export class GatewayServer {
           let inputTokens = 0;
           let outputTokens = 0;
           let toolName: string | null = null;
+          
+          let sseBuffer = '';
+          let isThinking = false;
 
           proxyRes.on('data', (chunk) => {
-            res.write(chunk);
+            // Fix LiteLLM broken thinking streams by converting thinking_delta to text_delta
+            // so we don't crash Anthropic SDK when tools are used.
+            let chunkStr = chunk.toString('utf8');
+            chunkStr = chunkStr.replace(/\r\n/g, '\n');
+            sseBuffer += chunkStr;
+            let emitBuffer = '';
+            
+            let boundary = sseBuffer.indexOf('\n\n');
+            while (boundary !== -1) {
+              let block = sseBuffer.slice(0, boundary);
+              sseBuffer = sseBuffer.slice(boundary + 2);
+              
+              if (/"type"\s*:\s*"thinking"/.test(block)) {
+                isThinking = true;
+                // Anthropic start block: "content_block": {"type": "thinking" ...}
+                block = block.replace(/"type"\s*:\s*"thinking"/g, '"type":"text"');
+                block = block.replace(/"thinking"\s*:/g, '"text":');
+                if (block.includes('content_block_start')) {
+                  block = block.replace(/"text"\s*:\s*"/, '"text":"<internal>\\n');
+                }
+              } else if (/"type"\s*:\s*"thinking_delta"/.test(block)) {
+                let injectInternal = !isThinking;
+                isThinking = true;
+                block = block.replace(/"type"\s*:\s*"thinking_delta"/g, '"type":"text_delta"');
+                block = block.replace(/"thinking"\s*:/g, '"text":');
+                if (injectInternal) {
+                  block = block.replace(/"text"\s*:\s*"/, '"text":"<internal>\\n');
+                }
+              } else if (/"type"\s*:\s*"text_delta"/.test(block)) {
+                if (isThinking) {
+                  // End of thinking block, resume to text block
+                  isThinking = false;
+                  block = block.replace(/"text"\s*:\s*"/, '"text":"\\n</internal>\\n');
+                }
+              }
+              emitBuffer += block + '\n\n';
+              boundary = sseBuffer.indexOf('\n\n');
+            }
+            if (emitBuffer.length > 0) {
+              res.write(Buffer.from(emitBuffer, 'utf8'));
+            }
 
             // Sniff SSE chunk
-            const text = tail + chunk.toString();
+            const text = tail + chunkStr;
 
             // Match Anthropic usage format: "usage": {"input_tokens": 15, "output_tokens": 1}
             const inputMatch = text.match(
@@ -361,6 +404,9 @@ export class GatewayServer {
           });
 
           proxyRes.on('end', () => {
+            if (sseBuffer.length > 0) {
+              res.write(Buffer.from(sseBuffer, 'utf8'));
+            }
             res.end();
 
             // Insert perfectly extracted tokens into independent usage DB

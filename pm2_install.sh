@@ -19,7 +19,9 @@ else
   echo "🚀 正在注册 LiteLLM 服务: [$LITELLM_NAME]"
   npx pm2 start "${SCRIPT_DIR}/litellm/start_litellm.sh" \
     --name "$LITELLM_NAME" \
-    --cwd "${SCRIPT_DIR}/litellm"
+    --cwd "${SCRIPT_DIR}/litellm" \
+    -o /dev/null \
+    -e /dev/null
   echo "✅ LiteLLM 注册完成"
 fi
 
@@ -30,7 +32,9 @@ else
   echo "🚀 正在注册 NanoClaw 服务: [$INSTANCE_ID]"
   npx pm2 start "${SCRIPT_DIR}/start_nanoclaw.sh" \
     --name "$INSTANCE_ID" \
-    --cwd "${SCRIPT_DIR}"
+    --cwd "${SCRIPT_DIR}" \
+    -o /dev/null \
+    -e /dev/null
   echo "✅ NanoClaw 注册完成"
 fi
 

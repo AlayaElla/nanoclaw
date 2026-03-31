@@ -26,7 +26,7 @@ export function formatMessages(
 }
 
 export function stripInternalTags(text: string): string {
-  return text.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+  return text.replace(/<internal>[\s\S]*?(<\/internal>|$)/g, '').trim();
 }
 
 export function formatOutbound(rawText: string): string {

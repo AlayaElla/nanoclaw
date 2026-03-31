@@ -61,6 +61,22 @@ model_list:
       rpm: 1000
       extra_body:
         enable_thinking: true
+  - model_name: grok-4-1-fast-reasoning
+    litellm_params:
+      model: openai/grok-4-1-fast-reasoning
+      api_base: https://api.whatai.cc/v1
+      api_key: "os.environ/WHATAI_API_KEY"
+      rpm: 1000
+      extra_body:
+        enable_thinking: true        
+  - model_name: gpt-5.4
+    litellm_params:
+      model: openai/gpt-5.4
+      api_base: https://api.whatai.cc/v1
+      api_key: "os.environ/WHATAI_API_KEY"
+      rpm: 1000
+      extra_body:
+        enable_thinking: true               
 
   # Claude SDK subagent auto-selects this model — redirect to kimi-k2.5
   - model_name: claude-haiku-4-5-20251001

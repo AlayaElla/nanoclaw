@@ -53,7 +53,10 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
-  getPendingBatch: (sourceGroup: string) => PendingBatchResult;
+  getPendingBatch: (
+    sourceGroup: string,
+    consumedThroughTimestamp?: string,
+  ) => PendingBatchResult;
   recordVisibleOutput?: (sourceGroup: string) => void;
 }
 

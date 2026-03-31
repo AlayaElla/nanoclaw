@@ -149,7 +149,10 @@ function getVisibleOutputSeq(groupFolder: string): number {
   return visibleOutputSeqByGroupFolder[groupFolder] || 0;
 }
 
-function getPendingBatch(sourceGroup: string): PendingBatchResult {
+function getPendingBatch(
+  sourceGroup: string,
+  overrideSinceTimestamp?: string,
+): PendingBatchResult {
   const entry = Object.entries(registeredGroups).find(
     ([, group]) => group.folder === sourceGroup,
   );
@@ -162,7 +165,8 @@ function getPendingBatch(sourceGroup: string): PendingBatchResult {
   }
 
   const [chatJid, group] = entry;
-  const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
+  const sinceTimestamp =
+    overrideSinceTimestamp || lastAgentTimestamp[chatJid] || '';
   const pendingMessages = getMessagesSince(chatJid, sinceTimestamp);
 
   if (pendingMessages.length === 0) {

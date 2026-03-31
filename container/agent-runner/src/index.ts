@@ -889,6 +889,7 @@ function waitForIpcSignal(): Promise<IpcDrainResult | null> {
 
 async function fetchPendingBatch(
   containerInput: ContainerInput,
+  consumedThroughTimestamp?: string,
 ): Promise<PendingBatchResponse> {
   if (!containerInput.gatewayUrl || !containerInput.gatewayToken) {
     return {
@@ -905,7 +906,7 @@ async function fetchPendingBatch(
         'Authorization': `Bearer ${containerInput.gatewayToken}`,
         'Content-Type': 'application/json',
       },
-      body: '{}',
+      body: JSON.stringify({ consumedThroughTimestamp: consumedThroughTimestamp || null }),
     });
 
     const body = await response.json() as PendingBatchResponse;
@@ -948,9 +949,14 @@ async function runQuery(
   closedDuringQuery: boolean;
   hadError: boolean;
   pendingAvailableDuringQuery: boolean;
+  updatedConsumedThroughTimestamp?: string;
+  legacyMessagesBuffer?: string[];
 }> {
   const stream = new MessageStream();
   stream.push(prompt);
+
+  let updatedConsumedThroughTimestamp = consumedThroughTimestamp;
+  let legacyMessagesBuffer: string[] = [];
 
   // Poll IPC for control signals and _close sentinel during the query
   let ipcPolling = true;
@@ -972,7 +978,8 @@ async function runQuery(
     }
     if (drain.legacyMessages.length > 0) {
       pendingAvailableDuringQuery = true;
-      log(`Received ${drain.legacyMessages.length} legacy IPC message payload(s) during query; deferring to next query`);
+      legacyMessagesBuffer.push(...drain.legacyMessages);
+      log(`Received ${drain.legacyMessages.length} legacy IPC message payload(s) during query; queued for hook injection`);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -1021,6 +1028,46 @@ async function runQuery(
   if (extraDirs.length > 0) {
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
+
+  const injectionHook: HookCallback = async () => {
+    let injectedMessages: string[] = [];
+
+    if (!pendingAvailableDuringQuery) {
+      const drain = drainIpcInput();
+      if (drain.pendingAvailable) pendingAvailableDuringQuery = true;
+      if (drain.legacyMessages.length > 0) {
+        pendingAvailableDuringQuery = true;
+        legacyMessagesBuffer.push(...drain.legacyMessages);
+      }
+    }
+
+    if (pendingAvailableDuringQuery) {
+      const batch = await fetchPendingBatch(containerInput, updatedConsumedThroughTimestamp || consumedThroughTimestamp);
+      pendingAvailableDuringQuery = false;
+
+      if (batch.success && batch.pending && batch.prompt) {
+        let msg = typeof batch.prompt === 'string' ? batch.prompt : JSON.stringify(batch.prompt);
+        injectedMessages.push(msg);
+        updatedConsumedThroughTimestamp = batch.consumedThroughTimestamp;
+      }
+      if (legacyMessagesBuffer.length > 0) {
+        injectedMessages.push(...legacyMessagesBuffer);
+        legacyMessagesBuffer = [];
+      }
+    }
+
+    if (injectedMessages.length > 0) {
+      const combined = injectedMessages.join('\\n');
+      log(`Hook injected new user messages halfway through query.`);
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `[系统通知/System Message]\\n用户发来了新的消息(New Message arrived)。请阅读并在下一步决策中响应以下内容：\\n\\n${combined}`
+        }
+      };
+    }
+    return {};
+  };
 
   try {
     for await (const message of query({
@@ -1100,7 +1147,7 @@ async function runQuery(
             ...extHooks.filter(h => h.event === 'PreToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttooluse')] },
+            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttooluse'), injectionHook] },
             ...extHooks.filter(h => h.event === 'PostToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           SessionStart: [
@@ -1224,6 +1271,8 @@ async function runQuery(
     closedDuringQuery,
     hadError,
     pendingAvailableDuringQuery,
+    updatedConsumedThroughTimestamp,
+    legacyMessagesBuffer,
   };
 }
 
@@ -1282,7 +1331,7 @@ async function main(): Promise<void> {
   }
 
   if (containerInput.pullPendingOnStart) {
-    const batch = await fetchPendingBatch(containerInput);
+    const batch = await fetchPendingBatch(containerInput, consumedThroughTimestamp);
     if (!batch.success) {
       writeOutput({
         status: 'error',
@@ -1325,6 +1374,8 @@ async function main(): Promise<void> {
         closedDuringQuery: boolean;
         hadError: boolean;
         pendingAvailableDuringQuery: boolean;
+        updatedConsumedThroughTimestamp?: string;
+        legacyMessagesBuffer?: string[];
       };
       try {
         queryResult = await runQuery(
@@ -1379,11 +1430,22 @@ async function main(): Promise<void> {
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
+      if (queryResult.updatedConsumedThroughTimestamp) {
+        consumedThroughTimestamp = queryResult.updatedConsumedThroughTimestamp;
+      }
+
       pendingRequested = pendingRequested || queryResult.pendingAvailableDuringQuery;
+
+      if (queryResult.legacyMessagesBuffer && queryResult.legacyMessagesBuffer.length > 0) {
+        log(`Appending ${queryResult.legacyMessagesBuffer.length} remaining legacy IPC message(s) to prompt for next query loop`);
+        prompt = appendPromptText('', queryResult.legacyMessagesBuffer.join('\\n'));
+        consumedThroughTimestamp = undefined;
+        continue queryLoop;
+      }
 
       while (true) {
         if (pendingRequested) {
-          const batch = await fetchPendingBatch(containerInput);
+          const batch = await fetchPendingBatch(containerInput, consumedThroughTimestamp);
           if (!batch.success) {
             log(`Pending batch fetch failed after query: ${batch.error || 'unknown error'}`);
             writeOutput({

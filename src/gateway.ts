@@ -214,7 +214,7 @@ export class GatewayServer {
             await this.handleTasksIpc(body, identity!, res);
             break;
           case '/ipc/pending':
-            await this.handlePendingIpc(identity!, res);
+            await this.handlePendingIpc(body, identity!, res);
             break;
           default:
             this.sendJson(res, 404, { error: 'Not Found' });
@@ -624,8 +624,16 @@ export class GatewayServer {
     this.sendJson(res, 400, { error: 'Invalid message payload' });
   }
 
-  private async handlePendingIpc(identity: TokenPayload, res: ServerResponse) {
-    const batch = this.deps.getPendingBatch(identity.sourceGroup);
+  private async handlePendingIpc(
+    body: any,
+    identity: TokenPayload,
+    res: ServerResponse,
+  ) {
+    const consumedThroughTimestamp = body?.consumedThroughTimestamp;
+    const batch = this.deps.getPendingBatch(
+      identity.sourceGroup,
+      consumedThroughTimestamp,
+    );
     if (!batch.success) {
       const statusCode = batch.error ? 404 : 500;
       this.sendJson(res, statusCode, batch);

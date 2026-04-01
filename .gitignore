@@ -19,6 +19,7 @@ agents/*
 !agents/Tools.md
 !agents/AdminTools.md
 !agents/USER.md.example
+!agents/EXPERIENCE.md
 
 # Secrets
 *.keys.json

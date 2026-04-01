@@ -48,6 +48,8 @@ export interface ContainerInput {
   taskId?: string;
   assistantName?: string;
   teamRuleContent?: string;
+  userProfileContent?: string;
+  agentExperienceContent?: string;
   contextModeContent?: string;
   toolsContent?: string;
   adminToolsContent?: string;
@@ -429,6 +431,22 @@ export async function runContainerAgent(
   fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
   const mounts = buildVolumeMounts(group, input.isMain);
+
+  // Load USER.md and EXPERIENCE.md auto-injected system prompts for this agent
+  const botConfigAgentName = group.botToken ? getBotConfig(group.botToken) : getBotConfigByIndex(0);
+  const agentName = botConfigAgentName?.name || 'default';
+  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
+
+  const userProfilePath = path.join(agentWorkspaceDir, 'USER.md');
+  if (fs.existsSync(userProfilePath)) {
+    input.userProfileContent = fs.readFileSync(userProfilePath, 'utf-8');
+  }
+
+  const experiencePath = path.join(agentWorkspaceDir, 'EXPERIENCE.md');
+  if (fs.existsSync(experiencePath)) {
+    input.agentExperienceContent = fs.readFileSync(experiencePath, 'utf-8');
+  }
+
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${INSTANCE_ID}-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName);

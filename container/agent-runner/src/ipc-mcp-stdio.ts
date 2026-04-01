@@ -685,7 +685,7 @@ server.tool(
   'register_group',
   `注册一个新的聊天/群组，使代理可以在那里响应消息。仅限主群组使用。
 
-使用 available_groups.json 找到群组的 JID。文件夹名必须带通道前缀："{channel}_{group-name}"（例如 "whatsapp_family-chat"、"telegram_dev-team"、"discord_general"）。群组名部分使用小写和连字符。`,
+使用 available_groups.json 找到群组的 JID。文件夹名必须使用**纯小写英文字母**，带通道前缀："{channel}_{group-name}"（例如 "whatsapp_family-chat"、"telegram_dev-team"、"discord_general"）。群组名部分使用连字符。`,
   {
     jid: z.string().describe('聊天 JID（例如 "120363336345536173@g.us"、"tg:-1001234567890"、"dc:1234567890123456"）'),
     name: z.string().describe('群组显示名称'),

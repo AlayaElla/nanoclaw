@@ -2,34 +2,14 @@
 
 以下内容仅适用于主通道（isMain）。
 
-## 管理员上下文
-
-这是**主通道**，拥有提升的权限。
-
-## 🐦 X/Twitter 集成
-
-可以操作 X (Twitter)：
-
-| 工具 | 用途 |
-|------|------|
-| `x_post` | 发布新推文 |
-| `x_like` | 点赞推文 |
-| `x_reply` | 回复推文 |
-| `x_retweet` | 转推 |
-| `x_quote` | 引用推文并评论 |
-| `x_trends` | 查看全球热门推文 |
-
-使用时需要推文 URL（如 `https://x.com/user/status/123`）。
-`x_trends` 不需要 URL。
-
 ## 容器挂载
 
-主通道对项目有只读访问权限，对其群组文件夹有读写访问权限：
+主通道对项目（代码和基础配置）有只读访问权限，对该 Agent 的**共享工作区**有读写访问权限（同一个 Agent 负责的所有群组会共享这个工作区）：
 
 | 容器路径 | 宿主机路径 | 访问权限 |
 |----------|-----------|---------|
 | `/workspace/project` | 项目根目录 | 只读 |
-| `/workspace/group` | `data/workspace/{agent}/` | 读写 |
+| `/workspace/group` | `data/workspace/{agent_name}/` | 读写 |
 
 容器内的关键路径：
 - `/workspace/project/store/messages.db` - 消息数据库（SQLite）
@@ -80,86 +60,13 @@ sqlite3 /workspace/project/store/messages.db "
 "
 ```
 
-### 已注册群组配置
+### 注册与群组配置
 
-群组注册在 SQLite `registered_groups` 表中：
+群组会注册在 SQLite 中 `groups.db` 数据库的 `registered_groups` 表里。为简洁起见，**各字段的含义、文件夹的命名规范、必填项与配置项结构，请直接阅读和参考 `register_group` MCP 工具内的参数说明。**
 
-```json
-{
-  "1234567890-1234567890@g.us": {
-    "name": "家庭聊天",
-    "folder": "whatsapp_family-chat",
-    "trigger": "@Andy",
-    "requires_trigger": true,
-    "bot_token": "TELEGRAM_BOT_TOKEN_2",
-    "assistant_name": "星月",
-    "added_at": "2024-01-31T12:00:00.000Z"
-  }
-}
-```
-
-字段说明（这些信息实际上存在于 `groups.db` 的 `registered_groups` 表的各列中）：
-- **Key**：聊天 JID（唯一标识符 — WhatsApp、Telegram、Slack、Discord 等）
-- **name**：群组显示名称
-- **folder**：以通道为前缀的文件夹名，位于 `agents/` 下，用于该群组的文件和记忆
-- **trigger** 或 **trigger_pattern**：触发词（通常与全局相同，但可以不同）
-- **requires_trigger**：是否需要 `@trigger` 前缀（默认：`true`）。对于不需要触发词的私聊设置为 `false`
-- **bot_token**：（新版多 Bot 支持）Bot token 的环境变量名，支持隔离不同群组的 Bot
-- **assistant_name**：该群组特定助手的称呼
-- **is_main**：是否为主控制群组（提升权限，不需要触发词）
-- **added_at**：注册时的 ISO 时间戳
-
-### 触发词行为
-
-- **主群组**（`isMain: true`）：不需要触发词 — 所有消息自动处理
-- **设置 `requiresTrigger: false` 的群组**：不需要触发词 — 所有消息都处理（用于一对一或私聊）
-- **其他群组**（默认）：消息必须以 `@助理名` 开头才会被处理
-
-### 添加群组
-
-1. 查询数据库找到群组的 JID
-2. 使用 `register_group` MCP 工具，提供 JID、名称、文件夹和触发词
-3. 可选包含 `containerConfig` 用于额外挂载
-4. 群组文件夹自动创建：`/workspace/project/agents/{folder-name}/`
-5. 可选为该群组创建初始 `CLAUDE.md`
-
-文件夹命名规范 — 通道前缀加下划线分隔，**文件夹名必须使用英文**（不能使用中文或其他非 ASCII 字符）：
-- WhatsApp "家庭聊天" → `whatsapp_family-chat`
-- Telegram "开发团队" → `telegram_dev-team`
-- Discord "综合" → `discord_general`
-- Slack "工程" → `slack_engineering`
-- 使用小写英文字母，群组名部分使用连字符
-
-#### 为群组添加额外目录
-
-群组可以挂载额外的目录。在其配置中通过 `register_group` 提供 `container_config`：
-
-```json
-{
-  "1234567890@g.us": {
-    "name": "开发团队",
-    "folder": "telegram_dev-team",
-    "trigger": "@Andy",
-    "added_at": "2026-01-31T12:00:00Z",
-    "container_config": {
-      "additionalMounts": [
-        {
-          "hostPath": "~/projects/webapp",
-          "containerPath": "webapp",
-          "readonly": false
-        }
-      ]
-    }
-  }
-}
-```
-
-该目录将出现在该群组容器的 `/workspace/extra/webapp` 中。
-
-### 移除群组
-
-1. 在 `groups.db` 的 `registered_groups` 表中删除该群组的条目
-2. 群组文件夹和文件保留不变（不要删除它们）
+**关键设定的补充说明：**
+- **触发行为**：主群组（`isMain: true`）及明确设定了 `requires_trigger: false` 的群组（如私聊），无需呼唤触发词即可接管所有消息。其他普通群组必须由消息前导触发词（即你设定的 `@名字`）才能响应。
+- **额外挂载目录**：若你在调用注册工具时提供了 `container_config` 参数并包含自定义挂载数组，对应的宿主机目录将被安全映射，并在新群组容器内的 `/workspace/extra/{containerPath}` 中出现。
 
 ### 列出群组
 

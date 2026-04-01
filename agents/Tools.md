@@ -67,6 +67,7 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
 ```
 
 `<internal>` 标签内的文本会被记录但**不会发送**给用户。
+**⚠️ 注意：请务必记得在使用完毕后闭合标签（即加上 `</internal>`），否则会导致你后续的正常回复也被错误地隐藏！**
 
 适用场景：
 - 分析和推理过程
@@ -74,7 +75,7 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
 
 ### 沉默输出
 
-输出 `...` 会被视为沉默，**不会发送**给用户。适合不需要回复时使用。
+输出 `...` 会被视为沉默，**不会发送**给用户。适合不需要回复时使用。使用前请先评估和检查在当前上下文中保持沉默是否真的有用或合适。
 
 ### `send_message` 工具
 
@@ -88,49 +89,9 @@ mcp__parallel-search__search(query: "最新的 AI 新闻")
 
 调用 `send_message` 后 agent 会继续执行后续工作，不会中断。
 
-### 发送媒体
-
-使用 `send_media` 发送图片、视频、音频或文件。三种来源：
-
-• **本地文件** — `send_media(file_path="/tmp/chart.png")`：发送 AI 生成的图片、脚本输出等
-• **网络链接** — `send_media(url="https://example.com/photo.jpg")`：自动下载并发送
-• **缓存媒体** — `send_media(media_id="photo_171000_abc123.jpg")`：转发历史收到的媒体
-
-可选参数：`caption`（附带文字说明）、`media_type`（photo/video/audio/document，通常自动检测）
-
-### AI 生成图片
-
-使用 `generate_image` 通过 AI 生成或编辑图片。两种模式：
-
-• **文生图** — `generate_image(prompt="一只在月光下散步的猫")`：根据文字描述生成图片
-• **图生图** — `generate_image(prompt="给猫戴上帽子", source_image="photo_xxx.jpg")`：基于已有图片编辑
-
-可选参数：`model`（gpt-image-1/seedream-3.0/imagen4/flux-kontext-max/flux-kontext-pro）、`size`（1024x1024/1024x1536/1536x1024）、`caption`
-生成的图片会自动发送到聊天中。
-
 ## 📝 记忆
-
 `conversations/` 文件夹有过去的对话历史。用来回忆之前聊过什么。
 
-学到重要的东西时：
-- 创建文件记下来（例如 `preferences.md`）
-- 大文件拆分为文件夹
-- 保持文件索引
-
-## 🔍 记忆搜索 (RAG)
-
-可以语义搜索过去的对话：
-
-```
-rag_search(query: "上次讨论的方案")
-```
-
-使用场景：
-• 用户提到之前的对话（"之前说的..."、"上次提到的..."）
-• 需要过去交互的上下文
-• 寻找特定的历史信息
-
-结果包含发送者、时间戳和相关度评分。用户消息和之前的回复都可搜索。
 
 ## 🎯 我的技能 (Self Skills)
 
@@ -143,32 +104,3 @@ rag_search(query: "上次讨论的方案")
 
 ### 规则
 - 安装新技能时，把文件放到 `/workspace/group/.claude/skills` 文件夹
-
-
-## 🚀 自我改进技能 (Self-Improvement)
-
-此技能已全局启用。通过记录错误、修正和功能请求，你可以实现持续学习。
-
-### 何时记录？
-- **非直观解决方案**：通过大量调查或调试才发现的解决方法。
-- **用户修正**：用户指出你的错误或更新了过时的信息（如：“这里的配置已经改了...”、“其实你应该这样做...”）。
-- **反复出现的错误**：同一个报错或陷阱出现了 2 次以上。
-- **项目特定模式**：新发现的本项目特有的编码规约、工具链怪癖或架构设计。
-- **功能请求**：用户表达了对某种能力的向往或对现有功能的不满。
-
-### 如何记录？
-在 `/workspace/group/.learnings/` 目录下操作：
-- **`LEARNINGS.md`**：记录修正、见解、知识差距和最佳实践。
-- **`ERRORS.md`**：记录非明显的命令失败或异常。
-- **`FEATURE_REQUESTS.md`**：记录用户要求的能力。
-
-**ID 格式**：`TYPE-YYYYMMDD-XXX` (如 `LRN-20240520-001`, `ERR-20240520-A3F`)
-
-### 技能提取
-当某个学习心得具有高度复用性（跨项目、跨模块）且已验证生效时，应考虑提取为独立技能：
-1. 使用脚本：`./.claude/skills/self-improvement/scripts/extract-skill.sh skill-name`
-2. 按照模板完善 `SKILL.md`。
-3. 更新原学习条目状态为 `promoted_to_skill`。
-
-> [!IMPORTANT]
-> 记录是为了未来的你（或你的同僚）能更快、更准地完成任务。请保持记录的简洁、准确和可重现。

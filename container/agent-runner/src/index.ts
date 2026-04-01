@@ -335,18 +335,17 @@ function formatHookExecutionError(err: unknown): string {
 
 function loadExternalHooksWithLogging(): { hooks: Array<{ event: string; matcher: string; caller: HookCallback }>; bootLog: string } {
   externalHooks = [];
-  bootLogLines = ['[NanoClaw External Script Hooks Loader]'];
+  let warnings: string[] = [];
   scanExternalHooks('/workspace/group/.claude/skills');
 
   const loadedHooks: Array<{ event: string; matcher: string; caller: HookCallback }> = [];
-  let loadedCount = 0;
 
   for (const def of externalHooks) {
     const entryPath = path.resolve(def.baseDir, def.entry);
     if (!fs.existsSync(entryPath)) {
-      const reason = `Skipping external hook ${def.name}: entry not found at ${entryPath}`;
+      const reason = `⚠️ WARNING: Skipping external hook ${def.name}: entry not found at ${entryPath}`;
       log(reason);
-      bootLogLines.push(reason);
+      warnings.push(reason);
       continue;
     }
 
@@ -354,18 +353,16 @@ function loadExternalHooksWithLogging(): { hooks: Array<{ event: string; matcher
     for (const bin of def.requirements) {
       if (!isBinaryAvailable(bin)) {
         checkPassed = false;
-        const reason = `Skipping external hook ${def.name}: missing required binary ${bin}`;
+        const reason = `⚠️ WARNING: Skipping external hook ${def.name}: missing required binary [${bin}]`;
         log(reason);
-        bootLogLines.push(reason);
+        warnings.push(reason);
         break;
       }
     }
 
     if (!checkPassed) continue;
 
-    loadedCount++;
     log(`Loaded external hook ${def.name} (${def.hookEvent}) from ${entryPath}`);
-    bootLogLines.push(`Loaded external hook ${def.name} (${def.hookEvent})`);
     loadedHooks.push({
       event: def.hookEvent,
       matcher: def.matcher,
@@ -407,8 +404,8 @@ function loadExternalHooksWithLogging(): { hooks: Array<{ event: string; matcher
     });
   }
 
-  bootLogLines.splice(1, 0, `Loaded ${loadedCount} external script hook(s).`);
-  return { hooks: loadedHooks, bootLog: bootLogLines.join('\n') };
+  const bootLog = warnings.length > 0 ? `[External Hooks Loader Warnings]\n${warnings.join('\n')}` : '';
+  return { hooks: loadedHooks, bootLog };
 }
 
 const { hooks: extHooks, bootLog: extBootLog } = loadExternalHooksWithLogging();
@@ -417,6 +414,11 @@ function createExternalBootHook(): HookCallback {
   return async () => {
     if (bootHookFired) return {};
     bootHookFired = true;
+    
+    if (!extBootLog) {
+      return {};
+    }
+    
     return {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
@@ -1013,12 +1015,12 @@ async function runQuery(
   }
 
   if ((containerInput as any).userProfileContent) {
-    additionalContext += '\n[Agent角色与属性说明/USER (文件路径: /workspace/group/USER.md)]\n' + (containerInput as any).userProfileContent + '\n';
+    additionalContext += '\n[用户信息/USER (文件路径: /workspace/group/USER.md)]\n' + (containerInput as any).userProfileContent + '\n';
     log('Injecting Agent USER.md into system prompt');
   }
 
   if ((containerInput as any).agentExperienceContent) {
-    additionalContext += '\n[Agent专属历史经验与准则/EXPERIENCE (文件路径: /workspace/group/EXPERIENCE.md)]\n' + (containerInput as any).agentExperienceContent + '\n';
+    additionalContext += '\n[专属历史经验与准则/EXPERIENCE (文件路径: /workspace/group/EXPERIENCE.md)]\n' + (containerInput as any).agentExperienceContent + '\n';
     log('Injecting Agent EXPERIENCE.md into system prompt');
   }
 

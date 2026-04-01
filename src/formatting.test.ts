@@ -133,6 +133,23 @@ describe('stripInternalTags', () => {
   it('returns empty string when text is only internal tags', () => {
     expect(stripInternalTags('<internal>only this</internal>')).toBe('');
   });
+
+  it('preserves internal tags inside inline code blocks', () => {
+    const text = 'Use `<internal>...</internal>` for thinking.';
+    expect(stripInternalTags(text)).toBe(text);
+  });
+
+  it('preserves internal tags inside fenced code blocks', () => {
+    const text = 'Example:\n```\n<internal>hi</internal>\n```';
+    expect(stripInternalTags(text)).toBe(text);
+  });
+
+  it('strips internal tags but preserves code blocks outside of them', () => {
+    const text =
+      '<internal>think</internal>\n```\n<internal>code internal</internal>\n```';
+    const expected = '```\n<internal>code internal</internal>\n```';
+    expect(stripInternalTags(text)).toBe(expected);
+  });
 });
 
 describe('formatOutbound', () => {

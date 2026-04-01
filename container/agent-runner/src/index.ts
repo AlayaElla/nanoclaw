@@ -1012,6 +1012,16 @@ async function runQuery(
     log('Injecting GroupRule.md into system prompt for group chat');
   }
 
+  if ((containerInput as any).userProfileContent) {
+    additionalContext += '\n[Agent角色与属性说明/USER (文件路径: /workspace/group/USER.md)]\n' + (containerInput as any).userProfileContent + '\n';
+    log('Injecting Agent USER.md into system prompt');
+  }
+
+  if ((containerInput as any).agentExperienceContent) {
+    additionalContext += '\n[Agent专属历史经验与准则/EXPERIENCE (文件路径: /workspace/group/EXPERIENCE.md)]\n' + (containerInput as any).agentExperienceContent + '\n';
+    log('Injecting Agent EXPERIENCE.md into system prompt');
+  }
+
   // --- Manually dispatch SessionStart hooks (Executed ONCE per container lifecycle) ---
   if (cachedSessionStartHooksOutput === null) {
     cachedSessionStartHooksOutput = '';

@@ -26,7 +26,31 @@ export function formatMessages(
 }
 
 export function stripInternalTags(text: string): string {
-  return text.replace(/<internal>[\s\S]*?(<\/internal>|$)/g, '').trim();
+  const placeholders: string[] = [];
+
+  // Protect fenced code blocks (```...```)
+  let protectedText = text.replace(/```[\s\S]*?(```|$)/g, (match) => {
+    placeholders.push(match);
+    return `__NC_CBLK_${placeholders.length - 1}__`;
+  });
+
+  // Protect inline code blocks (`...`)
+  protectedText = protectedText.replace(/`[^`]*`/g, (match) => {
+    placeholders.push(match);
+    return `__NC_CBLK_${placeholders.length - 1}__`;
+  });
+
+  // Strip internal tags on the unprotected text
+  let strippedText = protectedText
+    .replace(/<internal>[\s\S]*?(<\/internal>|$)/g, '')
+    .trim();
+
+  // Restore placeholders
+  for (let i = 0; i < placeholders.length; i++) {
+    strippedText = strippedText.replace(`__NC_CBLK_${i}__`, placeholders[i]);
+  }
+
+  return strippedText.trim();
 }
 
 export function formatOutbound(rawText: string): string {

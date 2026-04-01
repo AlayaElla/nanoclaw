@@ -46,7 +46,12 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
-import { findChannel, formatMessages, formatOutbound } from './router.js';
+import {
+  findChannel,
+  formatMessages,
+  formatOutbound,
+  stripInternalTags,
+} from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
 import {
@@ -569,7 +574,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             ? result.result
             : JSON.stringify(result.result);
         // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-        let text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        let text = stripInternalTags(raw);
         // Also ignore messages that are just "..." after stripping internal reasoning
         if (text === '...') {
           text = '';

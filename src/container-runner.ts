@@ -433,7 +433,9 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
 
   // Load USER.md and EXPERIENCE.md auto-injected system prompts for this agent
-  const botConfigAgentName = group.botToken ? getBotConfig(group.botToken) : getBotConfigByIndex(0);
+  const botConfigAgentName = group.botToken
+    ? getBotConfig(group.botToken)
+    : getBotConfigByIndex(0);
   const agentName = botConfigAgentName?.name || 'default';
   const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
 

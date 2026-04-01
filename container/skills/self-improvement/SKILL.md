@@ -6,7 +6,7 @@ metadata:
 
 # 自我提升 (Self-Improvement) 技能
 
-将学习经验和报错日志记录至 Markdown 文件，实现持续优化。并在时机成熟时，将具有重大价值的学习经验提升（Promote）整合至全局指令配置（如 `USER.md`）中长久生效。
+将学习经验和报错日志记录至 Markdown 文件，实现持续优化。并在时机成熟时，将具有重大价值的学习经验提升（Promote）整合至全局指令配置（如 `EXPERIENCE.md` 或 `USER.md`）中长久生效。
 
 ## 快速参考
 
@@ -19,7 +19,7 @@ metadata:
 | 现有知识已过时 | 记录至 `.learnings/LEARNINGS.md`，分类标注为 `knowledge_gap` |
 | 发现了更优的解决思路 | 记录至 `.learnings/LEARNINGS.md`，分类标注为 `best_practice` |
 | 简化/巩固复发性模式 | 记录/更新至 `.learnings/LEARNINGS.md`，标注 `Source: simplify-and-harden` |
-| 具有普适性的经验指引 | 提升整合至工作区的 `USER.md` 中 |
+| 具有普适性的经验指引 | 提升整合至工作区被强制加载的记忆库（`EXPERIENCE.md` 或 `USER.md`） 中 |
 
 ## NanoClaw 工作区挂载说明
 
@@ -29,7 +29,8 @@ NanoClaw 将所有会话进行了网格化的物理隔离：
 
 ```text
 data/workspace/<group_folder>/
-├── USER.md            # 群组或用户级别的核心指令/预设 (用于永久记忆)
+├── USER.md            # Agent专属身份人设与偏好 (每次启动自动注入)
+├── EXPERIENCE.md      # Agent专属历史教训与避坑法则 (每次启动自动注入)
 └── .claude/
     └── skills/
         └── self-improvement/  # 本技能挂载路径
@@ -110,22 +111,22 @@ data/workspace/<group_folder>/
 
 当一项学习经验具备了**广泛适用性**（而不是某种一次性的修修补补），或者你发现你在连续踩同一个坑，你就应该将它提权（Promote）到项目的底层指令。
 
-**注意：在 NanoClaw 中，不要尝试覆盖或修改系统全局的 `CLAUDE.md` 与原生 `TOOLS.md`，它们为不可执行或受保护模块。你的一切业务与工作区级别的经验沉淀，全部建议提升并写入到所属项目的专属 `USER.md` 文件中维系！**
+**注意：在 NanoClaw 中，不要尝试覆盖或修改系统全局的 `CLAUDE.md` 与原生 `TOOLS.md`，它们为不可执行或受保护模块。你的一切业务与工作区级别的经验沉淀，全部建议提升并写入到所属项目的专属 `EXPERIENCE.md` (用于沉淀排障与防坑教训) 或 `USER.md` (用于修正人设与偏好) 文件中维系！**
 
 ### 提升流程 (How to Promote)
 
 1. **萃取 (Distill)**：将冗长的学习经验浓缩成一句极简明确的规则或命令。
-2. **添加 (Add)**：将其写入工作区 `USER.md` 中的经验累积板块（若无则自助在文件末尾开辟）。
+2. **添加 (Add)**：将其写入工作区 `EXPERIENCE.md` 中的经验累积板块（若无则自助在文件末尾开辟）。如果是关于用户或基本交互偏好的调整，则写入 `USER.md`。
 3. **闭环更新 (Update)**：
    回到原本的那条 `LEARNINGS.md` 或 `ERRORS.md` 日志中：
    - 将 `**Status**: pending` 更改为 `**Status**: promoted`
-   - 增加一行 `**Promoted File**: USER.md`
+   - 增加一行 `**Promoted File**: EXPERIENCE.md (或 USER.md)`
 
 ### 侦测共性教训
 
 如果遇到与现有条目高度相似的报错：
 1. **主动关联**: 在原有记录下添加 `**See Also**: ERR-XXX` 并累加次数。
-2. **重度警惕**: 若 `Recurrence-Count` >= 3 次，立刻将其凝练并 Promote 到 `USER.md`，使其化作永远守护你的系统提示词。
+2. **重度警惕**: 若 `Recurrence-Count` >= 3 次，立刻将其凝练并 Promote 到 `EXPERIENCE.md`，使其化作永远守护你的系统热加载提示词。
 
 ## 致命级别判定指南 (Priority Guidelines)
 

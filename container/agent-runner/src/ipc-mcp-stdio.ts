@@ -693,6 +693,8 @@ server.tool(
     trigger: z.string().describe('触发词（例如 "@Andy"）'),
     bot_token: z.string().optional().describe('Bot token 的环境变量名（例如 "TELEGRAM_BOT_TOKEN_2"）。用于多 bot 隔离。'),
     assistant_name: z.string().optional().describe('该群组的助手名称（例如 "星月"、"星梦"）'),
+    requires_trigger: z.boolean().optional().describe('是否需要触发词才能响应消息（默认 true，一对一私聊或某些群可以设为 false）'),
+    container_config: z.any().optional().describe('为该群组额外挂载的容器配置对象，包含 additionalMounts 数组'),
   },
   async (args) => {
     if (!isMain) {
@@ -712,6 +714,8 @@ server.tool(
     };
     if (args.bot_token) data.botToken = args.bot_token;
     if (args.assistant_name) data.assistantName = args.assistant_name;
+    if (args.requires_trigger !== undefined) data.requiresTrigger = args.requires_trigger;
+    if (args.container_config) data.containerConfig = args.container_config;
 
     await dispatchTask(data);
 

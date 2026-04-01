@@ -90,18 +90,23 @@ sqlite3 /workspace/project/store/messages.db "
     "name": "家庭聊天",
     "folder": "whatsapp_family-chat",
     "trigger": "@Andy",
+    "requires_trigger": true,
+    "bot_token": "TELEGRAM_BOT_TOKEN_2",
+    "assistant_name": "星月",
     "added_at": "2024-01-31T12:00:00.000Z"
   }
 }
 ```
 
-字段说明：
+字段说明（这些信息实际上存在于 `groups.db` 的 `registered_groups` 表的各列中）：
 - **Key**：聊天 JID（唯一标识符 — WhatsApp、Telegram、Slack、Discord 等）
 - **name**：群组显示名称
 - **folder**：以通道为前缀的文件夹名，位于 `agents/` 下，用于该群组的文件和记忆
-- **trigger**：触发词（通常与全局相同，但可以不同）
-- **requiresTrigger**：是否需要 `@trigger` 前缀（默认：`true`）。对于不需要触发词的私聊设置为 `false`
-- **isMain**：是否为主控制群组（提升权限，不需要触发词）
+- **trigger** 或 **trigger_pattern**：触发词（通常与全局相同，但可以不同）
+- **requires_trigger**：是否需要 `@trigger` 前缀（默认：`true`）。对于不需要触发词的私聊设置为 `false`
+- **bot_token**：（新版多 Bot 支持）Bot token 的环境变量名，支持隔离不同群组的 Bot
+- **assistant_name**：该群组特定助手的称呼
+- **is_main**：是否为主控制群组（提升权限，不需要触发词）
 - **added_at**：注册时的 ISO 时间戳
 
 ### 触发词行为
@@ -127,16 +132,16 @@ sqlite3 /workspace/project/store/messages.db "
 
 #### 为群组添加额外目录
 
-群组可以挂载额外的目录。在其配置中添加 `containerConfig`：
+群组可以挂载额外的目录。在其配置中通过 `register_group` 提供 `container_config`：
 
 ```json
 {
   "1234567890@g.us": {
     "name": "开发团队",
-    "folder": "dev-team",
+    "folder": "telegram_dev-team",
     "trigger": "@Andy",
     "added_at": "2026-01-31T12:00:00Z",
-    "containerConfig": {
+    "container_config": {
       "additionalMounts": [
         {
           "hostPath": "~/projects/webapp",

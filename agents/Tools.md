@@ -139,15 +139,11 @@ rag_search(query: "上次讨论的方案")
 ```
 /workspace/group/.claude/skills
   skills/           ← 安装的技能
-/workspace/group/SelfSkill.md      ← 维护的技能索引
 ```
 
 ### 规则
-
 - 安装新技能时，把文件放到 `/workspace/group/.claude/skills` 文件夹
-- 每次安装/卸载后，更新 `/workspace/group/SelfSkill.md`
-- `SelfSkill.md`记录每个技能的名称、来源、用途和安装时间
-- 启动时先检查 `SelfSkill.md`，了解自己有哪些技能，如果没有则创建
+
 
 ## 🚀 自我改进技能 (Self-Improvement)
 

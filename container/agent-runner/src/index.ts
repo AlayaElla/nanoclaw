@@ -22,6 +22,8 @@ const execFileAsync = promisify(execFile);
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
+let cachedSessionStartHooksOutput: string | null = null;
+
 interface ContainerInput {
   prompt: string | any[];
   sessionId?: string;
@@ -953,7 +955,6 @@ async function runQuery(
   legacyMessagesBuffer?: string[];
 }> {
   const stream = new MessageStream();
-  stream.push(prompt);
 
   let updatedConsumedThroughTimestamp = consumedThroughTimestamp;
   let legacyMessagesBuffer: string[] = [];
@@ -1011,27 +1012,35 @@ async function runQuery(
     log('Injecting GroupRule.md into system prompt for group chat');
   }
 
-  // --- Manually dispatch SessionStart hooks ---
-  // The SDK's query() loop does not natively dispatch SessionStart for us,
-  // so we must do it here to capture any boot logs or plugin context.
-  const sessionStartHooks = [
-    createExternalBootHook(),
-    createContextModeHook('sessionstart'),
-    ...extHooks.filter(h => h.event === 'SessionStart').map(h => h.caller)
-  ];
+  // --- Manually dispatch SessionStart hooks (Executed ONCE per container lifecycle) ---
+  if (cachedSessionStartHooksOutput === null) {
+    cachedSessionStartHooksOutput = '';
+    const sessionStartHooks = [
+      createExternalBootHook(),
+      createContextModeHook('sessionstart'),
+      ...extHooks.filter(h => h.event === 'SessionStart').map(h => h.caller)
+    ];
 
-  for (const hook of sessionStartHooks) {
-    try {
-      const result = await hook({ hook_event_name: 'SessionStart' } as any, undefined, { signal: new AbortController().signal } as any);
-      const output = result as any;
-      if (output && output.hookSpecificOutput && output.hookSpecificOutput.additionalContext) {
-        additionalContext += '\n' + output.hookSpecificOutput.additionalContext + '\n';
-        log('Injected context from SessionStart hook');
+    log(`Resolved ${sessionStartHooks.length} SessionStart hooks for execution`);
+
+    for (const hook of sessionStartHooks) {
+      try {
+        const result = await hook({ hook_event_name: 'SessionStart' } as any, undefined, { signal: new AbortController().signal } as any);
+        const output = result as any;
+        if (output && output.hookSpecificOutput) {
+          const injectedContext = output.hookSpecificOutput.additionalContext || output.hookSpecificOutput.additionalSystemContext;
+          if (injectedContext) {
+            cachedSessionStartHooksOutput += '\n' + injectedContext + '\n';
+            log('Injected context from SessionStart hook');
+          }
+        }
+      } catch (err) {
+        log(`SessionStart hook error: ${err instanceof Error ? err.message : String(err)}`);
       }
-    } catch (err) {
-      log(`SessionStart hook error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  additionalContext += cachedSessionStartHooksOutput;
 
   const finalAdditionalContext = additionalContext.trim() || undefined;
 
@@ -1039,6 +1048,21 @@ async function runQuery(
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically
   const extraDirs: string[] = [];
   const extraBase = '/workspace/extra';
+
+  if (finalAdditionalContext) {
+    // Inject system context natively via CLAUDE.md autoloader bypassing SDK limitations
+    const systemContextDir = '/tmp/nanoclaw-system-ctx';
+    if (!fs.existsSync(systemContextDir)) fs.mkdirSync(systemContextDir, { recursive: true });
+    fs.writeFileSync(path.join(systemContextDir, 'CLAUDE.md'), `<system-reminder>\n${finalAdditionalContext}\n</system-reminder>\n\n`);
+    extraDirs.push(systemContextDir);
+    log('Propagated system context via dynamic SDK CLAUDE.md autoloader');
+  }
+
+  // Push the original pristine prompt tightly coupled to the message flow
+  stream.push(prompt);
+
+  // Discover additional directories mounted at /workspace/extra/*
+  // These are passed to the SDK so their CLAUDE.md files are loaded automatically
   if (fs.existsSync(extraBase)) {
     for (const entry of fs.readdirSync(extraBase)) {
       const fullPath = path.join(extraBase, entry);
@@ -1100,9 +1124,7 @@ async function runQuery(
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: resumeAt,
-        systemPrompt: finalAdditionalContext
-          ? { type: 'preset' as const, preset: 'claude_code' as const, append: finalAdditionalContext }
-          : undefined,
+        systemPrompt: undefined,
         allowedTools: [
           'Bash',
           'Read', 'Write', 'Edit', 'Glob', 'Grep',

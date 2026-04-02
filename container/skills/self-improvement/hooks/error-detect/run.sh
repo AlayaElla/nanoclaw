@@ -7,22 +7,22 @@ set -e
 # The CLAUDE_TOOL_OUTPUT env variable is passed by the dispatcher
 OUTPUT="${CLAUDE_TOOL_OUTPUT:-}"
 
+shopt -s nocasematch
+
 ERROR_PATTERNS=(
     "error:"
-    "Error:"
-    "ERROR:"
+    "[error]"
     "failed"
-    "FAILED"
     "command not found"
-    "No such file"
-    "Permission denied"
+    "no such file"
+    "permission denied"
     "fatal:"
-    "Exception"
-    "Traceback"
-    "npm ERR!"
-    "ModuleNotFoundError"
-    "SyntaxError"
-    "TypeError"
+    "exception"
+    "traceback"
+    "npm err!"
+    "modulenotfounderror"
+    "syntaxerror"
+    "typeerror"
     "exit code"
     "non-zero"
 )

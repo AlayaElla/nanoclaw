@@ -134,6 +134,11 @@ describe('stripInternalTags', () => {
     expect(stripInternalTags('<internal>only this</internal>')).toBe('');
   });
 
+  it('drops orphaned closing tags and everything before them (leaked reasoning)', () => {
+    const text = 'This is leaked reasoning\n</internal>\nActual answer';
+    expect(stripInternalTags(text)).toBe('Actual answer');
+  });
+
   it('preserves internal tags inside inline code blocks', () => {
     const text = 'Use `<internal>...</internal>` for thinking.';
     expect(stripInternalTags(text)).toBe(text);

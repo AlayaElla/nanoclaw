@@ -1,7 +1,7 @@
 ---
 name: self-improvement-error-detect
-hookEvent: PostToolUse
-matcher: Bash
+hookEvent: PostToolUse, PostToolUseFailure
+matcher: Bash, mcp__context-mode__ctx_execute, mcp__context-mode__ctx_batch_execute, run_command
 entry: ./run.sh
 requires:
   bins:

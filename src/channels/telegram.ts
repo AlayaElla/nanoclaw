@@ -19,6 +19,7 @@ import {
 } from '../types.js';
 
 import { GroupQueue } from '../group-queue.js';
+import telegramify from 'telegramify-markdown';
 
 /**
  * Send a message with Telegram Markdown parse mode, falling back to plain text.
@@ -30,11 +31,13 @@ async function sendTelegramMessage(
   chatId: string | number,
   text: string,
 ): Promise<ReturnType<Bot['api']['sendMessage']>> {
+  const tgText = telegramify(text, 'escape');
+
   try {
-    return await api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-  } catch (err) {
-    logger.debug({ err }, 'Markdown send failed, falling back to plain text');
-    return await api.sendMessage(chatId, text);
+    return await api.sendMessage(chatId, tgText, { parse_mode: 'MarkdownV2' });
+  } catch (err: any) {
+    logger.debug({ err: err.message || err }, 'MarkdownV2 send failed, falling back to plain text');
+    return await api.sendMessage(chatId, text); // Fall back to original raw text
   }
 }
 
@@ -171,7 +174,11 @@ export class TelegramChannel implements Channel {
           group,
           groupQueue: this.opts.groupQueue,
           reply: async (text: string) => {
-            await ctx.reply(text, { parse_mode: 'Markdown' });
+            try {
+              await ctx.reply(telegramify(text, 'escape'), { parse_mode: 'MarkdownV2' });
+            } catch (err: any) {
+              await ctx.reply(text);
+            }
           },
           onMessage: this.opts.onMessage,
         },
@@ -956,8 +963,8 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       try {
-        await this.bot.api.editMessageText(numericId, messageId, text, {
-          parse_mode: 'Markdown',
+        await this.bot.api.editMessageText(numericId, messageId, telegramify(text, 'escape'), {
+          parse_mode: 'MarkdownV2',
         });
       } catch {
         await this.bot.api.editMessageText(numericId, messageId, text);

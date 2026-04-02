@@ -362,46 +362,70 @@ function loadExternalHooksWithLogging(): { hooks: Array<{ event: string; matcher
 
     if (!checkPassed) continue;
 
-    log(`Loaded external hook ${def.name} (${def.hookEvent}) from ${entryPath}`);
-    loadedHooks.push({
-      event: def.hookEvent,
-      matcher: def.matcher,
-      caller: async (input: unknown) => {
-        try {
-          let toolOutput = '';
-          if (input && typeof input === 'object' && 'tool_response' in input) {
-            toolOutput = (input as any).tool_response || '';
-          }
+    const matchers = def.matcher ? def.matcher.split(',').map(m => m.trim()).filter(Boolean) : [''];
+    if (matchers.length === 0) matchers.push('');
 
-          log(`Running external hook ${def.name}`);
+    const events = def.hookEvent ? def.hookEvent.split(',').map(e => e.trim()).filter(Boolean) : [''];
 
-          const { stdout } = await execFileAsync(entryPath, [], {
-            cwd: def.baseDir,
-            env: {
-              ...process.env,
-              CLAUDE_TOOL_OUTPUT: toolOutput,
-              CLAUDE_TOOL_NAME: (input as any)?.tool_name || '',
-              CLAUDE_HOOK_EVENT: def.hookEvent,
-            }
-          });
-
-          if (stdout.trim()) {
-            log(`External hook ${def.name} returned additional context`);
-            return {
-              hookSpecificOutput: {
-                hookEventName: def.hookEvent as any,
-                additionalContext: stdout.trim()
+    for (const hookEvt of events) {
+      for (const m of matchers) {
+        log(`Loaded external hook ${def.name} (${hookEvt}) from ${entryPath} [matcher: ${m || '*'}]`);
+        loadedHooks.push({
+          event: hookEvt,
+          matcher: m === '*' ? '' : m,
+          caller: async (input: unknown) => {
+            try {
+              let toolOutput = '';
+              if (input && typeof input === 'object') {
+                if ('tool_response' in input) {
+                  const resp = (input as any).tool_response;
+                  toolOutput = typeof resp === 'string' ? resp : JSON.stringify(resp || '');
+                }
+                if ('tool_output' in input) {
+                  const gout = (input as any).tool_output;
+                  if (gout) {
+                    toolOutput += '\n' + JSON.stringify(gout);
+                  }
+                }
+                if ('error' in input) {
+                  const errOut = (input as any).error;
+                  if (errOut) {
+                    toolOutput += '\n' + (typeof errOut === 'string' ? errOut : JSON.stringify(errOut));
+                  }
+                }
               }
-            };
-          }
 
-          log(`External hook ${def.name} completed with no additional context`);
-        } catch (err) {
-          log(`Error running external hook ${def.name}: ${formatHookExecutionError(err)}`);
-        }
-        return {};
+              log(`Running external hook ${def.name}`);
+
+              const { stdout } = await execFileAsync(entryPath, [], {
+                cwd: def.baseDir,
+                env: {
+                  ...process.env,
+                  CLAUDE_TOOL_OUTPUT: toolOutput,
+                  CLAUDE_TOOL_NAME: (input as any)?.tool_name || '',
+                  CLAUDE_HOOK_EVENT: hookEvt,
+                }
+              });
+
+              if (stdout.trim()) {
+                log(`External hook ${def.name} returned additional context`);
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: hookEvt as any,
+                    additionalContext: stdout.trim()
+                  }
+                };
+              }
+
+              log(`External hook ${def.name} completed with no additional context`);
+            } catch (err) {
+              log(`Error running external hook ${def.name}: ${formatHookExecutionError(err)}`);
+            }
+            return {};
+          }
+        });
       }
-    });
+    }
   }
 
   const bootLog = warnings.length > 0 ? `[External Hooks Loader Warnings]\n${warnings.join('\n')}` : '';

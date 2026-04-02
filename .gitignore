@@ -44,3 +44,6 @@ agents-sdk-docs
 litellm/spend.db
 litellm/litellm.log
 litellm/litellm.jsonl
+
+# AI Assistant configs
+GEMINI.md

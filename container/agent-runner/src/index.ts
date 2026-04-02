@@ -1164,36 +1164,74 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  let alreadyInjectedDuringQuery = false;
+
+  // ─── Mid-query user message injection ─────────────────────────────────
+  //
+  // KNOWN LIMITATION (SDK constraint):
+  // The SDK's PostToolUse hook `additionalContext` is injected into the
+  // current API request at runtime, but is NOT written to the session
+  // transcript JSONL.  This means mid-query user messages injected here
+  // are visible to the model in the current turn but will be LOST when
+  // the session is resumed (container restart / new conversation).
+  //
+  // In contrast, tool_result blocks are first-class conversation messages
+  // that the SDK both sends to the API and persists to the transcript.
+  //
+  // The dual-guarantee approach (inject via additionalContext for immediate
+  // visibility + re-fetch as next query prompt for persistence) was tested
+  // but causes double responses — the model processes the same message
+  // twice.  Until the SDK supports persistent hook injection or we can
+  // inject messages as proper user turns via MessageStream.push() without
+  // losing mid-turn visibility, this limitation is accepted.
+  //
+  // TODO: Revisit when the SDK exposes a way to persist hook-injected
+  // content, or when we can intercept the raw messages array at the
+  // gateway proxy level to insert proper {type:"text"} content blocks
+  // alongside tool_result in the user message.
+  // ──────────────────────────────────────────────────────────────────────
   const injectionHook: HookCallback = async () => {
     let injectedMessages: string[] = [];
 
-    if (!pendingAvailableDuringQuery) {
-      const drain = drainIpcInput();
-      if (drain.pendingAvailable) pendingAvailableDuringQuery = true;
-      if (drain.legacyMessages.length > 0) {
-        pendingAvailableDuringQuery = true;
-        legacyMessagesBuffer.push(...drain.legacyMessages);
-      }
+    // Check IPC for new pending signals (even if we already injected once)
+    const drain = drainIpcInput();
+    if (drain.pendingAvailable) {
+      pendingAvailableDuringQuery = true;
+      alreadyInjectedDuringQuery = false; // new messages arrived, allow re-injection
     }
+    if (drain.legacyMessages.length > 0) {
+      pendingAvailableDuringQuery = true;
+      alreadyInjectedDuringQuery = false;
+      legacyMessagesBuffer.push(...drain.legacyMessages);
+    }
+
+    // Skip if we already injected for this batch (avoid re-injecting same messages on every tool use)
+    if (alreadyInjectedDuringQuery) return {};
 
     if (pendingAvailableDuringQuery) {
       const batch = await fetchPendingBatch(containerInput, updatedConsumedThroughTimestamp || consumedThroughTimestamp);
-      pendingAvailableDuringQuery = false;
+      // Don't reset pendingAvailableDuringQuery — leave it true so the
+      // query loop re-fetches these messages as a proper persistent prompt
+      // after the current query ends.  The additionalContext injection below
+      // gives the model immediate visibility, but hook-injected context is
+      // NOT persisted in the SDK transcript.  Re-fetching ensures persistence.
 
       if (batch.success && batch.pending && batch.prompt) {
         let msg = typeof batch.prompt === 'string' ? batch.prompt : JSON.stringify(batch.prompt);
         injectedMessages.push(msg);
-        updatedConsumedThroughTimestamp = batch.consumedThroughTimestamp;
+        // NOTE: intentionally NOT advancing updatedConsumedThroughTimestamp
+        // so the same messages are re-fetched as the next query's formal prompt
       }
       if (legacyMessagesBuffer.length > 0) {
+        // Inject a copy but keep originals in buffer for the query loop
         injectedMessages.push(...legacyMessagesBuffer);
-        legacyMessagesBuffer = [];
       }
     }
 
     if (injectedMessages.length > 0) {
       const combined = injectedMessages.join('\\n');
-      log(`Hook injected new user messages halfway through query.`);
+      log(`Injected ${injectedMessages.length} new user message(s) into context.`);
+      alreadyInjectedDuringQuery = true; // prevent re-injection until new messages arrive
 
       // Also apply UserPromptSubmit to dynamically injected messages inside queries
       await invokeUserPromptSubmit(combined);
@@ -1201,7 +1239,7 @@ async function runQuery(
       return {
         hookSpecificOutput: {
           hookEventName: 'PostToolUse',
-          additionalContext: `[系统通知/System Message]\\n用户发来了新的消息(New Message arrived)。请阅读并在下一步决策中响应以下内容：\\n\\n${combined}`
+          additionalContext: combined
         }
       };
     }

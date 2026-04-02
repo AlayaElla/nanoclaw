@@ -26,7 +26,8 @@ function persistAlert(obj: Record<string, unknown>, msg: string): void {
       detailParts.push(`stderr: ${tail}`);
     }
     if (typeof obj.error === 'string') detailParts.push(`error: ${obj.error}`);
-    if (typeof obj.logFile === 'string') detailParts.push(`log: ${obj.logFile}`);
+    if (typeof obj.logFile === 'string')
+      detailParts.push(`log: ${obj.logFile}`);
     if (typeof err === 'object' && err !== null && err.stack) {
       detailParts.push(`stack: ${String(err.stack).slice(0, 300)}`);
     }

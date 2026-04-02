@@ -1233,7 +1233,7 @@ async function runQuery(
             },
           },
           'context-mode': {
-            command: 'context-mode',
+            command: '/app/node_modules/.bin/context-mode',
             args: ['--transport', 'stdio'],
             env: {
               ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),

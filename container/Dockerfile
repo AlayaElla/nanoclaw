@@ -53,8 +53,8 @@ RUN pip3 install --break-system-packages requests
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install agent-browser and claude-code globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code
+# Install bun, agent-browser and claude-code globally
+RUN npm install -g bun agent-browser @anthropic-ai/claude-code
 
 # Create app directory
 WORKDIR /app

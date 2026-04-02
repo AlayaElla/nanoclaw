@@ -41,8 +41,10 @@ export function stripInternalTags(text: string): string {
   });
 
   // Strip internal tags on the unprotected text
-  let strippedText = protectedText
-    .replace(/<internal>[\s\S]*?(<\/internal>|$)/g, '');
+  let strippedText = protectedText.replace(
+    /<internal>[\s\S]*?(<\/internal>|$)/g,
+    '',
+  );
 
   // If the string contains an orphaned </internal>, it means the model leaked
   // its internal reasoning into the normal text block without an opening tag.

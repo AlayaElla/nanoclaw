@@ -36,7 +36,10 @@ async function sendTelegramMessage(
   try {
     return await api.sendMessage(chatId, tgText, { parse_mode: 'MarkdownV2' });
   } catch (err: any) {
-    logger.debug({ err: err.message || err }, 'MarkdownV2 send failed, falling back to plain text');
+    logger.debug(
+      { err: err.message || err },
+      'MarkdownV2 send failed, falling back to plain text',
+    );
     return await api.sendMessage(chatId, text); // Fall back to original raw text
   }
 }
@@ -175,7 +178,9 @@ export class TelegramChannel implements Channel {
           groupQueue: this.opts.groupQueue,
           reply: async (text: string) => {
             try {
-              await ctx.reply(telegramify(text, 'escape'), { parse_mode: 'MarkdownV2' });
+              await ctx.reply(telegramify(text, 'escape'), {
+                parse_mode: 'MarkdownV2',
+              });
             } catch (err: any) {
               await ctx.reply(text);
             }
@@ -963,9 +968,14 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       try {
-        await this.bot.api.editMessageText(numericId, messageId, telegramify(text, 'escape'), {
-          parse_mode: 'MarkdownV2',
-        });
+        await this.bot.api.editMessageText(
+          numericId,
+          messageId,
+          telegramify(text, 'escape'),
+          {
+            parse_mode: 'MarkdownV2',
+          },
+        );
       } catch {
         await this.bot.api.editMessageText(numericId, messageId, text);
       }

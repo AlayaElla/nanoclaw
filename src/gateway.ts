@@ -128,6 +128,12 @@ export class GatewayServer {
       return;
     }
 
+    if (req.method === 'GET' && req.url === '/favicon.ico') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     const remoteIp = req.socket.remoteAddress || '';
     const isLocal =
       remoteIp === '127.0.0.1' ||

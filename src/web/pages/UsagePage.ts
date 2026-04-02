@@ -4,12 +4,18 @@ import {
   getUsageSummary,
   getUsageTimelineByDimension,
   getUsageByDimension,
+  getUsageLogs,
+  getUsageLogsCount,
 } from '../data.js';
 import { getAllTasks, getAllRegisteredGroups } from '../../db.js';
 
 export class UsagePage extends Page<any> {
   render(props: { query: URLSearchParams }, lang: Lang): string {
     const days = parseInt(props.query?.get('days') || '1', 10);
+    const pageNum = parseInt(props.query?.get('page') || '1', 10);
+    const filterGroupId = props.query?.get('group_id') || undefined;
+    const sortCol = props.query?.get('sort') || 'time';
+    const sortOrder = props.query?.get('order') || 'desc';
     const dimension = (props.query?.get('dim') || 'total') as
       | 'total'
       | 'model'
@@ -89,7 +95,7 @@ export class UsagePage extends Page<any> {
         const style = active
           ? 'background: var(--accent); color: #fff; box-shadow: 0 4px 12px var(--accent-glow);'
           : 'background: rgba(0,0,0,0.04); color: var(--text-muted);';
-        return `<a href="?section=usage&days=${tab.value}&dim=${dimension}" style="padding: 6px 18px; border-radius: 20px; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${tab.label}</a>`;
+        return `<a href="?section=usage&days=${tab.value}&dim=${dimension}${filterGroupId ? `&group_id=${filterGroupId}` : ''}" style="padding: 6px 18px; border-radius: 20px; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${tab.label}</a>`;
       })
       .join('');
 
@@ -108,7 +114,7 @@ export class UsagePage extends Page<any> {
         const style = active
           ? 'background: var(--purple); color: #fff; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);'
           : 'background: rgba(0,0,0,0.04); color: var(--text-muted);';
-        return `<a href="?section=usage&days=${days}&dim=${dim.value}" style="padding: 6px 16px; border-radius: 8px; font-size: var(--fs-sm); font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${dim.label}</a>`;
+        return `<a href="?section=usage&days=${days}&dim=${dim.value}${filterGroupId ? `&group_id=${filterGroupId}` : ''}" style="padding: 6px 16px; border-radius: 8px; font-size: var(--fs-sm); font-weight: 600; text-decoration: none; transition: all 0.3s ease; ${style}">${dim.label}</a>`;
       })
       .join('');
 
@@ -397,11 +403,11 @@ export class UsagePage extends Page<any> {
 
       html += `<div class="card" style="margin-top: 24px;">`;
       html += `<div class="card-title">${lTitle}</div>`;
-      html += `<table><thead><tr><th>${t(lang, 'Name', '名称')}</th><th>${t(lang, 'Tokens', '消耗 Token')}</th><th>${t(lang, 'Requests', '请求次数')}</th></tr></thead><tbody>`;
+      html += `<div style="overflow-x: auto;"><table><thead><tr><th style="width: 40%; min-width: 150px;">${t(lang, 'Name', '名称')}</th><th>${t(lang, 'Tokens', '消耗 Token')}</th><th>${t(lang, 'Requests', '请求次数')}</th></tr></thead><tbody>`;
 
       for (const row of breakdown) {
         html += `<tr>
-          <td data-label="${t(lang, 'Name', '名称')}"><span class="badge badge-purple">${esc(row.name)}</span></td>
+          <td data-label="${t(lang, 'Name', '名称')}"><span class="badge badge-purple" style="max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle;">${esc(row.name)}</span></td>
           <td data-label="${t(lang, 'Tokens', '消耗 Token')}">${fmtNum(row.total_tokens)}</td>
           <td data-label="${t(lang, 'Requests', '请求次数')}">${fmtNum(row.request_count)}</td>
         </tr>`;
@@ -409,7 +415,131 @@ export class UsagePage extends Page<any> {
       if (breakdown.length === 0) {
         html += `<tr><td colspan="3" class="empty-state">${t(lang, 'No data', '暂无数据')}</td></tr>`;
       }
+      html += `</tbody></table></div></div>`;
+    } else {
+      const limit = 20;
+      const offset = (pageNum - 1) * limit;
+      const logsCount = getUsageLogsCount(days, filterGroupId);
+      const totalPages = Math.ceil(logsCount / limit);
+      const logs = getUsageLogs(
+        days,
+        limit,
+        offset,
+        filterGroupId,
+        sortCol,
+        sortOrder,
+      );
+
+      let innerGroupFilterHtml = `<select onchange="if(window.nanoSoftNavigate){window.nanoSoftNavigate('?section=usage&days=${days}&dim=${dimension}&sort=${sortCol}&order=${sortOrder}&group_id=' + this.value + '#message-details');}else{window.location.href='?section=usage&days=${days}&dim=${dimension}&sort=${sortCol}&order=${sortOrder}&group_id=' + this.value + '#message-details';}" style="padding: 6px 12px; border-radius: 8px; border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-main); font-size: 13px; outline: none; margin-left: auto;">`;
+      innerGroupFilterHtml += `<option value="">${t(lang, 'All Groups', '所有群组')}</option>`;
+      for (const g of Object.values(groups) as any[]) {
+        if (g.folder) {
+          const selected = filterGroupId === g.folder ? 'selected' : '';
+          innerGroupFilterHtml += `<option value="${g.folder}" ${selected}>${esc(g.name || g.folder)}</option>`;
+        }
+      }
+      innerGroupFilterHtml += `</select>`;
+
+      html += `<div class="card" id="message-details" style="margin-top: 24px;">`;
+      html += `<div class="card-title" style="display: flex; align-items: center; justify-content: space-between;">
+        <span>${t(lang, 'Message Details', '消息明细')} <span style="font-size:13px; color:var(--text-muted); font-weight: normal; margin-left: 8px;">(${logsCount})</span></span>
+        ${innerGroupFilterHtml}
+      </div>`;
+
+      const getSortUrl = (col: string) => {
+        const newOrder =
+          sortCol === col && sortOrder === 'desc' ? 'asc' : 'desc';
+        return `?section=usage&days=${days}&dim=${dimension}&page=1${filterGroupId ? `&group_id=${filterGroupId}` : ''}&sort=${col}&order=${newOrder}#message-details`;
+      };
+
+      const renderTh = (col: string, label: string) => {
+        const arrow =
+          sortCol === col ? (sortOrder === 'desc' ? ' ↓' : ' ↑') : '';
+        const style =
+          sortCol === col
+            ? 'color: var(--text-main); font-weight: 700;'
+            : 'color: inherit;';
+        return `<th><a href="${getSortUrl(col)}" style="text-decoration: none; display: flex; align-items: center; white-space: nowrap; ${style}">${label}${arrow}</a></th>`;
+      };
+
+      html += `<div style="overflow-x: auto;"><table><thead><tr>
+        ${renderTh('time', t(lang, 'Time', '时间'))}
+        ${renderTh('source', t(lang, 'Source', '来源'))}
+        ${renderTh('model', t(lang, 'Model', '模型'))}
+        ${renderTh('input', t(lang, 'Input', '输入'))}
+        ${renderTh('output', t(lang, 'Output', '输出'))}
+        ${renderTh('total', t(lang, 'Total', '总计'))}
+      </tr></thead><tbody>`;
+
+      for (const log of logs) {
+        let sourceName = resolveName(log.task_id || 'unknown', 'task_id');
+        if (
+          log.task_name &&
+          log.task_name !== 'null' &&
+          log.task_name !== 'unknown'
+        ) {
+          sourceName =
+            log.task_name.length > 25
+              ? log.task_name.slice(0, 25) + '...'
+              : log.task_name;
+        }
+        const modelName = log.model || 'unknown';
+        const formattedTime = log.timestamp ? log.timestamp.split('.')[0] : '-';
+
+        html += `<tr>
+          <td data-label="${t(lang, 'Time', '时间')}" style="color: var(--text-muted); font-size: var(--fs-sm);">${esc(formattedTime)}</td>
+          <td data-label="${t(lang, 'Source', '来源')}"><span class="badge badge-purple">${esc(sourceName)}</span></td>
+          <td data-label="${t(lang, 'Model', '模型')}"><span class="badge" style="background: rgba(0,0,0,0.04); color: var(--text-muted);">${esc(modelName)}</span></td>
+          <td data-label="${t(lang, 'Input', '输入')}" style="color: var(--purple); font-weight: 500;">${fmtNum(log.input_tokens || 0)}</td>
+          <td data-label="${t(lang, 'Output', '输出')}" style="color: var(--accent); font-weight: 500;">${fmtNum(log.output_tokens || 0)}</td>
+          <td data-label="${t(lang, 'Total', '总计')}" style="font-weight: 600;">${fmtNum(log.total_tokens || 0)}</td>
+        </tr>`;
+      }
+      if (logs.length === 0) {
+        html += `<tr><td colspan="6" class="empty-state">${t(lang, 'No data', '暂无数据')}</td></tr>`;
+      }
       html += `</tbody></table></div>`;
+
+      if (totalPages > 1) {
+        html += `<div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(0,0,0,0.06);">`;
+
+        const prevDisabled =
+          pageNum <= 1 ? 'pointer-events: none; opacity: 0.5;' : '';
+        const nextDisabled =
+          pageNum >= totalPages ? 'pointer-events: none; opacity: 0.5;' : '';
+        const getUrl = (p: number) =>
+          `?section=usage&days=${days}&dim=${dimension}&page=${p}${filterGroupId ? `&group_id=${filterGroupId}` : ''}&sort=${sortCol}&order=${sortOrder}#message-details`;
+
+        html += `<a href="${getUrl(pageNum - 1)}" class="btn-secondary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; ${prevDisabled}">${t(lang, 'Prev', '上一页')}</a>`;
+
+        let startPage = Math.max(1, pageNum - 2);
+        let endPage = Math.min(totalPages, pageNum + 2);
+
+        if (startPage > 1) {
+          html += `<a href="${getUrl(1)}" class="btn-secondary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none;">1</a>`;
+          if (startPage > 2)
+            html += `<span style="color: var(--text-muted);">...</span>`;
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+          if (i === pageNum) {
+            html += `<span class="btn-primary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; background: var(--accent); color: white;">${i}</span>`;
+          } else {
+            html += `<a href="${getUrl(i)}" class="btn-secondary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; color: var(--text-main); background: rgba(0,0,0,0.04);">${i}</a>`;
+          }
+        }
+
+        if (endPage < totalPages) {
+          if (endPage < totalPages - 1)
+            html += `<span style="color: var(--text-muted);">...</span>`;
+          html += `<a href="${getUrl(totalPages)}" class="btn-secondary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; color: var(--text-main); background: rgba(0,0,0,0.04);">${totalPages}</a>`;
+        }
+
+        html += `<a href="${getUrl(pageNum + 1)}" class="btn-secondary" style="padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; ${nextDisabled}">${t(lang, 'Next', '下一页')}</a>`;
+        html += `</div>`;
+      }
+
+      html += `</div>`;
     }
 
     return html;

@@ -54,7 +54,7 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install agent-browser and claude-code globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code context-mode
+RUN npm install -g agent-browser @anthropic-ai/claude-code
 
 # Create app directory
 WORKDIR /app
@@ -62,9 +62,11 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY container/agent-runner/package*.json ./
 
-# Install dependencies and link globally-installed context-mode into local node_modules
-# so createRequire() can resolve context-mode and find its hook scripts at runtime
-RUN npm install && npm link context-mode
+# First copy our custom context-mode-ref
+COPY .context-mode-ref/ /app/.context-mode-ref/
+
+# Install the custom context-mode and other dependencies
+RUN npm install /app/.context-mode-ref && npm install
 
 # Copy source code
 COPY container/agent-runner/ ./

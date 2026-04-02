@@ -11,7 +11,7 @@ const SECTION_ICONS: Record<Section, string> = {
 };
 const LABELS_ZH: Record<Section, string> = {
   overview: '概览',
-  agent: 'Agent',
+  agent: '智能体',
   tasks: '任务',
   docs: '文档',
   usage: '用量',
@@ -531,89 +531,141 @@ export class Layout {
         checkSystemStatus();
         setInterval(checkSystemStatus, 1000);
 
-        // Global Auto Refresh for dashboards
+        // Global SPA Soft Navigation and Auto Refresh
         const autoRefreshSections = ['overview', 'agent', 'tasks', 'usage'];
-        const currentSection = new URLSearchParams(location.search).get('section') || 'overview';
-        if (autoRefreshSections.includes(currentSection)) {
-          function updateDOM(oldNode, newNode) {
-            if (!oldNode || !newNode) return;
-            
-            if (oldNode.tagName === 'DIALOG' && oldNode.open) {
-              return;
-            }
+        
+        function updateDOM(oldNode, newNode) {
+          if (!oldNode || !newNode) return;
+          
+          if (oldNode.tagName === 'DIALOG' && oldNode.open) {
+            return;
+          }
 
-            if (oldNode.nodeType !== newNode.nodeType) {
-              oldNode.replaceWith(newNode.cloneNode(true));
+          if (oldNode.nodeType !== newNode.nodeType) {
+            oldNode.replaceWith(newNode.cloneNode(true));
+            return;
+          }
+          if (oldNode.nodeType === Node.TEXT_NODE) {
+            if (oldNode.textContent !== newNode.textContent) {
+              oldNode.textContent = newNode.textContent;
+            }
+            return;
+          }
+          if (oldNode.nodeType === Node.ELEMENT_NODE) {
+            if (oldNode.tagName === 'SCRIPT') {
+              if (oldNode.textContent !== newNode.textContent || oldNode.src !== newNode.src) {
+                const newScript = document.createElement('script');
+                Array.from(newNode.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+                newScript.textContent = newNode.textContent;
+                oldNode.replaceWith(newScript);
+              }
               return;
             }
-            if (oldNode.nodeType === Node.TEXT_NODE) {
-              if (oldNode.textContent !== newNode.textContent) {
-                oldNode.textContent = newNode.textContent;
-              }
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(oldNode.tagName) && document.activeElement === oldNode) {
               return;
             }
-            if (oldNode.nodeType === Node.ELEMENT_NODE) {
-              if (['INPUT', 'TEXTAREA', 'SELECT'].includes(oldNode.tagName) && document.activeElement === oldNode) {
-                return;
+            if (oldNode.getAttribute('data-nomorph') === 'true' && newNode.getAttribute('data-nomorph') === 'true') {
+              return;
+            }
+            const oldAttrs = oldNode.attributes;
+            const newAttrs = newNode.attributes;
+            for (let i = oldAttrs.length - 1; i >= 0; i--) {
+              const name = oldAttrs[i].name;
+              if (!newNode.hasAttribute(name)) {
+                if ((oldNode.tagName === 'DIALOG' || oldNode.tagName === 'DETAILS') && name === 'open') continue;
+                oldNode.removeAttribute(name);
               }
-              if (oldNode.getAttribute('data-nomorph') === 'true' && newNode.getAttribute('data-nomorph') === 'true') {
-                return;
+            }
+            for (let i = 0; i < newAttrs.length; i++) {
+              const name = newAttrs[i].name;
+              const val = newAttrs[i].value;
+              if (oldNode.getAttribute(name) !== val) {
+                oldNode.setAttribute(name, val);
               }
-              const oldAttrs = oldNode.attributes;
-              const newAttrs = newNode.attributes;
-              for (let i = oldAttrs.length - 1; i >= 0; i--) {
-                const name = oldAttrs[i].name;
-                if (!newNode.hasAttribute(name)) {
-                  if (oldNode.tagName === 'DIALOG' && name === 'open') continue;
-                  oldNode.removeAttribute(name);
-                }
-              }
-              for (let i = 0; i < newAttrs.length; i++) {
-                const name = newAttrs[i].name;
-                const val = newAttrs[i].value;
-                if (oldNode.getAttribute(name) !== val) {
-                  oldNode.setAttribute(name, val);
-                }
-              }
-              const oldChildren = Array.from(oldNode.childNodes);
-              const newChildren = Array.from(newNode.childNodes);
-              const max = Math.max(oldChildren.length, newChildren.length);
-              for (let i = 0; i < max; i++) {
-                if (i >= oldChildren.length) {
-                  oldNode.appendChild(newChildren[i].cloneNode(true));
-                } else if (i >= newChildren.length) {
-                  oldNode.removeChild(oldChildren[i]);
-                } else {
-                  updateDOM(oldChildren[i], newChildren[i]);
-                }
+            }
+            const oldChildren = Array.from(oldNode.childNodes);
+            const newChildren = Array.from(newNode.childNodes);
+            const max = Math.max(oldChildren.length, newChildren.length);
+            for (let i = 0; i < max; i++) {
+              if (i >= oldChildren.length) {
+                oldNode.appendChild(newChildren[i].cloneNode(true));
+              } else if (i >= newChildren.length) {
+                oldNode.removeChild(oldChildren[i]);
+              } else {
+                updateDOM(oldChildren[i], newChildren[i]);
               }
             }
           }
-
-          setInterval(() => {
-            const url = location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now();
-            fetch(url).then(r => r.text()).then(html => {
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(html, 'text/html');
-              const newMain = doc.querySelector('.main');
-              const oldMain = document.querySelector('.main');
-              if (newMain && oldMain) {
-                updateDOM(oldMain, newMain);
-                if (currentSection === 'agent') {
-                  const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];
-                  document.querySelectorAll('.agent-card').forEach(card => {
-                    const name = card.dataset.agent;
-                    const idx = localStorage.getItem('card-color-' + name);
-                    if (idx !== null) {
-                      const strip = card.querySelector('.color-strip');
-                      if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];
-                    }
-                  });
-                }
-              }
-            }).catch(() => {});
-          }, 1000);
         }
+
+        function fetchAndMerge(url) {
+          fetch(url).then(r => r.text()).then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newMain = doc.querySelector('.main');
+            const oldMain = document.querySelector('.main');
+            if (newMain && oldMain) {
+              updateDOM(oldMain, newMain);
+              const activeSection = new URLSearchParams(location.search).get('section') || 'overview';
+              if (activeSection === 'agent') {
+                const cardColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#db6d28','#f778ba','#79c0ff','#7ee787'];
+                document.querySelectorAll('.agent-card').forEach(card => {
+                  const name = card.dataset.agent;
+                  const idx = localStorage.getItem('card-color-' + name);
+                  if (idx !== null) {
+                    const strip = card.querySelector('.color-strip');
+                    if (strip) strip.style.background = cardColors[parseInt(idx, 10)] || cardColors[0];
+                  }
+                });
+              }
+            }
+          }).catch(() => {});
+        }
+
+        window.nanoSoftNavigate = function(url, push = true) {
+          if (push) history.pushState(null, '', url);
+          fetchAndMerge(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now());
+          const hash = url.split('#')[1];
+          if (hash) {
+            setTimeout(function() {
+              var target = document.getElementById(hash);
+              var main = document.querySelector('.main');
+              if (target && main) {
+                main.scrollTo({ top: target.offsetTop - 24, behavior: 'auto' });
+              }
+            }, 100);
+          }
+        };
+
+        setInterval(() => {
+          const currentSection = new URLSearchParams(location.search).get('section') || 'overview';
+          if (autoRefreshSections.includes(currentSection)) {
+            fetchAndMerge(location.href + (location.href.includes('?') ? '&' : '?') + 't=' + Date.now());
+          }
+        }, 1000);
+
+        window._currentSectOnLoad = new URLSearchParams(window.location.search).get('section') || 'overview';
+
+        document.addEventListener('click', function(e) {
+          const a = e.target.closest('a');
+          if (a && a.href && a.href.startsWith(window.location.origin) && !a.hasAttribute('download') && a.getAttribute('target') !== '_blank') {
+            const nextSect = new URL(a.href).searchParams.get('section') || 'overview';
+            if (window._currentSectOnLoad === nextSect) {
+              e.preventDefault();
+              window.nanoSoftNavigate(a.href);
+            }
+            // Otherwise, let the browser naturally navigate to the new section
+          }
+        });
+
+        window.addEventListener('popstate', function() {
+          const nextSect = new URLSearchParams(window.location.search).get('section') || 'overview';
+          if (window._currentSectOnLoad === nextSect) {
+            window.nanoSoftNavigate(window.location.href, false);
+          } else {
+            window.location.reload();
+          }
+        });
       </script>
     </nav>
     <div class="main">
@@ -626,6 +678,17 @@ export class Layout {
         if (lastSection !== currentSection) {
           document.querySelector('.app').classList.add('animate-in');
           sessionStorage.setItem('nano_last_section', currentSection);
+        }
+        
+        // Handle custom scroll area hash jumps
+        if (window.location.hash) {
+          setTimeout(function() {
+            var target = document.querySelector(window.location.hash);
+            var main = document.querySelector('.main');
+            if (target && main) {
+              main.scrollTo({ top: target.offsetTop - 24, behavior: 'instant' });
+            }
+          }, 10);
         }
       })();
     </script>

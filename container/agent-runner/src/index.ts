@@ -575,6 +575,16 @@ function createToolUsageHintHook(): HookCallback {
     'mcp__nanoclaw__pause_task': 'pause_task({ task_id: string })',
     'mcp__nanoclaw__resume_task': 'resume_task({ task_id: string })',
     'mcp__nanoclaw__cancel_task': 'cancel_task({ task_id: string })',
+    'mcp__nanoclaw__x_post': 'x_post({ content: string })',
+    'mcp__nanoclaw__x_like': 'x_like({ tweet_url: string })',
+    'mcp__nanoclaw__x_reply': 'x_reply({ tweet_url: string, content: string })',
+    'mcp__nanoclaw__x_retweet': 'x_retweet({ tweet_url: string })',
+    'mcp__nanoclaw__x_quote': 'x_quote({ tweet_url: string, comment: string })',
+    'mcp__nanoclaw__x_trends': 'x_trends({ count?: number })',
+    'mcp__nanoclaw__get_cached_media': 'get_cached_media({ mediaId: string })',
+    'mcp__nanoclaw__describe_cached_image': 'describe_cached_image({ mediaId: string, prompt: string })',
+    'mcp__nanoclaw__describe_cached_video': 'describe_cached_video({ mediaId: string, prompt: string })',
+    'mcp__nanoclaw__transcribe_cached_audio': 'transcribe_cached_audio({ mediaId: string })',
     'TeamCreate': 'TeamCreate({ team_name: string, description?: string, agent_type?: string })',
     'SendMessage': 'SendMessage({ to: string, content: string })',
   };
@@ -582,7 +592,7 @@ function createToolUsageHintHook(): HookCallback {
   return async (input) => {
     const postInput = input as any;
     const toolName: string = postInput.tool_name || '';
-    const toolOutput = postInput.tool_response;
+    const toolOutput = postInput.tool_response || postInput.error;
 
     if (!toolOutput) return {};
 
@@ -622,7 +632,7 @@ function createToolUsageHintHook(): HookCallback {
  * Instead of spawning CLI processes, this intercepts stdout and dynamically
  * imports the context-mode hook scripts directly into the agent-runner process.
  */
-function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precompact' | 'sessionstart'): HookCallback {
+function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'posttoolusefailure' | 'precompact' | 'sessionstart' | 'userpromptsubmit'): HookCallback {
   return async (input, _toolUseId, _context) => {
     try {
       const { resolve } = await import('node:path');
@@ -648,7 +658,8 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
         }
         cmRoot = path.dirname(cmRoot);
       }
-      const scriptPath = resolve(cmRoot, 'hooks', `${hookName}.mjs`);
+      const scriptName = hookName === 'posttoolusefailure' ? 'posttooluse' : hookName;
+      const scriptPath = resolve(cmRoot, 'hooks', `${scriptName}.mjs`);
 
       // Context-mode hook scripts read from stdin and write to stdout.
       // We must mock these for the duration of the dynamic import.
@@ -657,7 +668,21 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'precomp
       const originalStdinSetEncoding = process.stdin.setEncoding;
       const originalStdinResume = process.stdin.resume;
 
-      const inputBuffer = Buffer.from(JSON.stringify(input) + '\n', 'utf-8');
+      let mappedInput: any = input;
+      if (hookName === 'posttoolusefailure') {
+        mappedInput = {
+          ...input,
+          hook_event_name: 'PostToolUse',
+          tool_response: (input as any).error || "Execution failed",
+          tool_output: { isError: true }
+        };
+      }
+
+      // DEBUG: dump raw hook input so we can see what the SDK passes
+      if (scriptName === 'posttooluse') {
+        try { fs.appendFileSync('/workspace/group/.posttooluse-debug.log', JSON.stringify(mappedInput) + '\n'); } catch {}
+      }
+      const inputBuffer = Buffer.from(JSON.stringify(mappedInput) + '\n', 'utf-8');
 
       // Mock stdin to immediately yield our Input JSON
       process.stdin.setEncoding = () => process.stdin;
@@ -1037,7 +1062,11 @@ async function runQuery(
 
     for (const hook of sessionStartHooks) {
       try {
-        const result = await hook({ hook_event_name: 'SessionStart' } as any, undefined, { signal: new AbortController().signal } as any);
+        const result = await hook({ 
+          hook_event_name: 'SessionStart',
+          source: (containerInput as any).sessionId ? 'resume' : 'startup',
+          sessionId: (containerInput as any).sessionId || 'pending'
+        } as any, undefined, { signal: new AbortController().signal } as any);
         const output = result as any;
         if (output && output.hookSpecificOutput) {
           const injectedContext = output.hookSpecificOutput.additionalContext || output.hookSpecificOutput.additionalSystemContext;
@@ -1069,6 +1098,30 @@ async function runQuery(
     extraDirs.push(systemContextDir);
     log('Propagated system context via dynamic SDK CLAUDE.md autoloader');
   }
+
+  const invokeUserPromptSubmit = async (text: string | any[]) => {
+    let rawText = '';
+    if (typeof text === 'string') {
+      rawText = text;
+    } else if (Array.isArray(text)) {
+      rawText = text.map(item => typeof item === 'string' ? item : JSON.stringify(item)).join('\\n');
+    }
+    if (!rawText || rawText.trim() === '') return;
+    try {
+      log('Triggering UserPromptSubmit manually for incoming messages');
+      const hook = createContextModeHook('userpromptsubmit');
+      await hook(
+        { hook_event_name: 'UserPromptSubmit', prompt: rawText, message: rawText, session_id: sessionId } as any,
+        undefined,
+        { signal: new AbortController().signal } as any
+      );
+    } catch (err) {
+      log(`UserPromptSubmit manual hook failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // Trigger UserPromptSubmit manually to persist user intents
+  await invokeUserPromptSubmit(prompt);
 
   // Push the original pristine prompt tightly coupled to the message flow
   stream.push(prompt);
@@ -1117,6 +1170,10 @@ async function runQuery(
     if (injectedMessages.length > 0) {
       const combined = injectedMessages.join('\\n');
       log(`Hook injected new user messages halfway through query.`);
+      
+      // Also apply UserPromptSubmit to dynamically injected messages inside queries
+      await invokeUserPromptSubmit(combined);
+
       return {
         hookSpecificOutput: {
           hookEventName: 'PostToolUse',
@@ -1205,6 +1262,10 @@ async function runQuery(
           PostToolUse: [
             { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttooluse'), injectionHook] },
             ...extHooks.filter(h => h.event === 'PostToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
+          ],
+          PostToolUseFailure: [
+            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttoolusefailure'), injectionHook] },
+            ...extHooks.filter(h => h.event === 'PostToolUseFailure').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           SessionStart: [
             { matcher: '', hooks: [createExternalBootHook(), createContextModeHook('sessionstart')] },

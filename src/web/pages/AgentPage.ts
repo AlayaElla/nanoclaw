@@ -15,11 +15,11 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
     const botsConfig = getAgentsConfig();
 
     let html = pageHeader(
-      t(lang, 'Agent', 'Agent'),
+      t(lang, 'Agent', '智能体'),
       t(
         lang,
         'Agent status, groups, messages, and role definitions.',
-        'Agent 状态、群组信息、消息与角色定义一览。',
+        '智能体状态、群组信息、消息与角色定义一览。',
       ),
     );
 
@@ -157,7 +157,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
           );
           if (groupClaudeContent) {
             html += `
-            <details class="agent-claude-md">
+            <details class="agent-claude-md" id="details-claude-${groupId}">
               <summary>${t(lang, 'Role Definition', '角色定义')} (${groupContext}/CLAUDE.md)</summary>
               <pre class="agent-claude-content">${esc(groupClaudeContent)}</pre>
             </details>`;
@@ -266,7 +266,7 @@ export class AgentPage extends Page<{ query: URLSearchParams }> {
     }
 
     if (agents.length === 0) {
-      html += `<div class="empty-state" style="grid-column: 1/-1">${t(lang, 'No agents found', '未找到 Agent')}</div>`;
+      html += `<div class="empty-state" style="grid-column: 1/-1">${t(lang, 'No agents found', '未找到智能体')}</div>`;
     }
 
     html += `</div>`;

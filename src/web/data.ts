@@ -63,7 +63,10 @@ export function openUsageDb(): Database.Database | null {
   }
 }
 
-export function getUsageSummary(days: number): {
+export function getUsageSummary(
+  days: number,
+  groupId?: string,
+): {
   total_tokens: number;
   input_tokens: number;
   output_tokens: number;
@@ -78,11 +81,12 @@ export function getUsageSummary(days: number): {
       request_count: 0,
     };
   try {
-    const row = db
-      .prepare(
-        `SELECT COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens, COUNT(*) as request_count FROM token_usage WHERE timestamp >= datetime('now', '-${days} days')`,
-      )
-      .get() as any;
+    const sql =
+      `SELECT COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens, COUNT(*) as request_count FROM token_usage WHERE timestamp >= datetime('now', '-${days} days')` +
+      (groupId ? ` AND group_id = ?` : ``);
+    const row = (
+      groupId ? db.prepare(sql).get(groupId) : db.prepare(sql).get()
+    ) as any;
     return (
       row || {
         total_tokens: 0,
@@ -107,6 +111,7 @@ export function getUsageByDimension(
   dimension: 'model' | 'group_id' | 'tool_name' | 'task_id',
   days: number,
   limit: number = 20,
+  groupId?: string,
 ): {
   name: string;
   total_tokens: number;
@@ -119,15 +124,14 @@ export function getUsageByDimension(
     const allowed = ['model', 'group_id', 'tool_name', 'task_id'];
     if (!allowed.includes(dimension)) return [];
 
-    return db
-      .prepare(
-        `SELECT ${dimension} as name, MAX(task_name) as original_task_name, SUM(total_tokens) as total_tokens, COUNT(*) as request_count 
+    const sql = `SELECT ${dimension} as name, MAX(task_name) as original_task_name, SUM(total_tokens) as total_tokens, COUNT(*) as request_count 
          FROM token_usage 
-         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL 
+         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL ${groupId ? 'AND group_id = ?' : ''}
          GROUP BY ${dimension} 
-         ORDER BY total_tokens DESC LIMIT ?`,
-      )
-      .all(limit) as any[];
+         ORDER BY total_tokens DESC LIMIT ?`;
+    return (
+      groupId ? db.prepare(sql).all(groupId, limit) : db.prepare(sql).all(limit)
+    ) as any[];
   } catch {
     return [];
   } finally {
@@ -191,6 +195,7 @@ function fillTimelineGaps(
 export function getUsageTimeline(
   days: number,
   groupBy: 'hour' | 'day' = 'day',
+  groupId?: string,
 ): {
   date: string;
   input_tokens: number;
@@ -201,18 +206,17 @@ export function getUsageTimeline(
   if (!db) return [];
   const timeFormat = groupBy === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
   try {
-    const rawData = db
-      .prepare(
-        `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
+    const sql = `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
                 SUM(input_tokens) as input_tokens, 
                 SUM(output_tokens) as output_tokens,
                 SUM(total_tokens) as total_tokens 
          FROM token_usage 
-         WHERE timestamp >= datetime('now', '-${days} days') 
+         WHERE timestamp >= datetime('now', '-${days} days') ${groupId ? 'AND group_id = ?' : ''}
          GROUP BY date 
-         ORDER BY date ASC`,
-      )
-      .all() as any[];
+         ORDER BY date ASC`;
+    const rawData = (
+      groupId ? db.prepare(sql).all(groupId) : db.prepare(sql).all()
+    ) as any[];
     return fillTimelineGaps(rawData, days, groupBy);
   } catch {
     return [];
@@ -225,31 +229,31 @@ export function getUsageTimelineByDimension(
   dimension: 'total' | 'model' | 'group_id' | 'tool_name' | 'task_id',
   days: number,
   groupBy: 'hour' | 'day' = 'day',
+  groupId?: string,
 ): { date: string; [key: string]: string | number }[] {
   const db = openUsageDb();
   if (!db) return [];
   const timeFormat = groupBy === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
 
   if (dimension === 'total') {
-    return getUsageTimeline(days, groupBy);
+    return getUsageTimeline(days, groupBy, groupId);
   }
 
   try {
     const allowed = ['model', 'group_id', 'tool_name', 'task_id'];
     if (!allowed.includes(dimension)) return [];
 
-    const rows = db
-      .prepare(
-        `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
+    const sql = `SELECT strftime('${timeFormat}', timestamp, 'localtime') as date, 
                 ${dimension} as dimension_value,
                 MAX(task_name) as original_task_name,
                 SUM(total_tokens) as total_tokens 
          FROM token_usage 
-         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL
+         WHERE timestamp >= datetime('now', '-${days} days') AND ${dimension} IS NOT NULL ${groupId ? 'AND group_id = ?' : ''}
          GROUP BY date, dimension_value 
-         ORDER BY date ASC`,
-      )
-      .all() as any[];
+         ORDER BY date ASC`;
+    const rows = (
+      groupId ? db.prepare(sql).all(groupId) : db.prepare(sql).all()
+    ) as any[];
 
     // Pivot rows into shape: [{ date: '...', 'val1': 100, 'val2': 50 }]
     const grouped: Record<string, any> = {};
@@ -268,6 +272,62 @@ export function getUsageTimelineByDimension(
       a.date.localeCompare(b.date),
     );
     return fillTimelineGaps(rawData, days, groupBy);
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
+export function getUsageLogsCount(days: number, groupId?: string): number {
+  const db = openUsageDb();
+  if (!db) return 0;
+  try {
+    const sql =
+      `SELECT COUNT(*) as count FROM token_usage WHERE timestamp >= datetime('now', '-${days} days') ` +
+      (groupId ? 'AND group_id = ? ' : '');
+    const row = (
+      groupId ? db.prepare(sql).get(groupId) : db.prepare(sql).get()
+    ) as any;
+    return row?.count || 0;
+  } catch {
+    return 0;
+  } finally {
+    db.close();
+  }
+}
+
+export function getUsageLogs(
+  days: number,
+  limit: number = 20,
+  offset: number = 0,
+  groupId?: string,
+  sortCol: string = 'time',
+  sortOrder: string = 'desc',
+): any[] {
+  const db = openUsageDb();
+  if (!db) return [];
+  try {
+    const allowedSortCols: Record<string, string> = {
+      time: 'timestamp',
+      source: 'task_id',
+      model: 'model',
+      input: 'input_tokens',
+      output: 'output_tokens',
+      total: 'total_tokens',
+    };
+    const mappedSortCol = allowedSortCols[sortCol] || 'timestamp';
+    const mappedOrder = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const sql =
+      `SELECT * FROM token_usage WHERE timestamp >= datetime('now', '-${days} days') ` +
+      (groupId ? 'AND group_id = ? ' : '') +
+      `ORDER BY ${mappedSortCol} ${mappedOrder} LIMIT ? OFFSET ?`;
+    return (
+      groupId
+        ? db.prepare(sql).all(groupId, limit, offset)
+        : db.prepare(sql).all(limit, offset)
+    ) as any[];
   } catch {
     return [];
   } finally {

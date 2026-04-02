@@ -363,6 +363,9 @@ function buildContainerArgs(
   // Force TMPDIR so context-mode's store.ts uses the hidden persistent mount instead of the ephemeral /tmp
   args.push('-e', 'TMPDIR=/home/node/.claude/.tmp');
 
+  // Set context mode home so session db is stored in the group workspace
+  args.push('-e', 'CONTEXT_MODE_HOME=/workspace/group');
+
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
   // or when getuid is unavailable (native Windows without WSL).

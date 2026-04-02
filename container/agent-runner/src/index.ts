@@ -414,11 +414,11 @@ function createExternalBootHook(): HookCallback {
   return async () => {
     if (bootHookFired) return {};
     bootHookFired = true;
-    
+
     if (!extBootLog) {
       return {};
     }
-    
+
     return {
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
@@ -680,7 +680,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'posttoo
 
       // DEBUG: dump raw hook input so we can see what the SDK passes
       if (scriptName === 'posttooluse') {
-        try { fs.appendFileSync('/workspace/group/.posttooluse-debug.log', JSON.stringify(mappedInput) + '\n'); } catch {}
+        try { fs.appendFileSync('/workspace/group/.posttooluse-debug.log', JSON.stringify(mappedInput) + '\n'); } catch { }
       }
       const inputBuffer = Buffer.from(JSON.stringify(mappedInput) + '\n', 'utf-8');
 
@@ -1062,7 +1062,7 @@ async function runQuery(
 
     for (const hook of sessionStartHooks) {
       try {
-        const result = await hook({ 
+        const result = await hook({
           hook_event_name: 'SessionStart',
           source: (containerInput as any).sessionId ? 'resume' : 'startup',
           sessionId: (containerInput as any).sessionId || 'pending'
@@ -1170,7 +1170,7 @@ async function runQuery(
     if (injectedMessages.length > 0) {
       const combined = injectedMessages.join('\\n');
       log(`Hook injected new user messages halfway through query.`);
-      
+
       // Also apply UserPromptSubmit to dynamically injected messages inside queries
       await invokeUserPromptSubmit(combined);
 

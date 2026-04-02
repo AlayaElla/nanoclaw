@@ -96,7 +96,8 @@ RUN echo "node ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/node && \
 USER node
 
 # Install pyenv
-RUN curl https://pyenv.run | bash
+RUN git clone https://github.com/pyenv/pyenv.git ~/.pyenv && \
+    git clone https://github.com/pyenv/pyenv-virtualenv.git ~/.pyenv/plugins/pyenv-virtualenv
 
 # Configure profile environment variables
 ENV PYENV_ROOT="/home/node/.pyenv"

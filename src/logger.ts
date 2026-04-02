@@ -11,15 +11,33 @@ function persistAlert(obj: Record<string, unknown>, msg: string): void {
     const errMsg = (
       typeof err === 'object' && err !== null
         ? (err.message ?? String(err))
-        : typeof obj.message === 'string'
-          ? obj.message
+        : obj.error instanceof Error
+          ? obj.error.message
           : ''
     ) as string;
+
+    // Build a rich detail string from all available structured fields
+    const detailParts: string[] = [];
+    if (msg && msg !== errMsg) detailParts.push(msg);
+    if (obj.code !== undefined) detailParts.push(`exit_code=${obj.code}`);
+    if (typeof obj.stderr === 'string' && obj.stderr.trim()) {
+      // Include last 500 chars of stderr for actionable diagnostics
+      const tail = obj.stderr.trim().slice(-500);
+      detailParts.push(`stderr: ${tail}`);
+    }
+    if (typeof obj.error === 'string') detailParts.push(`error: ${obj.error}`);
+    if (typeof obj.logFile === 'string') detailParts.push(`log: ${obj.logFile}`);
+    if (typeof err === 'object' && err !== null && err.stack) {
+      detailParts.push(`stack: ${String(err.stack).slice(0, 300)}`);
+    }
+
+    const detail = detailParts.join(' | ') || undefined;
+
     const entry = JSON.stringify({
       level: 'error',
       source: obj.group ?? obj.groupFolder ?? obj.component ?? 'system',
       message: (errMsg || msg).slice(0, 300),
-      detail: msg !== errMsg ? msg : undefined,
+      detail: detail ? detail.slice(0, 1500) : undefined,
       timestamp: new Date().toISOString(),
       // Dedup key: same error class + source per hour
       hourKey: new Date().toISOString().slice(0, 13),

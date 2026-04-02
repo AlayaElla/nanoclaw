@@ -20,10 +20,11 @@
 **替代方案：**
 - 使用 `mcp__context-mode__ctx_fetch_and_index(url, source)` 获取网页，然后使用 `mcp__context-mode__ctx_search(queries)` 查询你需要的核心内容。
 
-### Browser 与 Context-Mode 的区分
-你还拥有一个 `agent-browser` 工具可以用来控制无头 Chromium 浏览器。
-- **使用 `mcp__context-mode__ctx_fetch_and_index`**：当你只需要阅读静态长文、API 文档，或提取大段文本时。它会自动进行分块索引，节约上下文 Token。
-- **使用 `BrowserTool` (agent-browser)**：当你需要与网页发生 **交互 (INTERACT)** 时（如点击按钮、登录、填表单），或者当目标网站严重依赖复杂的动态 JS 渲染，导致普通抓取失效时。
+### 网页交互：agent-browser 与 Context-Mode 的配合
+你还拥有一个分布式的 `agent-browser` 命令行工具可以用来控制无头 Chromium 浏览器。
+- **使用 `mcp__context-mode__ctx_fetch_and_index`**：当你只需要**纯阅读**静态长文、API 文档时。它会自动进行分块索引，节约大量 Token。
+- **使用 `agent-browser` 命令行**：当你需要与网页发生 **交互 (INTERACT)** 时（如点击按钮、登录、填表单，或因复杂的动态 JS 渲染导致普通抓取失效时）。
+  - **⚠ 安全建议**：为了防止巨型网页的 DOM 树快照撑爆上下文，强烈建议通过 **`mcp__context-mode__ctx_execute(language: "shell", code: "agent-browser open <url> && agent-browser snapshot -i")`** 来执行测试和探查。这样即便是面对超大型网页的节点树输出，底层的 Context-Mode 也会为你提供兜底保护与自动索引。
 
 ---
 
@@ -33,7 +34,7 @@
 原生的 Bash 工具**仅仅适用于**：`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install` 等短输出命令。
 对于其他所有可能产生大量文本的操作，请使用：
 - **`mcp__context-mode__ctx_batch_execute(commands, queries)`** — 在一次调用中批量执行多个命令，将大量日志输出转交由底层的 SQLite 索引，并直接返回查询结果。
-- **`mcp__context-mode__ctx_execute(language: "shell", code: "...")`** — 在沙盒中运行独立脚本，只有过滤好的 stdout 会返回到上下文中。
+- **`mcp__context-mode__ctx_execute(language: "python|javascript|shell", code: "...")`** — 在沙盒中运行独立脚本，只有过滤好的 stdout 会返回到上下文中。（**切记：**在脚本内你要编写的是分析代码逻辑，不要直接粗暴地 `console.log(JSON.stringify(data))`，必须提取出具体数据、错误行号后再 print 返回！）
 
 ### 2. Read (分析大文件时)
 如果你读取文件是为了**编辑它 (Edit)** → 继续使用 `Read` 工具是可以的（编辑器需要加载全部内容）。
@@ -55,8 +56,8 @@
    - `mcp__media__describe_cached_video(mediaId, prompt)` — 重新分析视频细节。
    - `mcp__media__transcribe_cached_audio(mediaId)` — 重新转录语音。
    - `mcp__media__get_cached_media(mediaId)` — 获取物理路径。由于物理文件已自动下载并在 `/workspace/group/.claude/media_cache` 可见，你可以直接通过内置分析工具或 Python 脚本读取内容。
-5. **抓取网页 (WEB)**: `mcp__context-mode__ctx_fetch_and_index(url, source)` 后接 `mcp__context-mode__ctx_search` — 抓取、分块、索引、查询。长篇 HTML 绝不进入对话。（如果是动态交互型网页，换用 `BrowserTool` 工具）。
-6. **人工标记 (INDEX)**: `mcp__context-mode__ctx_index(content, source)` — 把当前占空间但以后可能需要知道的知识片段，存入后端的 FTS5 知识库中备查。
+5. **抓取网页 (WEB)**: `mcp__context-mode__ctx_fetch_and_index(url, source)` 后接 `mcp__context-mode__ctx_search` — 抓取、分块、索引、查询。长篇 HTML 绝不进入对话。（如果是动态交互型网页，换用沙盒化的 `agent-browser` 命令行测试）。
+6. **存入知识库建立索引 (INDEX)**: 把当前占空间但以后还会用到的长文本建立 FTS5 知识库。**⚠ 警告**：绝不允许将几百行的巨量字符串直接硬塞进 `ctx_index(content: "...")` 中，这会在请求里白白消耗海量 Token！如果要存长文，永远先用工具原生地输出 / 保存到文件，然后调用 `mcp__context-mode__ctx_index(path: "/tmp/xx.txt", source: "label")` 让底层物理读取！只有一两百字的短笔记才能直接使用 `content` 参数。
 
 ---
 

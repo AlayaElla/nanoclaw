@@ -1236,7 +1236,9 @@ async function runQuery(
             command: '/app/node_modules/.bin/context-mode',
             args: ['--transport', 'stdio'],
             env: {
-              ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
+              ...process.env,
+              TMPDIR: process.env.TMPDIR || '/tmp',
+              HOME: process.env.CONTEXT_MODE_HOME || '/workspace/group',
             },
           },
           ...(sdkEnv.PARALLEL_API_KEY ? {

@@ -702,10 +702,7 @@ function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'posttoo
         };
       }
 
-      // DEBUG: dump raw hook input so we can see what the SDK passes
-      if (scriptName === 'posttooluse') {
-        try { fs.appendFileSync('/workspace/group/.posttooluse-debug.log', JSON.stringify(mappedInput) + '\n'); } catch { }
-      }
+
       const inputBuffer = Buffer.from(JSON.stringify(mappedInput) + '\n', 'utf-8');
 
       // Mock stdin to immediately yield our Input JSON
@@ -1086,9 +1083,17 @@ async function runQuery(
 
     for (const hook of sessionStartHooks) {
       try {
+        let sessionSource = (containerInput as any).sessionId ? 'resume' : 'startup';
+        const stringifiedPrompt = typeof containerInput.prompt === 'string' 
+          ? containerInput.prompt 
+          : JSON.stringify(containerInput.prompt || '');
+        if (sessionSource === 'startup' && stringifiedPrompt.includes('Session has been compacted')) {
+          sessionSource = 'compact';
+        }
+
         const result = await hook({
           hook_event_name: 'SessionStart',
-          source: (containerInput as any).sessionId ? 'resume' : 'startup',
+          source: sessionSource,
           sessionId: (containerInput as any).sessionId || 'pending'
         } as any, undefined, { signal: new AbortController().signal } as any);
         const output = result as any;

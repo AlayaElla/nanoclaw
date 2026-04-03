@@ -110,5 +110,5 @@ model_list:
 litellm_settings:
   drop_params: true
   # set_verbose: true
-  callbacks:
-    - raw_logger.raw_logger
+  # callbacks:
+  #   - raw_logger.raw_logger

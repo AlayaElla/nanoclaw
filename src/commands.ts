@@ -227,7 +227,7 @@ registerCommand('/compact', '软重置 — 生成对话总结后重置会话', a
     sender_name: 'SystemAdmin',
     content,
     timestamp: ctx.timestamp,
-    is_from_me: false,
+    is_from_me: true,
   });
 
   logger.info(
@@ -259,7 +259,7 @@ registerCommand(
       sender_name: 'SystemAdmin',
       content,
       timestamp: ctx.timestamp,
-      is_from_me: false,
+      is_from_me: true,
     });
 
     logger.info({ chatJid: ctx.chatJid }, 'Container restarted via /restart');

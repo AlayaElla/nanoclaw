@@ -1,6 +1,7 @@
 import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
+import { getHeartbeat } from './services/heartbeat.js';
 
 import { SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
@@ -274,6 +275,9 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   schedulerRunning = true;
   logger.info('Scheduler loop started');
 
+  const heartbeat = getHeartbeat();
+  heartbeat.start();
+
   // Periodically dump tasks to current_tasks.json for containers to read via MCP get_scheduled_tasks
   setInterval(() => {
     try {
@@ -342,6 +346,8 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           runTask(currentTask, deps),
         );
       }
+
+      await heartbeat.tick(deps.queue);
     } catch (err) {
       logger.error({ err }, 'Error in scheduler loop');
     }

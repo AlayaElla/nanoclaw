@@ -46,12 +46,7 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
-import {
-  findChannel,
-  formatMessages,
-  formatOutbound,
-  stripInternalTags,
-} from './router.js';
+import { findChannel, formatMessages } from './router.js';
 import { initRag, indexMessage, isRagEnabled } from './rag.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
 import {
@@ -396,6 +391,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let statusMessageId: number | null = null;
   let lastToolName: string | null = null;
   let lastStatusText: string | null = null;
+  let activeHeartbeatSkipQuery = false;
 
   const TOOL_DISPLAY_NAMES: Record<string, string> = {
     Bash: '执行命令行',
@@ -573,10 +569,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           typeof result.result === 'string'
             ? result.result
             : JSON.stringify(result.result);
-        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-        let text = stripInternalTags(raw);
+        let text = raw;
         // Also ignore messages that are just "..." after stripping internal reasoning
         if (text === '...') {
+          text = '';
+        }
+        if (text.trim() === '_SYS_HEARTBEAT_SKIP_') {
+          activeHeartbeatSkipQuery = true;
+          logger.debug(
+            { group: group.name },
+            'Silently discarding background heartbeat response',
+          );
           text = '';
         }
         logger.debug(
@@ -622,12 +625,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           }
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
-        resetIdleTimer();
+        if (!activeHeartbeatSkipQuery) {
+          resetIdleTimer();
+        }
       }
 
       if (result.queryCompleted && result.status === 'success') {
         queue.notifyIdle(chatJid);
-        resetIdleTimer();
+        if (!activeHeartbeatSkipQuery) {
+          resetIdleTimer();
+        }
       }
 
       if (result.status === 'error') {
@@ -666,6 +673,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         currentQueryVisibleBaseline = getVisibleOutputSeq(group.folder);
         currentQueryCursor = undefined;
         currentQueryHadDirectOutput = false;
+        activeHeartbeatSkipQuery = false;
       }
     },
     onIpcStatus,
@@ -1094,7 +1102,7 @@ async function main(): Promise<void> {
         logger.warn({ jid }, 'No channel owns JID, cannot send message');
         return;
       }
-      const text = formatOutbound(rawText);
+      const text = rawText;
       if (text) await channel.sendMessage(jid, text);
     },
   });

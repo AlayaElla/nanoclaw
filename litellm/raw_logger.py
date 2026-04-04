@@ -24,8 +24,21 @@ class RawLogger(CustomLogger):
     def _write_jsonl(self, record: dict):
         try:
             line = json.dumps(record, ensure_ascii=False, default=str)
-            with open(self._LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            
+            lines = []
+            if os.path.exists(self._LOG_FILE):
+                with open(self._LOG_FILE, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                    
+            lines.append(line + "\n")
+            
+            # 仅保留最近的20条记录
+            if len(lines) > 20:
+                lines = lines[-20:]
+                
+            with open(self._LOG_FILE, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+                
             print(line, flush=True)
         except Exception as e:
             print("[raw_logger] Error writing jsonl: " + str(e), flush=True)

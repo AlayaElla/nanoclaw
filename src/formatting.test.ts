@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { escapeRegex, TIMEZONE } from './config.js';
-import {
-  escapeXml,
-  formatMessages,
-  formatOutbound,
-  stripInternalTags,
-} from './router.js';
+import { escapeXml, formatMessages } from './router.js';
 import { NewMessage, getTextContent } from './types.js';
 
 function makeMsg(overrides: Partial<NewMessage> = {}): NewMessage {
@@ -106,70 +101,6 @@ describe('formatMessages', () => {
     const msg = makeMsg({ content: 'a & b < c' });
     const result = formatMessages([msg], tz);
     expect(result).toContain('a &amp; b &lt; c</message>');
-  });
-});
-
-// --- Outbound formatting (internal tag stripping + prefix) ---
-
-describe('stripInternalTags', () => {
-  it('strips single-line internal tags', () => {
-    expect(stripInternalTags('hello <internal>secret</internal> world')).toBe(
-      'hello  world',
-    );
-  });
-
-  it('strips multi-line internal tags', () => {
-    expect(
-      stripInternalTags('hello <internal>\nsecret\nstuff\n</internal> world'),
-    ).toBe('hello  world');
-  });
-
-  it('strips multiple internal tag blocks', () => {
-    expect(
-      stripInternalTags('<internal>a</internal>hello<internal>b</internal>'),
-    ).toBe('hello');
-  });
-
-  it('returns empty string when text is only internal tags', () => {
-    expect(stripInternalTags('<internal>only this</internal>')).toBe('');
-  });
-
-  it('drops orphaned closing tags and everything before them (leaked reasoning)', () => {
-    const text = 'This is leaked reasoning\n</internal>\nActual answer';
-    expect(stripInternalTags(text)).toBe('Actual answer');
-  });
-
-  it('preserves internal tags inside inline code blocks', () => {
-    const text = 'Use `<internal>...</internal>` for thinking.';
-    expect(stripInternalTags(text)).toBe(text);
-  });
-
-  it('preserves internal tags inside fenced code blocks', () => {
-    const text = 'Example:\n```\n<internal>hi</internal>\n```';
-    expect(stripInternalTags(text)).toBe(text);
-  });
-
-  it('strips internal tags but preserves code blocks outside of them', () => {
-    const text =
-      '<internal>think</internal>\n```\n<internal>code internal</internal>\n```';
-    const expected = '```\n<internal>code internal</internal>\n```';
-    expect(stripInternalTags(text)).toBe(expected);
-  });
-});
-
-describe('formatOutbound', () => {
-  it('returns text with internal tags stripped', () => {
-    expect(formatOutbound('hello world')).toBe('hello world');
-  });
-
-  it('returns empty string when all text is internal', () => {
-    expect(formatOutbound('<internal>hidden</internal>')).toBe('');
-  });
-
-  it('strips internal tags from remaining text', () => {
-    expect(
-      formatOutbound('<internal>thinking</internal>The answer is 42'),
-    ).toBe('The answer is 42');
   });
 });
 

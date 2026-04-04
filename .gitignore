@@ -47,3 +47,6 @@ litellm/litellm.jsonl
 
 # AI Assistant configs
 GEMINI.md
+
+.agents/
+docs/plans/

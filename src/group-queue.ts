@@ -254,6 +254,7 @@ export class GroupQueue {
    */
   getGroupStatus(groupJid: string): {
     active: boolean;
+    idleWaiting: boolean;
     runningTaskId: string | null;
     containerName: string | null;
     startedAt: string | null;
@@ -262,6 +263,7 @@ export class GroupQueue {
     if (!state) return null;
     return {
       active: state.active,
+      idleWaiting: state.idleWaiting,
       runningTaskId: state.runningTaskId,
       containerName: state.containerName,
       startedAt: state.startedAt,

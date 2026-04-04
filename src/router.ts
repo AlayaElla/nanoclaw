@@ -25,50 +25,6 @@ export function formatMessages(
   return `${header}<messages>\n${lines.join('\n')}\n</messages>`;
 }
 
-export function stripInternalTags(text: string): string {
-  const placeholders: string[] = [];
-
-  // Protect fenced code blocks (```...```)
-  let protectedText = text.replace(/```[\s\S]*?(```|$)/g, (match) => {
-    placeholders.push(match);
-    return `__NC_CBLK_${placeholders.length - 1}__`;
-  });
-
-  // Protect inline code blocks (`...`)
-  protectedText = protectedText.replace(/`[^`]*`/g, (match) => {
-    placeholders.push(match);
-    return `__NC_CBLK_${placeholders.length - 1}__`;
-  });
-
-  // Strip internal tags on the unprotected text
-  let strippedText = protectedText.replace(
-    /<internal>[\s\S]*?(<\/internal>|$)/g,
-    '',
-  );
-
-  // If the string contains an orphaned </internal>, it means the model leaked
-  // its internal reasoning into the normal text block without an opening tag.
-  // We strip everything up to and including the orphaned </internal>.
-  if (strippedText.includes('</internal>')) {
-    strippedText = strippedText.replace(/^[\s\S]*?<\/internal>/, '');
-  }
-
-  strippedText = strippedText.trim();
-
-  // Restore placeholders
-  for (let i = 0; i < placeholders.length; i++) {
-    strippedText = strippedText.replace(`__NC_CBLK_${i}__`, placeholders[i]);
-  }
-
-  return strippedText.trim();
-}
-
-export function formatOutbound(rawText: string): string {
-  const text = stripInternalTags(rawText);
-  if (!text) return '';
-  return text;
-}
-
 export function routeOutbound(
   channels: Channel[],
   jid: string,

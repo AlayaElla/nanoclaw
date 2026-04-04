@@ -2,8 +2,8 @@ model_list:
   # DashScope
   - model_name: qwen3.5-plus
     litellm_params:
-      model: openai/qwen3.5-plus
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/qwen3.5-plus
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -11,8 +11,8 @@ model_list:
 
   - model_name: qwen3.5-plus-non-thinking
     litellm_params:
-      model: openai/qwen3.5-plus
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/qwen3.5-plus
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -20,8 +20,8 @@ model_list:
 
   - model_name: kimi-k2.5
     litellm_params:
-      model: openai/kimi-k2.5
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/kimi-k2.5
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -29,15 +29,15 @@ model_list:
 
   - model_name: kimi-k2.5-non-thinking
     litellm_params:
-      model: openai/kimi-k2.5
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/kimi-k2.5
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
 
   - model_name: glm-5
     litellm_params:
-      model: openai/glm-5
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/glm-5
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -45,8 +45,8 @@ model_list:
 
   - model_name: MiniMax-M2.5
     litellm_params:
-      model: openai/MiniMax-M2.5
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/MiniMax-M2.5
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -81,8 +81,8 @@ model_list:
   # Claude SDK subagent auto-selects this model — redirect to kimi-k2.5
   - model_name: claude-haiku-4-5-20251001
     litellm_params:
-      model: openai/kimi-k2.5
-      api_base: https://coding.dashscope.aliyuncs.com/v1
+      model: anthropic/kimi-k2.5
+      api_base: https://coding.dashscope.aliyuncs.com/apps/anthropic
       api_key: "os.environ/QWEN_API_KEY"
       rpm: 1000
       extra_body:
@@ -107,8 +107,11 @@ model_list:
       extra_body:
         enable_thinking: true          
 
+general_settings:
+  merge_reasoning_content_in_choices: true
+
 litellm_settings:
   drop_params: true
-  # set_verbose: true
+  set_verbose: true
   callbacks:
     - raw_logger.raw_logger

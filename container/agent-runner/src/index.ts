@@ -993,6 +993,7 @@ async function runQuery(
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
   consumedThroughTimestamp?: string,
+  isHeartbeat?: boolean,
 ): Promise<{
   newSessionId?: string;
   lastAssistantUuid?: string;
@@ -1259,6 +1260,10 @@ async function runQuery(
         cwd: '/workspace/group',
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
+        // Heartbeat queries use persistSession:false so they don't pollute
+        // the session transcript. The AI still sees full context via resume,
+        // but the heartbeat prompt and response are never written to disk.
+        ...(isHeartbeat ? { persistSession: false } : {}),
         resumeSessionAt: resumeAt,
         systemPrompt: undefined,
         allowedTools: [
@@ -1552,6 +1557,13 @@ async function main(): Promise<void> {
   let resumeAt: string | undefined;
   try {
     queryLoop: while (true) {
+      // Detect if this prompt is a heartbeat query
+      const promptStr = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+      const isHeartbeatQuery = promptStr.includes('【系统后台节拍】');
+      if (isHeartbeatQuery) {
+        log('Heartbeat query detected, will use persistSession:false');
+      }
+
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
       let queryResult: {
@@ -1572,6 +1584,7 @@ async function main(): Promise<void> {
           sdkEnv,
           resumeAt,
           consumedThroughTimestamp,
+          isHeartbeatQuery,
         );
       } catch (queryErr) {
         const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
@@ -1611,6 +1624,16 @@ async function main(): Promise<void> {
       if (queryResult.closedDuringQuery) {
         log('Close sentinel consumed during query, exiting');
         break;
+      }
+
+      // Heartbeat queries used persistSession:false, so the session
+      // transcript is untouched. Skip the session-update marker to avoid
+      // resetting the host's idle timer.
+      if (isHeartbeatQuery) {
+        log('Heartbeat query completed, session transcript unchanged (persistSession:false)');
+        // Don't update resumeAt or emit session update — the heartbeat
+        // never touched the transcript, so the session is at the same point.
+        continue queryLoop;
       }
 
       // Emit session update so host can track it

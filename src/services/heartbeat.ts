@@ -48,7 +48,7 @@ export class HeartbeatService {
         );
         queue.sendMessage(
           jid,
-          '【系统后台节拍】请检查当前状态与最近对话，思考是否有未完成的任务。如果有，请立刻使用工具处理或者提醒用户。如果没有，请仅回复唯一关键词 _SYS_HEARTBEAT_SKIP_ ，绝不要带有任何其他字符或者前言后语。',
+          '【系统后台节拍】请检查当前状态与最近对话，思考是否有未完成的任务。如果有，请立刻使用工具处理或者提醒用户。如果没有，请仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。',
         );
         state.lastHeartbeatTime = now;
       }

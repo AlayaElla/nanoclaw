@@ -569,12 +569,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           typeof result.result === 'string'
             ? result.result
             : JSON.stringify(result.result);
-        let text = raw;
+
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        let text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+
         // Also ignore messages that are just "..." after stripping internal reasoning
         if (text === '...') {
           text = '';
         }
-        if (text.trim() === '_SYS_HEARTBEAT_SKIP_') {
+        if (text.trim() === 'HEARTBEAT_SKIP') {
           activeHeartbeatSkipQuery = true;
           logger.debug(
             { group: group.name },

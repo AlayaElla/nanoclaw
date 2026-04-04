@@ -305,6 +305,15 @@ export class FeishuChannel implements Channel {
   /** Max message length for Feishu (generous limit) */
   private static readonly MAX_MESSAGE_LENGTH = 10000;
 
+  /**
+   * Dedup set to prevent processing the same message_id twice.
+   * Feishu's WebSocket SDK can re-deliver events when async handlers
+   * (e.g. /new with graceful shutdown) take too long to return.
+   * Entries are auto-pruned after 60 seconds.
+   */
+  private processedMessageIds = new Map<string, number>();
+  private static readonly DEDUP_TTL_MS = 60_000;
+
   constructor(opts: FeishuChannelOpts) {
     this.opts = opts;
   }
@@ -487,6 +496,24 @@ export class FeishuChannel implements Channel {
       sender.sender_id.open_id === this.botOpenId
     )
       return;
+
+    // ── Dedup: skip re-delivered events from Feishu WebSocket SDK ──
+    const dedupId = msg.message_id;
+    if (dedupId) {
+      if (this.processedMessageIds.has(dedupId)) {
+        logger.debug({ messageId: dedupId }, 'Skipping duplicate Feishu message (already processed)');
+        return;
+      }
+      this.processedMessageIds.set(dedupId, Date.now());
+
+      // Prune stale entries periodically (every 100 messages)
+      if (this.processedMessageIds.size % 100 === 0) {
+        const cutoff = Date.now() - FeishuChannel.DEDUP_TTL_MS;
+        for (const [id, ts] of this.processedMessageIds) {
+          if (ts < cutoff) this.processedMessageIds.delete(id);
+        }
+      }
+    }
 
     const chatId = msg.chat_id;
     if (!chatId) return;

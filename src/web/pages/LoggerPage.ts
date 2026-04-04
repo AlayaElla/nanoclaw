@@ -5,8 +5,9 @@ export class LoggerPage {
     return `
       <div class="space-y-6">
         <div>
-          <h2 class="page-title bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-300">
+          <h2 class="page-title bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-300" style="display: flex; align-items: center; gap: 12px;">
             ${lang === 'zh' ? '交互日志' : 'Interaction Logs'}
+            <span id="log-count-badge" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">-</span>
           </h2>
           <p class="page-subtitle mt-1">
             ${lang === 'zh' ? '实时追踪底层大模型调用日志 (litellm.jsonl)' : 'Live monitoring for LLM calls'}

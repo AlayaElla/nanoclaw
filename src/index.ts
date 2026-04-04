@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { getHeartbeat } from './services/heartbeat.js';
+
 import {
   IDLE_TIMEOUT,
   POLL_INTERVAL,
@@ -42,7 +44,7 @@ import {
   storeMessage,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
-import { resolveGroupFolderPath } from './group-folder.js';
+import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
@@ -75,6 +77,7 @@ let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 const visibleOutputSeqByGroupFolder: Record<string, number> = {};
 
+const activeQuestions: Record<string, Set<string>> = {};
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
@@ -392,6 +395,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastToolName: string | null = null;
   let lastStatusText: string | null = null;
   let activeHeartbeatSkipQuery = false;
+  let heartbeatHandled = false; // Set when a heartbeat query completes (skip or work done)
 
   const TOOL_DISPLAY_NAMES: Record<string, string> = {
     Bash: '执行命令行',
@@ -491,6 +495,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   const onIpcStatus = async (event: IpcStatusEvent) => {
+    // Handle specific AskUserQuestion event natively
+    if (event.type === 'ask_user_question') {
+      if (!activeQuestions[chatJid]) activeQuestions[chatJid] = new Set();
+      activeQuestions[chatJid].add(event.question_id);
+      if (channel.sendAskUserQuestion) {
+        await channel.sendAskUserQuestion(
+          chatJid,
+          event.question_id,
+          event.payload.questions,
+        );
+      } else {
+        logger.warn({ chatJid }, 'Channel does not support AskUserQuestion');
+      }
+      return;
+    }
     // Dispatch task_status events to status manager
     if (event.type === 'task_status') {
       statusEmit('sdk_task', {
@@ -579,6 +598,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
         if (text.trim() === 'HEARTBEAT_SKIP') {
           activeHeartbeatSkipQuery = true;
+          heartbeatHandled = true;
           logger.debug(
             { group: group.name },
             'Silently discarding background heartbeat response',
@@ -635,6 +655,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
       if (result.queryCompleted && result.status === 'success') {
         queue.notifyIdle(chatJid);
+        // Release heartbeat processing lock on any query completion
+        // (heartbeat IPC messages don't have consumedThroughTimestamp)
+        getHeartbeat().markHeartbeatProcessed(group.folder);
         if (!activeHeartbeatSkipQuery) {
           resetIdleTimer();
         }
@@ -728,6 +751,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   if (!committedCursor) {
+    // Heartbeat queries (IPC-injected) don't have consumedThroughTimestamp,
+    // so committedCursor is never set. This is expected — not a failure.
+    // Likewise, if it replied to the user we shouldn't retry.
+    if (heartbeatHandled || outputSentToUser) {
+      return true;
+    }
     logger.warn(
       { group: group.name },
       'Agent produced no visible output, cursor not advanced',
@@ -1007,6 +1036,30 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (_chatJid: string, msg: NewMessage) => {
+      // Ignore background heartbeat prompts
+      if (
+        msg.sender === 'system' &&
+        typeof msg.content === 'string' &&
+        msg.content.includes('background heartbeat prompt')
+      ) {
+        return;
+      }
+      if (
+        activeQuestions[msg.chat_jid] &&
+        activeQuestions[msg.chat_jid].size > 0
+      ) {
+        for (const questionId of activeQuestions[msg.chat_jid]) {
+          channelOpts.onQuestionAnswer(msg.chat_jid, questionId, {
+            其他: msg.content,
+          });
+        }
+        activeQuestions[msg.chat_jid].clear();
+        logger.info(
+          { chatJid: msg.chat_jid },
+          'Message intercepted as AskUserQuestion answer natively',
+        );
+        return;
+      }
       // Sender allowlist drop mode: discard messages from denied senders before storing
       if (
         !msg.is_from_me &&
@@ -1054,6 +1107,28 @@ async function main(): Promise<void> {
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
     groupQueue: queue,
+    onQuestionAnswer: (
+      chatJid: string,
+      questionId: string,
+      answers: Record<string, any>,
+    ) => {
+      if (activeQuestions[chatJid]) {
+        activeQuestions[chatJid].delete(questionId);
+      }
+      const group = registeredGroups[chatJid];
+      if (!group) return;
+      const ipcDir = path.join(resolveGroupIpcPath(group.folder), 'input');
+      fs.mkdirSync(ipcDir, { recursive: true });
+      const answerPayload = {
+        type: 'question_answer',
+        question_id: questionId,
+        answers,
+      };
+      fs.writeFileSync(
+        path.join(ipcDir, `${Date.now()}-ans.json`),
+        JSON.stringify(answerPayload),
+      );
+    },
   };
 
   // Create and connect all registered channels.

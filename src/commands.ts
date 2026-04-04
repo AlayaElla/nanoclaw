@@ -125,9 +125,9 @@ registerCommand(
   { allowUnregistered: true },
 );
 
-// ─── /new ───────────────────────────────────────────────────────────
+// ─── /new & /start ──────────────────────────────────────────────────
 
-registerCommand('/new', '新建会话（保留工作区和记忆）', async (ctx) => {
+const newSessionHandler: CommandHandler = async (ctx) => {
   // 1. Gracefully shut down active container
   await gracefulShutdown(ctx);
 
@@ -145,9 +145,15 @@ registerCommand('/new', '新建会话（保留工作区和记忆）', async (ctx
   await ctx.reply(
     '✅ 新会话已就绪！会话记忆已清除，工作区、任务和长期记忆保持不变。',
   );
-  logger.info({ chatJid: ctx.chatJid }, 'New session started via /new');
+  logger.info(
+    { chatJid: ctx.chatJid },
+    'New session started via /new or /start',
+  );
   return true;
-});
+};
+
+registerCommand('/new', '新建会话（保留工作区和记忆）', newSessionHandler);
+registerCommand('/start', '启动/新建会话（同 /new）', newSessionHandler);
 
 // ─── /clear ─────────────────────────────────────────────────────────
 

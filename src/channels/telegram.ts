@@ -1,4 +1,4 @@
-import { Bot, InputFile } from 'grammy';
+import { Bot, InputFile, InlineKeyboard } from 'grammy';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -16,6 +16,7 @@ import {
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
+  OnQuestionAnswer,
 } from '../types.js';
 
 import { GroupQueue } from '../group-queue.js';
@@ -49,6 +50,7 @@ export interface TelegramChannelOpts {
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   groupQueue: GroupQueue;
+  onQuestionAnswer?: OnQuestionAnswer;
 }
 
 export class TelegramChannel implements Channel {
@@ -81,6 +83,16 @@ export class TelegramChannel implements Channel {
   >();
   /** How long to wait for a follow-up text after receiving media (ms) */
   private static readonly MEDIA_MERGE_WINDOW = 1000;
+
+  private pendingQuestions = new Map<
+    string,
+    {
+      chatJid: string;
+      questions: any[];
+      answers: Record<string, any>;
+      selected: Record<number, Set<number>>;
+    }
+  >();
 
   constructor(
     botToken: string,
@@ -193,11 +205,143 @@ export class TelegramChannel implements Channel {
       if (!handled) return; // Unknown command — ignore
     });
 
+    // Handle AskUserQuestion callbacks
+    this.bot.on('callback_query:data', async (ctx) => {
+      const data = ctx.callbackQuery.data;
+      if (data.startsWith('aq:')) {
+        const parts = data.split(':');
+        const action = parts[1];
+        const questionId = parts[2];
+        const qIndexStr = parts[3];
+        const oIndexStr = parts[4];
+
+        const qData = this.pendingQuestions.get(questionId);
+
+        if (!qData) {
+          await ctx.answerCallbackQuery('此提问已过期或不存在');
+          return;
+        }
+
+        const qIndex = parseInt(qIndexStr, 10);
+        const question = qData.questions[qIndex];
+
+        if (action === 'sub') {
+          // Submit multi-select
+          if (qData.answers[question.question]) {
+            await ctx.answerCallbackQuery('已经确认过了');
+            return;
+          }
+          if (!qData.selected[qIndex]) qData.selected[qIndex] = new Set();
+          const selectedLabels = Array.from(qData.selected[qIndex]).map(
+            (idx: number) => question.options[idx].label,
+          );
+
+          if (selectedLabels.length === 0) {
+            await ctx.answerCallbackQuery('请至少选择一项！');
+            return;
+          }
+
+          qData.answers[question.question] = selectedLabels;
+          await ctx.answerCallbackQuery(
+            `确认了 ${selectedLabels.length} 个选择`,
+          );
+
+          const chatId = ctx.chat?.id.toString();
+          if (chatId) {
+            await ctx
+              .editMessageText(
+                `❓ ${question.question}\n✅ 你选择了: **${selectedLabels.join(', ')}**`,
+                { parse_mode: 'Markdown' },
+              )
+              .catch(() => {});
+
+            if (Object.keys(qData.answers).length === qData.questions.length) {
+              const chatJid = this.makeJid(chatId);
+              this.opts.onQuestionAnswer?.(chatJid, questionId, qData.answers);
+              this.pendingQuestions.delete(questionId);
+            }
+          }
+          return;
+        }
+
+        if (action === 'opt') {
+          const oIndex = parseInt(oIndexStr, 10);
+          const option = question.options[oIndex];
+
+          if (question.multiSelect) {
+            if (!qData.selected[qIndex]) qData.selected[qIndex] = new Set();
+            if (qData.selected[qIndex].has(oIndex)) {
+              qData.selected[qIndex].delete(oIndex);
+            } else {
+              qData.selected[qIndex].add(oIndex);
+            }
+            await ctx.answerCallbackQuery();
+
+            const keyboard = new InlineKeyboard();
+            for (let i = 0; i < question.options.length; i++) {
+              const opt = question.options[i];
+              const label = qData.selected[qIndex].has(i)
+                ? `✅ ${opt.label}`
+                : opt.label;
+              keyboard.text(label, `aq:opt:${questionId}:${qIndex}:${i}`);
+              if (i % 2 !== 0) keyboard.row();
+            }
+            keyboard.row();
+            keyboard.text('✅ 确认选择', `aq:sub:${questionId}:${qIndex}`);
+
+            await ctx
+              .editMessageReplyMarkup({ reply_markup: keyboard })
+              .catch(() => {});
+          } else {
+            // Single select
+            if (qData.answers[question.question]) {
+              await ctx.answerCallbackQuery('已经选择过了');
+              return;
+            }
+            qData.answers[question.question] = option.label;
+            await ctx.answerCallbackQuery(`选择了: ${option.label}`);
+
+            const chatId = ctx.chat?.id.toString();
+            if (chatId) {
+              await ctx
+                .editMessageText(
+                  `❓ ${question.question}\n✅ 你选择了: **${option.label}**`,
+                  { parse_mode: 'Markdown' },
+                )
+                .catch(() => {});
+
+              if (
+                Object.keys(qData.answers).length === qData.questions.length
+              ) {
+                const chatJid = this.makeJid(chatId);
+                this.opts.onQuestionAnswer?.(
+                  chatJid,
+                  questionId,
+                  qData.answers,
+                );
+                this.pendingQuestions.delete(questionId);
+              }
+            }
+          }
+        }
+      } else {
+        await ctx.answerCallbackQuery();
+      }
+    });
+
     this.bot.on('message:text', async (ctx) => {
       // Skip commands
       if (ctx.message.text.startsWith('/')) return;
 
       const chatJid = this.makeJid(ctx.chat.id);
+
+      // If user sends text, invalidate pending questions for this chat
+      for (const [qId, qData] of this.pendingQuestions.entries()) {
+        if (qData.chatJid === chatJid) {
+          this.pendingQuestions.delete(qId);
+        }
+      }
+
       let content = ctx.message.text;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =
@@ -1062,6 +1206,51 @@ export class TelegramChannel implements Channel {
         { jid, mediaType, err, bot: this.tokenEnvName },
         'Failed to send Telegram media',
       );
+    }
+  }
+
+  async sendAskUserQuestion(
+    jid: string,
+    questionId: string,
+    questions: any[],
+  ): Promise<void> {
+    const chatId = jid.replace(/^tg:/, '').replace(/@.*$/, '');
+    this.pendingQuestions.set(questionId, {
+      chatJid: jid,
+      questions,
+      answers: {},
+      selected: {},
+    });
+
+    for (let qIndex = 0; qIndex < questions.length; qIndex++) {
+      const q = questions[qIndex];
+      const keyboard = new InlineKeyboard();
+      for (let oIndex = 0; oIndex < q.options.length; oIndex++) {
+        const option = q.options[oIndex];
+        keyboard.text(option.label, `aq:opt:${questionId}:${qIndex}:${oIndex}`);
+        if (oIndex % 2 !== 0) keyboard.row();
+      }
+      if (q.multiSelect) {
+        keyboard.row();
+        keyboard.text('✅ 确认选择', `aq:sub:${questionId}:${qIndex}`);
+      }
+
+      const text = `❓ ${q.question}\n\n_${q.description || '请点击按钮进行选择'}_`;
+      try {
+        await this.bot!.api.sendMessage(chatId, text, {
+          reply_markup: keyboard,
+          parse_mode: 'Markdown',
+        });
+      } catch (err: any) {
+        logger.debug(
+          { err: err.message },
+          'AskUserQuestion Markdown failed, retrying as plain text',
+        );
+        const plainText = `❓ ${q.question}\n\n${q.description || '请点击按钮进行选择'}`;
+        await this.bot!.api.sendMessage(chatId, plainText, {
+          reply_markup: keyboard,
+        });
+      }
     }
   }
 }

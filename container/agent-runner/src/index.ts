@@ -84,9 +84,13 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_STATUS_DIR = '/workspace/ipc/status';
 const IPC_POLL_MS = 500;
 
+let globalQuestionAnswers: Record<string, Record<string, any>> = {};
+let globalQuestionLocks = new Set<string>();
+
 type IpcStatusEvent =
   | { type: 'tool_status'; tool?: string; description?: string; status: 'running' | 'idle'; elapsed?: number }
-  | { type: 'task_status'; task_id: string; status: string; summary: string };
+  | { type: 'task_status'; task_id: string; status: string; summary: string }
+  | { type: 'ask_user_question'; question_id: string; payload: any };
 
 /**
  * Write a status event to IPC so the host can relay it.
@@ -887,12 +891,33 @@ function drainIpcInput(): IpcDrainResult {
         fs.unlinkSync(filePath);
 
         if (data.type === 'pending_available') {
+          if (globalQuestionLocks.size > 0) {
+            // Resolve all pending waits to free all suspended tool calls synchronously
+            for (const lockId of globalQuestionLocks) {
+              globalQuestionAnswers[lockId] = { "其他": "请查阅下文的最新回复。" };
+            }
+            globalQuestionLocks.clear();
+          }
           result.pendingAvailable = true;
           continue;
         }
 
         if (data.type === 'message' && data.text) {
+          if (globalQuestionLocks.size > 0) {
+            // User replied with text during a question wait instead of pressing buttons
+            // Resolve all pending waits to free all suspended tool calls synchronously
+            for (const lockId of globalQuestionLocks) {
+              globalQuestionAnswers[lockId] = { "其他": data.text };
+            }
+            globalQuestionLocks.clear();
+            continue;
+          }
           result.legacyMessages.push(data.text);
+          continue;
+        }
+
+        if (data.type === 'question_answer' && data.question_id) {
+          globalQuestionAnswers[data.question_id] = data.answers;
           continue;
         }
 
@@ -1085,8 +1110,8 @@ async function runQuery(
     for (const hook of sessionStartHooks) {
       try {
         let sessionSource = (containerInput as any).sessionId ? 'resume' : 'startup';
-        const stringifiedPrompt = typeof containerInput.prompt === 'string' 
-          ? containerInput.prompt 
+        const stringifiedPrompt = typeof containerInput.prompt === 'string'
+          ? containerInput.prompt
           : JSON.stringify(containerInput.prompt || '');
         if (sessionSource === 'startup' && stringifiedPrompt.includes('Session has been compacted')) {
           sessionSource = 'compact';
@@ -1256,6 +1281,24 @@ async function runQuery(
     for await (const message of query({
       prompt: stream,
       options: {
+        canUseTool: async (toolName, toolInput) => {
+          if (toolName === 'AskUserQuestion') {
+            const question_id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            globalQuestionLocks.add(question_id);
+            writeIpcStatus({ type: 'ask_user_question', question_id, payload: toolInput });
+            
+            while (!globalQuestionAnswers[question_id]) {
+              await new Promise(r => setTimeout(r, 500));
+            }
+            
+            const answers = globalQuestionAnswers[question_id];
+            delete globalQuestionAnswers[question_id];
+            globalQuestionLocks.delete(question_id);
+            
+            return { behavior: 'allow', updatedInput: { questions: (toolInput as any).questions, answers } };
+          }
+          return { behavior: 'allow', updatedInput: toolInput as any };
+        },
         model: sdkEnv.ANTHROPIC_MODEL,
         cwd: '/workspace/group',
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
@@ -1559,7 +1602,7 @@ async function main(): Promise<void> {
     queryLoop: while (true) {
       // Detect if this prompt is a heartbeat query
       const promptStr = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
-      const isHeartbeatQuery = promptStr.includes('【系统后台节拍】');
+      const isHeartbeatQuery = promptStr.includes('[HEARTBEAT]');
       if (isHeartbeatQuery) {
         log('Heartbeat query detected, will use persistSession:false');
       }

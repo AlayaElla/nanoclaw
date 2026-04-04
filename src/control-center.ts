@@ -450,7 +450,8 @@ export function getControlCenterHandler() {
           }
           res.writeHead(200, { 'Content-Type': 'text/html' });
           return res.end(
-            '<tr><td colspan="4" class="empty-state" style="padding: 24px; text-align: center; color: var(--text-muted);">No logs found</td></tr>',
+            '<tr><td colspan="4" class="empty-state" style="padding: 24px; text-align: center; color: var(--text-muted);">No logs found</td></tr>' +
+              '\n<span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span>\n',
           );
         } catch (e: any) {
           logger.error({ err: e }, 'Failed to clear litellm logs');
@@ -474,7 +475,8 @@ export function getControlCenterHandler() {
           if (!fs.existsSync(logPath)) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             return res.end(
-              '<tr><td colspan="4" class="empty-state">No logs found</td></tr>',
+              '<tr><td colspan="4" class="empty-state">No logs found</td></tr>' +
+                '\n<template><span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span></template>\n',
             );
           }
           const content = fs.readFileSync(logPath, 'utf-8');
@@ -509,7 +511,8 @@ export function getControlCenterHandler() {
           if (filtered.length === 0) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             return res.end(
-              '<tr><td colspan="4" class="empty-state">No matching logs</td></tr>',
+              '<tr><td colspan="4" class="empty-state">No matching logs</td></tr>' +
+                '\n<template><span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span></template>\n',
             );
           }
 
@@ -530,6 +533,12 @@ export function getControlCenterHandler() {
             if (keyName === 'messages' && Array.isArray(obj)) {
               return renderLiteLLMMessages(obj, keyName);
             }
+            if (keyName === 'tools' && Array.isArray(obj)) {
+              const toolNames = obj
+                .map((t: any) => t?.function?.name || t?.name || 'unknown')
+                .filter(Boolean);
+              return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">[ ${toolNames.length} tools ]</summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; width: fit-content;">${escapeHtml(toolNames.join(', '))}</div></details></div>`;
+            }
             if (obj === null) {
               return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: var(--text-muted, #9ca3af);">null</span></div>`;
             }
@@ -538,7 +547,12 @@ export function getControlCenterHandler() {
               if (typeof obj === 'string') {
                 if (obj.length > 40) {
                   const trunc = escapeHtml(obj.substring(0, 40)) + '...';
-                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); width: fit-content; min-width: 200px;">"${valStr}"</div></details></div>`;
+                  const isHuge = obj.length > 5000;
+                  const displayStr = isHuge
+                    ? escapeHtml(obj.substring(0, 5000)) +
+                      `\n\n... [Truncated for UI performance, full length: ${obj.length}]`
+                    : valStr;
+                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); width: fit-content; min-width: 200px; max-width: 100%; overflow-x: auto;">"${displayStr}"</div></details></div>`;
                 }
                 return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #10b981; word-break: break-all; white-space: pre-wrap;">"${valStr}"</span></div>`;
               }
@@ -615,7 +629,19 @@ export function getControlCenterHandler() {
               return `<div style="display: flex; align-items: flex-start; margin-top: 4px;"><span style="color: #3b82f6; font-weight: 500; margin-right: 8px; flex-shrink: 0;">"${escapeHtml(keyName)}":</span><span style="color: var(--text-muted, #9ca3af);">[]</span></div>`;
             let html = `<details style="margin-top: 4px;"><summary style="position: sticky; top: 0; z-index: 10; padding-top: 2px; padding-bottom: 2px; cursor: pointer; color: var(--text-muted, #9ca3af); user-select: none;"><span style="color: #3b82f6; font-weight: 500;">"${escapeHtml(keyName)}":</span> <span style="opacity: 0.7; font-size: 0.9em; margin-left: 4px;">(${msgs.length} messages)</span></summary><div style="padding-left: 16px; border-left: 1px dashed rgba(128,128,128,0.2); margin: 4px 0 4px 8px; display: flex; flex-direction: column; gap: 8px;">`;
 
-            for (const msg of msgs) {
+            const msgsToRender =
+              msgs.length > 8
+                ? [
+                    msgs[0],
+                    {
+                      role: 'system',
+                      content: `... ${msgs.length - 6} messages omitted for UI performance ...`,
+                    },
+                    ...msgs.slice(-5),
+                  ]
+                : msgs;
+
+            for (const msg of msgsToRender) {
               if (!msg || typeof msg !== 'object') {
                 html += `<div>${renderJsonToFoldableHtml(msg)}</div>`;
                 continue;
@@ -737,13 +763,15 @@ export function getControlCenterHandler() {
             })
             .join('');
 
+          const countBadge = `\n<template><span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">${filtered.length}</span></template>\n`;
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          return res.end(htmlResp);
+          return res.end(htmlResp + countBadge);
         } catch (err) {
           logger.error({ err }, 'Error reading litellm.jsonl');
           res.writeHead(200, { 'Content-Type': 'text/html' });
           return res.end(
-            '<tr><td colspan="4" class="empty-state" style="color:var(--red);">Failed to load logs</td></tr>',
+            '<tr><td colspan="4" class="empty-state" style="color:var(--red);">Failed to load logs</td></tr>' +
+              '\n<template><span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span></template>\n',
           );
         }
       }

@@ -170,10 +170,23 @@ export interface Channel {
     caption?: string,
     fileName?: string,
   ): Promise<void>;
+  // Optional: send SDK AskUserQuestion with interactive buttons (like Telegram InlineKeyboard)
+  sendAskUserQuestion?(
+    jid: string,
+    questionId: string,
+    questions: any[],
+  ): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
+
+// Callback type for AskUserQuestion generic tool responses
+export type OnQuestionAnswer = (
+  chatJid: string,
+  questionId: string,
+  answers: Record<string, any>,
+) => void;
 
 // Callback for chat metadata discovery.
 // name is optional — channels that deliver names inline (Telegram) pass it here;

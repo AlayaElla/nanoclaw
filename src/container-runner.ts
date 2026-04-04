@@ -83,7 +83,16 @@ export interface TaskStatusEvent {
   summary: string;
 }
 
-export type IpcStatusEvent = ToolStatusEvent | TaskStatusEvent;
+export interface AskUserQuestionEvent {
+  type: 'ask_user_question';
+  question_id: string;
+  payload: any;
+}
+
+export type IpcStatusEvent =
+  | ToolStatusEvent
+  | TaskStatusEvent
+  | AskUserQuestionEvent;
 
 interface VolumeMount {
   hostPath: string;

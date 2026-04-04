@@ -6,6 +6,7 @@ LiteLLM Custom Callback – 原始 Input / Output 日志
 
 import json
 import os
+import threading
 from datetime import datetime, timezone
 
 import litellm
@@ -16,6 +17,8 @@ class RawLogger(CustomLogger):
 
     _LOG_FILE = "/app/litellm.jsonl"
     _ERROR_LOG = "/app/raw_logger_error.log"
+    _MAX_LINES = 50
+    _lock = threading.Lock()
 
     def __init__(self):
         super().__init__()
@@ -28,15 +31,23 @@ class RawLogger(CustomLogger):
                 line = json.dumps(record, ensure_ascii=False, default=str)
             except ValueError as ve:
                 if "Circular" in str(ve) or "circular" in str(ve):
-                    # Safe fallback serialization for circular references
                     safe_record = {k: (str(v) if k in ["request", "response"] else v) for k, v in record.items()}
                     line = json.dumps(safe_record, ensure_ascii=False, default=str)
                 else:
                     raise ve
             
-            # 使用 a+ 模式安全追加
-            with open(self._LOG_FILE, "a+", encoding="utf-8") as f:
-                f.write(line + "\n")
+            # 加锁保证 read-append-truncate-write 原子性，防止并发超限
+            with self._lock:
+                lines = []
+                if os.path.exists(self._LOG_FILE):
+                    with open(self._LOG_FILE, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                
+                lines.append(line + "\n")
+                lines = lines[-self._MAX_LINES:]
+                
+                with open(self._LOG_FILE, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
             
             print(line, flush=True)
         except Exception as e:

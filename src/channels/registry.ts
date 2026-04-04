@@ -3,6 +3,7 @@ import {
   OnInboundMessage,
   OnChatMetadata,
   RegisteredGroup,
+  OnQuestionAnswer,
 } from '../types.js';
 
 import { GroupQueue } from '../group-queue.js';
@@ -12,6 +13,7 @@ export interface ChannelOpts {
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   groupQueue: GroupQueue;
+  onQuestionAnswer?: OnQuestionAnswer;
 }
 
 export type ChannelFactory = (opts: ChannelOpts) => Channel | Channel[] | null;

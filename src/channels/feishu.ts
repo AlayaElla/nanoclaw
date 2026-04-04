@@ -368,6 +368,9 @@ export class FeishuChannel implements Channel {
         // Intentionally ignored — we don't need to act on reaction removals,
         // but registering prevents SDK "no handle" warnings and dispatch errors.
       },
+      'card.action.trigger': async (data: any) => {
+        return await this.handleCardAction(data);
+      },
     });
 
     wsClient.start({ eventDispatcher });
@@ -440,6 +443,33 @@ export class FeishuChannel implements Channel {
       );
     } catch (err) {
       logger.error({ err }, 'Failed to process Feishu reaction');
+    }
+  }
+
+  private async handleCardAction(data: any): Promise<any> {
+    try {
+      const value = data.action?.value;
+      if (!value || value.type !== 'aq_callback') return null;
+
+      const { questionId, optionLabel } = value;
+      const chatJid = `${data.context?.open_chat_id || data.open_chat_id}@feishu`;
+
+      logger.info(
+        { chatJid, questionId, optionLabel },
+        'Feishu Card Action triggered',
+      );
+
+      this.opts.onQuestionAnswer?.(chatJid, questionId, { 其他: optionLabel });
+
+      return {
+        toast: {
+          type: 'success',
+          content: `你选择了: ${optionLabel}`,
+        },
+      };
+    } catch (err) {
+      logger.error({ err }, 'Feishu Card Action failed');
+      return null;
     }
   }
 
@@ -1431,6 +1461,59 @@ export class FeishuChannel implements Channel {
         { jid, err, text: text.slice(0, 100) },
         'Failed to send Feishu message',
       );
+    }
+  }
+
+  // ─── Outbound: Send Ask User Question ──────────────────────────────
+  async sendAskUserQuestion(
+    jid: string,
+    questionId: string,
+    questions: any[],
+  ): Promise<void> {
+    for (let qIndex = 0; qIndex < questions.length; qIndex++) {
+      const q = questions[qIndex];
+
+      // Use interactive card for Feishu
+      const card: any = {
+        config: { wide_screen_mode: true },
+        header: {
+          template: 'blue',
+          title: { tag: 'plain_text', content: `❓ ${q.question}` },
+        },
+        elements: [],
+      };
+
+      if (q.description) {
+        card.elements.push({
+          tag: 'markdown',
+          content: `_${q.description}_\n\n*(提示: 您也可以直接打字输入您的意图)*`,
+        });
+      } else {
+        card.elements.push({
+          tag: 'markdown',
+          content: '*(提示: 您也可以直接打字输入您的意图)*',
+        });
+      }
+
+      if (q.options && q.options.length > 0) {
+        const actionButtons = q.options.map((opt: any) => ({
+          tag: 'button',
+          text: { tag: 'plain_text', content: opt.label },
+          type: 'default',
+          value: { type: 'aq_callback', questionId, optionLabel: opt.label },
+        }));
+
+        card.elements.push({ tag: 'action', actions: actionButtons });
+      }
+
+      try {
+        await this.sendMessage(jid, JSON.stringify(card));
+      } catch (err: any) {
+        logger.error(
+          { err: err.message },
+          'Feishu AskUserQuestion card send failed',
+        );
+      }
     }
   }
 

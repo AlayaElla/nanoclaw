@@ -690,7 +690,28 @@ export function getControlCenterHandler() {
                 detailsObj.optional_params = optParams;
               }
 
-              detailsObj.response = e.response || {};
+              let parsedResp = e.response || {};
+              if (typeof parsedResp === 'string') {
+                try {
+                  parsedResp = JSON.parse(parsedResp);
+                } catch (err) {
+                  // If it's a Python dict string format, do a fuzzy attempt to parse it (best effort for legacy logs)
+                  if (parsedResp.startsWith('{') && parsedResp.includes("'")) {
+                    try {
+                      // Very crude replacement for python dict string -> JSON. Only works on simple structures.
+                      const fuzzyJson = parsedResp
+                        .replace(/'/g, '"')
+                        .replace(/True/g, 'true')
+                        .replace(/False/g, 'false')
+                        .replace(/None/g, 'null');
+                      parsedResp = JSON.parse(fuzzyJson);
+                    } catch (e2) {
+                      // fallback to raw string
+                    }
+                  }
+                }
+              }
+              detailsObj.response = parsedResp;
 
               const detailsHtml = renderJsonToFoldableHtml(
                 detailsObj,

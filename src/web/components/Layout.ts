@@ -83,7 +83,7 @@ export class Layout {
       width: 100%;
       height: 100vh;
       display: grid;
-      grid-template-columns: 260px minmax(0,1fr);
+      grid-template-columns: 220px minmax(0,1fr);
       position: relative;
     }
     
@@ -127,7 +127,7 @@ export class Layout {
       to { opacity: 1; transform: translateY(0); }
     }
     
-    .main { padding: 40px; height: 100vh; overflow-y: auto; scroll-behavior: smooth; }
+    .main { padding: 24px 32px; height: 100vh; overflow-y: auto; scroll-behavior: smooth; }
     .main.animate-in { animation: mainFadeIn 0.3s ease-out; }
     .page-header{margin-bottom:32px}.page-title{font-size:var(--fs-2xl);font-weight:700;letter-spacing:-1px}.page-subtitle{color:var(--text-muted);font-size:var(--fs-base);margin-top:6px}
 

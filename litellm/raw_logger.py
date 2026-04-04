@@ -81,16 +81,25 @@ class RawLogger(CustomLogger):
         if final_obj is None:
             final_obj = response_obj
             
-        # 处理不同类型的 response_obj
         try:
-            if hasattr(final_obj, "json"):
-                resp = final_obj.json()
-            elif hasattr(final_obj, "model_dump"):
+            if hasattr(final_obj, "model_dump"):
                 resp = final_obj.model_dump()
             elif hasattr(final_obj, "dict"):
                 resp = final_obj.dict()
-            else:
+            elif hasattr(final_obj, "json"):
+                import json as _json
+                try:
+                    resp = _json.loads(final_obj.json())
+                except:
+                    resp = final_obj.json()
+            elif isinstance(final_obj, dict):
                 resp = final_obj
+            else:
+                try:
+                    # Some litellm objects can be parsed using dump_obj
+                    resp = getattr(final_obj, "__dict__", str(final_obj))
+                except:
+                    resp = str(final_obj)
         except:
             resp = str(final_obj)
 

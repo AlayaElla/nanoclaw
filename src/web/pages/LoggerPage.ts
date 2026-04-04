@@ -27,7 +27,8 @@ export class LoggerPage {
               <select name="event" style="width: 100%; background: var(--bg-card); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 8px 12px; font-size: 13px; outline: none; color: var(--text-main); transition: all 0.2s;">
                 <option value="">All Events</option>
                 <option value="pre_api_call">Pre API Call</option>
-                <option value="post_api_call">Post API Call</option>
+                <option value="success">Success</option>
+                <option value="failure">Failure</option>
               </select>
             </div>
             <div style="flex: 0 0 200px;">
@@ -70,9 +71,9 @@ export class LoggerPage {
             <table style="width: 100%; table-layout: fixed; border-collapse: collapse;">
               <thead style="background: rgba(0,0,0,0.03); border-bottom: 1px solid rgba(0,0,0,0.05);">
                 <tr>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 140px;">Time</th>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 120px;">Event</th>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 180px;">Model</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 150px;">Time</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 140px;">Event</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 280px;">Model</th>
                   <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: auto;">Call ID</th>
                 </tr>
               </thead>

@@ -39,9 +39,10 @@ export class HeartbeatService {
    * Called by the scheduler loop every SCHEDULER_POLL_INTERVAL (60s).
    * Guards:
    * 1. Per-group interval gate (HEARTBEAT_INTERVAL from .env)
-   * 2. Agent must be active AND idle (not busy processing)
-   * 3. processingGroups prevents re-firing while agent handles previous heartbeat
-   * 4. Must have unfinished todos
+   * 2. processingGroups prevents re-firing while agent handles previous heartbeat
+   * 3. Container must be active
+   * 4. Agent must be idle — if busy, skip but reset interval
+   * 5. Must have unfinished todos
    */
   async tick(queue: GroupQueue): Promise<void> {
     const allGroups = getAllRegisteredGroups();
@@ -66,27 +67,27 @@ export class HeartbeatService {
 
       const status = queue.getGroupStatus(jid);
 
-      // Gate 3: Container must be alive and agent must be idle
+      // Gate 3: Container must be alive
       if (!status || !status.active) {
         continue; // No container running
       }
+
+      // Gate 4: Agent must be idle — if busy, skip and reset interval
       if (!status.idleWaiting) {
+        state.lastHeartbeatTime = now; // Reset! Wait for next full interval
         logger.debug(
           { groupFolder: group.folder },
-          'Heartbeat skipped: agent is busy',
+          'Heartbeat skipped: agent is busy, interval reset',
         );
-        continue; // Agent is actively working
+        continue;
       }
 
-      // Gate 4: Only fire if there are unfinished todos
+      // Gate 5: Only fire if there are unfinished todos
       const todos = getGroupTodos(group.folder);
       const hasUnfinishedTodos = todos.some((t) => t.status !== 'completed');
 
-      // Always update timestamp to prevent rapid retries,
-      // regardless of whether we actually send a heartbeat
-      state.lastHeartbeatTime = now;
-
       if (hasUnfinishedTodos) {
+        state.lastHeartbeatTime = now;
         logger.debug(
           { groupFolder: group.folder, unfinishedTodos: todos.length },
           'Injecting background heartbeat prompt',
@@ -94,7 +95,7 @@ export class HeartbeatService {
         this.processingGroups.add(group.folder);
         queue.sendMessage(
           jid,
-          '<system-reminder>\n[HEARTBEAT]请检查当前状态与最近对话，思考是否有未完成的任务。如果有，请立刻使用工具处理或者提醒用户。如果没有，请仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。\n</system-reminder>',
+          '<system-reminder>\n[HEARTBEAT]请检查当前状态与最近对话，思考是否有未完成的任务。如果有，请立刻使用工具处理或者提醒用户。如果没有，请取消todolist，然后仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。\n</system-reminder>',
         );
       }
     }
@@ -106,6 +107,14 @@ export class HeartbeatService {
    */
   markHeartbeatProcessed(folder: string): void {
     this.processingGroups.delete(folder);
+  }
+
+  /**
+   * Check if a heartbeat is currently in-flight for a group.
+   * Used by the host to determine if output came from a heartbeat query.
+   */
+  isHeartbeatInFlight(folder: string): boolean {
+    return this.processingGroups.has(folder);
   }
 
   private getOrCreateState(folder: string): GroupState {

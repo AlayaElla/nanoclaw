@@ -647,18 +647,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             }).catch(() => {});
           }
         }
-        // Only reset idle timer on actual results, not session-update markers (result: null)
-        if (!activeHeartbeatSkipQuery) {
+        // Only reset idle timer on actual results, not session-update markers (result: null).
+        // Heartbeat queries (skip or normal reply) never reset idle timer.
+        if (
+          !activeHeartbeatSkipQuery &&
+          !getHeartbeat().isHeartbeatInFlight(group.folder)
+        ) {
           resetIdleTimer();
         }
       }
 
       if (result.queryCompleted && result.status === 'success') {
         queue.notifyIdle(chatJid);
+        // Check before clearing — markHeartbeatProcessed clears the in-flight flag
+        const wasHeartbeat = getHeartbeat().isHeartbeatInFlight(group.folder);
         // Release heartbeat processing lock on any query completion
         // (heartbeat IPC messages don't have consumedThroughTimestamp)
         getHeartbeat().markHeartbeatProcessed(group.folder);
-        if (!activeHeartbeatSkipQuery) {
+        if (!activeHeartbeatSkipQuery && !wasHeartbeat) {
           resetIdleTimer();
         }
       }

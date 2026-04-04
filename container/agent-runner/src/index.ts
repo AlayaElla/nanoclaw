@@ -1286,15 +1286,15 @@ async function runQuery(
             const question_id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             globalQuestionLocks.add(question_id);
             writeIpcStatus({ type: 'ask_user_question', question_id, payload: toolInput });
-            
+
             while (!globalQuestionAnswers[question_id]) {
               await new Promise(r => setTimeout(r, 500));
             }
-            
+
             const answers = globalQuestionAnswers[question_id];
             delete globalQuestionAnswers[question_id];
             globalQuestionLocks.delete(question_id);
-            
+
             return { behavior: 'allow', updatedInput: { questions: (toolInput as any).questions, answers } };
           }
           return { behavior: 'allow', updatedInput: toolInput as any };
@@ -1671,16 +1671,15 @@ async function main(): Promise<void> {
 
       // Heartbeat queries used persistSession:false, so the session
       // transcript is untouched. Skip the session-update marker to avoid
-      // resetting the host's idle timer.
-      if (isHeartbeatQuery) {
+      // resetting the host's idle timer. Fall through to the IPC wait
+      // section so the container properly waits for the next signal
+      // (instead of re-running the same heartbeat prompt in a loop).
+      if (!isHeartbeatQuery) {
+        // Emit session update so host can track it
+        writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+      } else {
         log('Heartbeat query completed, session transcript unchanged (persistSession:false)');
-        // Don't update resumeAt or emit session update — the heartbeat
-        // never touched the transcript, so the session is at the same point.
-        continue queryLoop;
       }
-
-      // Emit session update so host can track it
-      writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
       if (queryResult.updatedConsumedThroughTimestamp) {
         consumedThroughTimestamp = queryResult.updatedConsumedThroughTimestamp;

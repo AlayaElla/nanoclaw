@@ -501,7 +501,10 @@ export class FeishuChannel implements Channel {
     const dedupId = msg.message_id;
     if (dedupId) {
       if (this.processedMessageIds.has(dedupId)) {
-        logger.debug({ messageId: dedupId }, 'Skipping duplicate Feishu message (already processed)');
+        logger.debug(
+          { messageId: dedupId },
+          'Skipping duplicate Feishu message (already processed)',
+        );
         return;
       }
       this.processedMessageIds.set(dedupId, Date.now());

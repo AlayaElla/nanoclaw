@@ -538,7 +538,7 @@ export function getControlCenterHandler() {
               if (typeof obj === 'string') {
                 if (obj.length > 40) {
                   const trunc = escapeHtml(obj.substring(0, 40)) + '...';
-                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); max-height: 400px; overflow-y: auto; width: fit-content; min-width: 200px;">"${valStr}"</div></details></div>`;
+                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); width: fit-content; min-width: 200px;">"${valStr}"</div></details></div>`;
                 }
                 return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #10b981; word-break: break-all; white-space: pre-wrap;">"${valStr}"</span></div>`;
               }
@@ -707,7 +707,7 @@ export function getControlCenterHandler() {
             </tr>
             <tr class="hidden">
               <td colspan="4" style="padding: 12px 24px 24px 24px;">
-                <div style="font-family: 'SF Mono', monospace; font-size: 12px; font-weight: normal; background: transparent; border-left: 3px solid rgba(59, 130, 246, 0.4); padding-left: 16px; margin-top: 4px; max-height: 500px; overflow-y: auto; overscroll-behavior: contain; overflow-x: auto;">
+                <div style="font-family: 'SF Mono', monospace; font-size: 12px; font-weight: normal; background: transparent; border-left: 3px solid rgba(59, 130, 246, 0.4); padding-left: 16px; margin-top: 4px; overflow-wrap: anywhere;">
                   ${detailsHtml}
                 </div>
               </td>

@@ -15,6 +15,7 @@ class RawLogger(CustomLogger):
     """Log raw request/response payloads to jsonl."""
 
     _LOG_FILE = "/app/litellm.jsonl"
+    _ERROR_LOG = "/app/raw_logger_error.log"
 
     def __init__(self):
         super().__init__()
@@ -23,24 +24,24 @@ class RawLogger(CustomLogger):
 
     def _write_jsonl(self, record: dict):
         try:
-            line = json.dumps(record, ensure_ascii=False, default=str)
+            try:
+                line = json.dumps(record, ensure_ascii=False, default=str)
+            except ValueError as ve:
+                if "Circular" in str(ve) or "circular" in str(ve):
+                    # Safe fallback serialization for circular references
+                    safe_record = {k: (str(v) if k in ["request", "response"] else v) for k, v in record.items()}
+                    line = json.dumps(safe_record, ensure_ascii=False, default=str)
+                else:
+                    raise ve
             
-            lines = []
-            if os.path.exists(self._LOG_FILE):
-                with open(self._LOG_FILE, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                    
-            lines.append(line + "\n")
+            # 使用 a+ 模式安全追加
+            with open(self._LOG_FILE, "a+", encoding="utf-8") as f:
+                f.write(line + "\n")
             
-            # 仅保留最近的20条记录
-            if len(lines) > 20:
-                lines = lines[-20:]
-                
-            with open(self._LOG_FILE, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-                
             print(line, flush=True)
         except Exception as e:
+            with open(self._ERROR_LOG, "a", encoding="utf-8") as ef:
+                ef.write(f"{datetime.now(timezone.utc).isoformat()} [raw_logger] Error: {str(e)}\n")
             print("[raw_logger] Error writing jsonl: " + str(e), flush=True)
 
     # ── Sync hooks (fallback) ───────────────────────────────────────────
@@ -74,14 +75,32 @@ class RawLogger(CustomLogger):
     # ── Printers ────────────────────────────────────────────────────────
     def _print_response(self, kwargs: dict, response_obj, start_time, end_time):
         duration = (end_time - start_time).total_seconds() if start_time and end_time else 0
-        resp = response_obj.model_dump() if hasattr(response_obj, "model_dump") else response_obj
+        
+        # Check if there is a complete assembled stream response
+        final_obj = kwargs.get("complete_streaming_response")
+        if final_obj is None:
+            final_obj = response_obj
+            
+        # 处理不同类型的 response_obj
+        try:
+            if hasattr(final_obj, "json"):
+                resp = final_obj.json()
+            elif hasattr(final_obj, "model_dump"):
+                resp = final_obj.model_dump()
+            elif hasattr(final_obj, "dict"):
+                resp = final_obj.dict()
+            else:
+                resp = final_obj
+        except:
+            resp = str(final_obj)
+
         call_id = kwargs.get("litellm_call_id", "unknown")
         
         record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": "success",
             "call_id": call_id,
-            "model": kwargs.get("model", "?"),
+            "model": str(kwargs.get("model", "?")),
             "duration_s": round(duration, 3),
             "request": {
                 "messages": kwargs.get("messages", None),
@@ -99,7 +118,7 @@ class RawLogger(CustomLogger):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": "failure",
             "call_id": call_id,
-            "model": kwargs.get("model", "?"),
+            "model": str(kwargs.get("model", "?")),
             "duration_s": round(duration, 3),
             "request": {
                 "messages": kwargs.get("messages", None),

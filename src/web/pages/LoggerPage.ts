@@ -65,15 +65,15 @@ export class LoggerPage {
         </div>
 
         <!-- Table -->
-        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);">
-          <div style="overflow-x: auto;">
-            <table style="width: 100%; white-space: nowrap; border-collapse: collapse;">
+        <div class="card" style="padding: 0; border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);">
+          <div>
+            <table style="width: 100%; table-layout: fixed; border-collapse: collapse;">
               <thead style="background: rgba(0,0,0,0.03); border-bottom: 1px solid rgba(0,0,0,0.05);">
                 <tr>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Time</th>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Event</th>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Model</th>
-                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Call ID</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 140px;">Time</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 120px;">Event</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: 180px;">Model</th>
+                  <th style="padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; width: auto;">Call ID</th>
                 </tr>
               </thead>
               <tbody id="log-table-body" 

@@ -6,7 +6,8 @@ export type Section =
   | 'docs'
   | 'usage'
   | 'alerts'
-  | 'settings';
+  | 'settings'
+  | 'logger';
 export const SECTIONS: Section[] = [
   'overview',
   'agent',
@@ -15,4 +16,5 @@ export const SECTIONS: Section[] = [
   'usage',
   'alerts',
   'settings',
+  'logger',
 ];

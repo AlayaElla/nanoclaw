@@ -8,6 +8,7 @@ const SECTION_ICONS: Record<Section, string> = {
   usage: '📈',
   alerts: '🔔',
   settings: '⚙️',
+  logger: '📝',
 };
 const LABELS_ZH: Record<Section, string> = {
   overview: '概览',
@@ -17,6 +18,7 @@ const LABELS_ZH: Record<Section, string> = {
   usage: '用量',
   alerts: '告警',
   settings: '设置',
+  logger: '日志',
 };
 const LABELS_EN: Record<Section, string> = {
   overview: 'Overview',
@@ -26,6 +28,7 @@ const LABELS_EN: Record<Section, string> = {
   usage: 'Usage',
   alerts: 'Alerts',
   settings: 'Settings',
+  logger: 'Logger',
 };
 
 export class Layout {

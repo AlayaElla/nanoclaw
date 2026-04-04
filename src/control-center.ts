@@ -20,6 +20,7 @@ import {
   AlertsPage,
   SettingsPage,
   LoginPage,
+  LoggerPage,
 } from './web/pages/index.js';
 import {
   getWorkspaceFilePath,
@@ -439,6 +440,293 @@ export function getControlCenterHandler() {
       }
       // ======== END ALERTS APIS ========
 
+      // ======== LOGGER APIS ========
+      if (url.pathname === '/api/logs/litellm/clear' && req.method === 'POST') {
+        const logPath = join(process.cwd(), 'litellm', 'litellm.jsonl');
+        const fs = await import('node:fs');
+        try {
+          if (fs.existsSync(logPath)) {
+            fs.writeFileSync(logPath, '');
+          }
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          return res.end(
+            '<tr><td colspan="4" class="empty-state" style="padding: 24px; text-align: center; color: var(--text-muted);">No logs found</td></tr>',
+          );
+        } catch (e: any) {
+          logger.error({ err: e }, 'Failed to clear litellm logs');
+          res.writeHead(500, { 'Content-Type': 'text/html' });
+          return res.end(
+            '<tr><td colspan="4" class="empty-state" style="padding: 24px; text-align: center; color: #ef4444;">Failed to clear logs</td></tr>',
+          );
+        }
+      }
+
+      if (url.pathname === '/api/logs/litellm' && req.method === 'GET') {
+        const lines = parseInt(url.searchParams.get('lines') || '20', 10);
+        const eventFilter = url.searchParams.get('event');
+        const modelFilter = url.searchParams.get('model');
+        const searchFilter = url.searchParams.get('search');
+
+        const logPath = join(process.cwd(), 'litellm', 'litellm.jsonl');
+        try {
+          // Read log synchronously (since it's capped, we don't have performance issues)
+          const fs = await import('node:fs');
+          if (!fs.existsSync(logPath)) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            return res.end(
+              '<tr><td colspan="4" class="empty-state">No logs found</td></tr>',
+            );
+          }
+          const content = fs.readFileSync(logPath, 'utf-8');
+          let allLines = content.split('\n').filter(Boolean);
+
+          if (searchFilter) {
+            allLines = allLines.filter((line) => line.includes(searchFilter));
+          }
+
+          const scanWindow = allLines.slice(-Math.max(lines * 10, 500));
+          const rowLines = scanWindow
+            .map((line) => {
+              try {
+                return JSON.parse(line);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+
+          let filtered = rowLines;
+          if (eventFilter) {
+            filtered = filtered.filter((row) => row.event_type === eventFilter);
+          }
+          if (modelFilter) {
+            filtered = filtered.filter(
+              (row) => row.model && row.model.includes(modelFilter),
+            );
+          }
+          filtered = filtered.slice(-lines);
+
+          if (filtered.length === 0) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            return res.end(
+              '<tr><td colspan="4" class="empty-state">No matching logs</td></tr>',
+            );
+          }
+
+          const escapeHtml = (u: string) =>
+            String(u)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          const renderJsonToFoldableHtml = (
+            obj: any,
+            keyName: string = '',
+            isRoot = false,
+          ): string => {
+            const keyPrefix = keyName
+              ? `<span style="color: #3b82f6; font-weight: 500; margin-right: 8px; flex-shrink: 0;">"${escapeHtml(keyName)}":</span>`
+              : '';
+
+            if (keyName === 'messages' && Array.isArray(obj)) {
+              return renderLiteLLMMessages(obj, keyName);
+            }
+            if (obj === null) {
+              return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: var(--text-muted, #9ca3af);">null</span></div>`;
+            }
+            if (typeof obj !== 'object') {
+              let valStr = escapeHtml(String(obj));
+              if (typeof obj === 'string') {
+                if (obj.length > 40) {
+                  const trunc = escapeHtml(obj.substring(0, 40)) + '...';
+                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); max-height: 400px; overflow-y: auto; width: fit-content; min-width: 200px;">"${valStr}"</div></details></div>`;
+                }
+                return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #10b981; word-break: break-all; white-space: pre-wrap;">"${valStr}"</span></div>`;
+              }
+              if (typeof obj === 'number')
+                return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #f59e0b; font-weight: 500;">${valStr}</span></div>`;
+              if (typeof obj === 'boolean')
+                return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #0ea5e9; font-weight: 500;">${valStr}</span></div>`;
+              return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}${valStr}</div>`;
+            }
+
+            const getShortPreview = (v: any) => {
+              if (v === null) return 'null';
+              if (typeof v !== 'object') {
+                const s = escapeHtml(String(v));
+                const trunc = s.length > 20 ? s.substring(0, 20) + '...' : s;
+                return typeof v === 'string' ? `"${trunc}"` : trunc;
+              }
+              return Array.isArray(v) ? '[...]' : '{...}';
+            };
+
+            const isArray = Array.isArray(obj);
+            const keys = isArray ? obj : Object.keys(obj);
+            const length = isArray ? obj.length : keys.length;
+
+            if (length === 0) {
+              return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: var(--text-muted, #9ca3af);">${isArray ? '[]' : '{}'}</span></div>`;
+            }
+
+            const isOpen = isRoot ? 'open' : '';
+            const summaryKey = keyName
+              ? `<span style="color: #3b82f6; font-weight: 500;">"${escapeHtml(keyName)}":</span>`
+              : isArray
+                ? 'Array'
+                : 'Object';
+
+            let preview = '';
+            if (isArray) {
+              preview =
+                obj.slice(0, 3).map(getShortPreview).join(', ') +
+                (length > 3 ? ', ...' : '');
+              preview = `[ ${preview} ]`;
+            } else {
+              preview =
+                keys
+                  .slice(0, 3)
+                  .map(
+                    (k) =>
+                      `${escapeHtml(k as string)}: ${getShortPreview(obj[k as string])}`,
+                  )
+                  .join(', ') + (length > 3 ? ', ...' : '');
+              preview = `{ ${preview} }`;
+            }
+
+            let html = `<details ${isOpen} style="margin-top: 4px;"><summary style="position: sticky; top: 0; z-index: 10; padding-top: 2px; padding-bottom: 2px; cursor: pointer; color: var(--text-muted, #9ca3af); user-select: none;">${summaryKey} <span style="opacity: 0.7; font-size: 0.9em; margin-left: 4px;">${preview}</span></summary><div style="padding-left: 16px; border-left: 1px dashed rgba(128,128,128,0.2); margin: 4px 0 4px 8px; display: flex; flex-direction: column; gap: 4px;">`;
+
+            if (isArray) {
+              for (let i = 0; i < length; i++) {
+                html += renderJsonToFoldableHtml(obj[i], String(i));
+              }
+            } else {
+              for (const k of keys) {
+                html += renderJsonToFoldableHtml(obj[k as string], k as string);
+              }
+            }
+            html += `</div></details>`;
+            return html;
+          };
+
+          const renderLiteLLMMessages = (
+            msgs: any[],
+            keyName: string,
+          ): string => {
+            if (msgs.length === 0)
+              return `<div style="display: flex; align-items: flex-start; margin-top: 4px;"><span style="color: #3b82f6; font-weight: 500; margin-right: 8px; flex-shrink: 0;">"${escapeHtml(keyName)}":</span><span style="color: var(--text-muted, #9ca3af);">[]</span></div>`;
+            let html = `<details style="margin-top: 4px;"><summary style="position: sticky; top: 0; z-index: 10; padding-top: 2px; padding-bottom: 2px; cursor: pointer; color: var(--text-muted, #9ca3af); user-select: none;"><span style="color: #3b82f6; font-weight: 500;">"${escapeHtml(keyName)}":</span> <span style="opacity: 0.7; font-size: 0.9em; margin-left: 4px;">(${msgs.length} messages)</span></summary><div style="padding-left: 16px; border-left: 1px dashed rgba(128,128,128,0.2); margin: 4px 0 4px 8px; display: flex; flex-direction: column; gap: 8px;">`;
+
+            for (const msg of msgs) {
+              if (!msg || typeof msg !== 'object') {
+                html += `<div>${renderJsonToFoldableHtml(msg)}</div>`;
+                continue;
+              }
+              const roleStr = msg.role
+                ? escapeHtml(String(msg.role))
+                : 'unknown';
+
+              html += `<div style="background: rgba(128,128,128,0.04); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; padding: 10px;">`;
+              html += `<div style="margin-bottom: 6px; border-bottom: 1px solid rgba(128,128,128,0.1); padding-bottom: 4px;"><span style="color: #3b82f6; font-weight: 500; margin-right: 8px;">"role":</span><span style="color: #f59e0b;">"${roleStr}"</span></div>`;
+
+              const content = msg.content;
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block && typeof block === 'object') {
+                    if (block.text) {
+                      html += renderJsonToFoldableHtml(block.text, 'text');
+                    } else if (block.image_url) {
+                      html += renderJsonToFoldableHtml(
+                        block.image_url,
+                        'image_url',
+                      );
+                    } else {
+                      for (const k of Object.keys(block)) {
+                        if (k === 'type') continue;
+                        html += renderJsonToFoldableHtml(block[k], k);
+                      }
+                    }
+                  } else {
+                    html += `<div>${renderJsonToFoldableHtml(block)}</div>`;
+                  }
+                }
+              } else if (content !== undefined) {
+                html += renderJsonToFoldableHtml(content, 'text');
+              }
+
+              for (const k of Object.keys(msg)) {
+                if (k === 'role' || k === 'content') continue;
+                html += renderJsonToFoldableHtml(msg[k], k);
+              }
+              html += `</div>`;
+            }
+            html += `</div></details>`;
+            return html;
+          };
+
+          const htmlResp = filtered
+            .reverse()
+            .map((e) => {
+              const d = e.timestamp ? new Date(e.timestamp) : new Date();
+              const time = isNaN(d.getTime())
+                ? '--'
+                : d
+                    .toLocaleString('zh-CN', {
+                      timeZone: 'Asia/Shanghai',
+                      hour12: false,
+                    })
+                    .replace(/\//g, '-');
+              const callIdSnippet = e.call_id ? e.call_id.split('-')[0] : '--';
+
+              const detailsObj: any = {
+                messages: e.request?.messages || [],
+                parameters: e.request?.parameters || {},
+              };
+
+              const optParams =
+                e.request?.optional_params ||
+                e.kwargs?.optional_params ||
+                e.optional_params ||
+                e.kwargs;
+              if (optParams && Object.keys(optParams).length > 0) {
+                detailsObj.optional_params = optParams;
+              }
+
+              detailsObj.response = e.response || {};
+
+              const detailsHtml = renderJsonToFoldableHtml(
+                detailsObj,
+                '',
+                true,
+              );
+
+              return `
+            <tr style="border-bottom: 1px solid rgba(128,128,128,0.1); cursor: pointer; transition: background-color 0.2s ease;" onclick="this.nextElementSibling.classList.toggle('hidden')" onmouseover="this.style.backgroundColor='rgba(128,128,128,0.05)'" onmouseout="this.style.backgroundColor='transparent'">
+              <td style="font-family: 'SF Mono', monospace; font-size: 11px; padding: 12px 16px;">${time}</td>
+              <td style="padding: 12px 16px;"><span class="badge badge-gray" style="background: rgba(128,128,128,0.1); border: 1px solid rgba(128,128,128,0.2); padding: 2px 8px; border-radius: 12px; font-size: 11px;">${e.event_type || 'unknown'}</span></td>
+              <td style="font-weight: 500; font-size: 13px; padding: 12px 16px;">${e.model || '--'}</td>
+              <td style="font-family: 'SF Mono', monospace; font-size: 11px; opacity: 0.6; padding: 12px 16px;">${callIdSnippet}...</td>
+            </tr>
+            <tr class="hidden">
+              <td colspan="4" style="padding: 12px 24px 24px 24px;">
+                <div style="font-family: 'SF Mono', monospace; font-size: 12px; font-weight: normal; background: transparent; border-left: 3px solid rgba(59, 130, 246, 0.4); padding-left: 16px; margin-top: 4px; max-height: 500px; overflow-y: auto; overscroll-behavior: contain; overflow-x: auto;">
+                  ${detailsHtml}
+                </div>
+              </td>
+            </tr>
+            `;
+            })
+            .join('');
+
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          return res.end(htmlResp);
+        } catch (err) {
+          logger.error({ err }, 'Error reading litellm.jsonl');
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          return res.end(
+            '<tr><td colspan="4" class="empty-state" style="color:var(--red);">Failed to load logs</td></tr>',
+          );
+        }
+      }
+
       // ======== END SYSTEM MANAGEMENT APIS ========
 
       // Legacy form actions (fallback)
@@ -494,6 +782,9 @@ export function getControlCenterHandler() {
           break;
         case 'alerts':
           htmlBody = new AlertsPage().render({}, lang);
+          break;
+        case 'logger':
+          htmlBody = new LoggerPage().render({ query: url.searchParams }, lang);
           break;
         case 'settings':
           htmlBody = new SettingsPage().render({}, lang);

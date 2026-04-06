@@ -54,7 +54,7 @@ import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages } from './router.js';
-import { initRag, indexMessage, isRagEnabled } from './rag.js';
+import { initMemorySystem, indexMessage, isMemoryEnabled } from './services/memory/index.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
 import {
   isSenderAllowed,
@@ -443,8 +443,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     cancel_task: '取消任务',
     mcp__nanoclaw__register_group: '注册群组',
     register_group: '注册群组',
-    mcp__nanoclaw__rag_search: '搜索记忆',
-    rag_search: '搜索记忆',
+    mcp__nanoclaw__recall_memory: '召回记忆',
+    recall_memory: '召回记忆',
     mcp__nanoclaw__x_post: '发推文',
     x_post: '发推文',
     mcp__nanoclaw__x_like: '点赞推文',
@@ -640,17 +640,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
           // Cross-post to sibling agents in same Telegram group
           crossPostToSiblingAgents(chatJid, text, group.assistantName!);
-          // Auto-index agent output for RAG (fire-and-forget)
-          if (isRagEnabled()) {
-            indexMessage(resolveAgentName(group.botToken), text, {
-              role: 'assistant',
-              chat_source:
-                (getChatIsGroup(chatJid) ?? false)
-                  ? `群聊:${group.name}`
-                  : '私聊',
-              timestamp: new Date().toISOString(),
-            }).catch(() => {});
-          }
+          
+          // NOTE: We no longer index Agent's raw transcript messages into the LanceDB Vector Memory.
+          // Intermediate thoughts/status (sent to Telegram above) are preserved in SQLite via storeMessage,
+          // but we leave long-term structured memory extraction entirely to the background SmartExtractor at the Stop hook.
         }
         // Only reset idle timer on actual results, not session-update markers (result: null).
         // Heartbeat queries (skip or normal reply) never reset idle timer.
@@ -828,12 +821,12 @@ async function runAgent(
     // Wrap onOutput to track session ID from streamed results
     const wrappedOnOutput = onOutput
       ? async (output: ContainerOutput) => {
-          if (output.newSessionId) {
-            sessions[group.folder] = output.newSessionId;
-            setSession(group.folder, output.newSessionId);
-          }
-          await onOutput(output);
+        if (output.newSessionId) {
+          sessions[group.folder] = output.newSessionId;
+          setSession(group.folder, output.newSessionId);
         }
+        await onOutput(output);
+      }
       : undefined;
 
     try {
@@ -1076,7 +1069,7 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
-  initRag();
+  initMemorySystem();
   loadState();
 
   // Graceful shutdown handlers
@@ -1139,20 +1132,17 @@ async function main(): Promise<void> {
         }
       }
       storeMessage(msg);
-      // Auto-index user messages for RAG (fire-and-forget)
-      if (isRagEnabled()) {
+      // Auto-index user messages for memory (fire-and-forget)
+      if (isMemoryEnabled()) {
         const group = registeredGroups[msg.chat_jid];
         if (group) {
-          indexMessage(resolveAgentName(group.botToken), msg.content, {
-            role: 'user',
-            sender_name: msg.sender_name,
-            message_id: msg.id,
-            chat_source:
-              (getChatIsGroup(msg.chat_jid) ?? false)
-                ? `群聊:${group.name}`
-                : '私聊',
-            timestamp: msg.timestamp,
-          }).catch(() => {});
+          const textMsg = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          indexMessage(
+            resolveAgentName(group.botToken),
+            textMsg,
+            msg.sender_name || 'user',
+            'user'
+          ).catch(() => { });
         }
       }
     },
@@ -1301,7 +1291,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-    new URL(`file://${process.argv[1]}`).pathname;
+  new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

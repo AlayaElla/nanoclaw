@@ -726,8 +726,8 @@ server.tool(
 );
 
 server.tool(
-  'rag_search',
-  `使用语义搜索来搜索对话记忆。使用场景：
+  'recall_memory',
+  `使用混合检索架构（语义向量+全文关键词）来深度搜索并召回持久化对话记忆。使用场景：
 • 用户询问之前讨论过的内容（"上次说的..."、"之前提到的..."）
 • 你需要过去对话的上下文
 • 寻找聊天历史中的特定信息
@@ -742,7 +742,7 @@ server.tool(
 
     // Write search request via IPC
     const data = {
-      type: 'rag_search',
+      type: 'recall_memory',
       query: args.query,
       topK: args.top_k || 5,
       requestId,
@@ -767,11 +767,18 @@ server.tool(
     }
 
     const formatted = resultData.results
-      .map((r: { text: string; role: string; sender_name: string; timestamp: string; chat_source: string; score: number }, i: number) => {
-        const role = r.role === 'user' ? `👤 ${r.sender_name || 'User'}` : '🤖 Assistant';
-        const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
-        const source = r.chat_source ? ` | 来源: ${r.chat_source}` : '';
-        return `[${i + 1}] ${role} (${time}, 相关度: ${(r.score * 100).toFixed(0)}%${source})\n${r.text}`;
+      .map((r: any, i: number) => {
+        const text = r.entry?.text || r.text || '';
+        let meta: any = {};
+        try { meta = JSON.parse(r.entry?.metadata || '{}'); } catch {}
+        const roleStr = meta.role || r.role;
+        const sender = meta.sender_name || r.sender_name;
+        const ts = meta.created_at || r.timestamp;
+        
+        const roleBadge = roleStr === 'user' ? `👤 ${sender || 'User'}` : (roleStr ? '🤖 Assistant' : `[分类: ${r.entry?.category || 'fact'}]`);
+        const timeBadge = ts ? `时间: ${new Date(ts).toLocaleString()}, ` : '';
+        const source = meta.source_session || r.chat_source ? ` | 来源: ${meta.source_session || r.chat_source}` : '';
+        return `[${i + 1}] ${roleBadge} (${timeBadge}相关度: ${(r.score * 100).toFixed(0)}%${source})\n${text}`;
       })
       .join('\n\n---\n\n');
 

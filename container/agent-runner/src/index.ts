@@ -601,8 +601,8 @@ function createPostToolUseHook(): HookCallback {
       toolNameCount++;
     } else {
       toolNameCount = 0;
+      lastToolName = toolName;
     }
-    lastToolName = toolName;
 
     // 完全参数死循环防线 (第5次拦截)
     if (exactRepeatCount >= 4) {
@@ -646,7 +646,7 @@ function createToolUsageHintHook(): HookCallback {
     'mcp__nanoclaw__generate_image': 'generate_image({ prompt: string, source_image?: string, model?: string, size?: string, caption?: string })\n  例: generate_image({ prompt: "一只猫" })',
     'mcp__nanoclaw__schedule_task': 'schedule_task({ prompt: string, schedule_type: "cron"|"interval"|"once", schedule_value: string, context_mode?: "group"|"isolated" })',
     'mcp__nanoclaw__register_group': 'register_group({ jid: string, name: string, folder: string, trigger: string })',
-    'mcp__nanoclaw__rag_search': 'rag_search({ query: string, top_k?: number })',
+    'mcp__nanoclaw__recall_memory': 'recall_memory({ query: string, top_k?: number })',
     'mcp__nanoclaw__list_tasks': 'list_tasks({})',
     'mcp__nanoclaw__pause_task': 'pause_task({ task_id: string })',
     'mcp__nanoclaw__resume_task': 'resume_task({ task_id: string })',
@@ -1010,6 +1010,106 @@ function waitForIpcSignal(): Promise<IpcDrainResult | null> {
   });
 }
 
+// ─── Memory Integration Hooks ──────────────────────────────────────────────
+
+async function fetchMemoryRecall(containerInput: ContainerInput, query: string, topK: number = 5): Promise<any[]> {
+  if (!containerInput.gatewayUrl || !containerInput.gatewayToken) return [];
+  try {
+    const res = await fetch(`${containerInput.gatewayUrl}/ipc/tasks`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${containerInput.gatewayToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type: 'recall_memory', query, topK })
+    });
+    if (res.ok) {
+      const body = await res.json() as any;
+      if (body.success && body.results) {
+        return body.results;
+      }
+    }
+  } catch (err) {
+    log(`Memory recall IPC failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return [];
+}
+
+async function notifySmartExtraction(containerInput: ContainerInput, transcript: string, sessionId: string): Promise<void> {
+  if (!containerInput.gatewayUrl || !containerInput.gatewayToken) return;
+  try {
+    await fetch(`${containerInput.gatewayUrl}/ipc/tasks`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${containerInput.gatewayToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type: 'smart_extract', transcript, sessionId })
+    });
+  } catch (err) {
+    log(`Smart extraction IPC failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function createMemoryAutoRecallHook(containerInput: ContainerInput): HookCallback {
+  return async (input) => {
+    const text = (input as any).prompt || (input as any).message;
+    if (!text || typeof text !== 'string' || text.length < 5) return {};
+    
+    // Quick heuristic to avoid recalling on purely system/invisible outputs or empty texts
+    if (text.startsWith('[HEARTBEAT]') || text.startsWith('[SCHEDULED TASK')) return {};
+
+    const results = await fetchMemoryRecall(containerInput, text, 3);
+    if (!results || results.length === 0) return {};
+
+    let recallContext = "<auto-recall>\nBased on the user's input, here is relevant knowledge from your persistent memory:\n";
+    for (const r of results) {
+      recallContext += `- [${r.entry.category || 'fact'}] ${r.entry.text}\n`;
+    }
+    recallContext += "</auto-recall>\n";
+
+    log(`Injected Auto-Recall: ${results.length} memories`);
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: recallContext
+      }
+    };
+  };
+}
+
+function createMemorySmartExtractionHook(containerInput: ContainerInput): HookCallback {
+  return async (input) => {
+    const sessionId = (input as any).session_id;
+    if (!sessionId) return {};
+    
+    // Extract transcript logic
+    const projectDir = '/workspace/group';
+    let content = '';
+    
+    const indexPath = path.join(projectDir, 'sessions-index.json');
+    try {
+      if (fs.existsSync(indexPath)) {
+        const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+        const entry = index.entries.find((e: any) => e.sessionId === sessionId);
+        if (entry?.fileName) {
+          const tPath = path.join(projectDir, '.claude', 'sessions', entry.fileName);
+          if (fs.existsSync(tPath)) {
+            content = fs.readFileSync(tPath, 'utf8');
+          }
+        }
+      }
+    } catch {}
+
+    if (content) {
+      log('Triggering asynchronous Smart Extraction on session transcript');
+      notifySmartExtraction(containerInput, content, sessionId);
+    }
+    
+    return {};
+  };
+}
+
 async function fetchPendingBatch(
   containerInput: ContainerInput,
   consumedThroughTimestamp?: string,
@@ -1324,6 +1424,7 @@ async function runQuery(
     }
     return {};
   };
+  let lastAssistantEmitText = '';
 
   try {
     for await (const message of query({
@@ -1436,6 +1537,14 @@ async function runQuery(
             { matcher: '', hooks: [createExternalBootHook(), createContextModeHook('sessionstart')] },
             ...extHooks.filter(h => h.event === 'SessionStart').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
+          UserPromptSubmit: [
+            { matcher: '', hooks: [createMemoryAutoRecallHook(containerInput)] },
+            ...extHooks.filter(h => h.event === 'UserPromptSubmit').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
+          ],
+          Stop: [
+            { matcher: '', hooks: [createMemorySmartExtractionHook(containerInput)] },
+            ...extHooks.filter(h => h.event === 'Stop').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
+          ],
         },
         includePartialMessages: true,
       }
@@ -1477,6 +1586,7 @@ async function runQuery(
 
             if (thisTurnText) {
               emittedTexts.add(thisTurnText);
+              lastAssistantEmitText = thisTurnText;
               log(`Emitting intermediate assistant text length: ${thisTurnText.length}`);
               writeOutput({
                 status: 'success',
@@ -1521,6 +1631,18 @@ async function runQuery(
         if (textResult && emittedTexts.has(textResult)) {
           log('Skipping duplicate final result text as it was already emitted');
           textResult = null;
+        }
+
+        const finalOutputText = textResult || lastAssistantEmitText;
+        if (finalOutputText && !isHeartbeat && containerInput.gatewayUrl) {
+          fetch(`${containerInput.gatewayUrl}/ipc/tasks`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${containerInput.gatewayToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ type: 'index_agent_memory', text: finalOutputText })
+          }).catch(err => log(`Failed to index final agent text: ${err.message}`));
         }
 
         log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);

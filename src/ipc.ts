@@ -21,7 +21,7 @@ import {
 } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
-import { searchMemory, isRagEnabled } from './rag.js';
+import { recallMemory, isMemoryEnabled, extractSmartMemories, indexMessage } from './services/memory/index.js';
 import { resolveAgentName } from './agents-config.js';
 import { RegisteredGroup } from './types.js';
 
@@ -358,26 +358,24 @@ export async function processTaskIpc(
         return { success: false, message: 'Missing required fields' };
       }
 
-    case 'rag_search': {
-      // RAG search: agent writes request, host writes result file back
-      if (!isRagEnabled()) {
-        logger.debug('RAG search requested but RAG is disabled');
-        return { success: false, message: 'RAG is disabled' };
+    case 'recall_memory': {
+      // Memory recall via IPC
+      if (!isMemoryEnabled()) {
+        logger.debug('Memory search requested but disabled');
+        return { success: false, message: 'Memory system is disabled' };
       }
       const ragQuery = (data as any).query as string;
-      const ragRequestId = (data as any).requestId as string;
       const ragTopK = ((data as any).topK as number) || 5;
-      if (!ragQuery || !ragRequestId) {
-        logger.warn({ data }, 'Invalid rag_search request');
-        return { success: false, message: 'Invalid rag_search request' };
+      if (!ragQuery) {
+        logger.warn({ data }, 'Invalid recall_memory request');
+        return { success: false, message: 'Invalid recall_memory request' };
       }
       try {
-        // Resolve agent name for per-agent RAG table
         const ragGroup = Object.values(registeredGroups).find(
           (g) => g.folder === sourceGroup,
         );
         const ragAgentName = resolveAgentName(ragGroup?.botToken);
-        const results = await searchMemory(ragAgentName, ragQuery, ragTopK);
+        const results = await recallMemory(ragAgentName, ragQuery, ragTopK);
 
         logger.info(
           {
@@ -385,16 +383,54 @@ export async function processTaskIpc(
             query: ragQuery.slice(0, 50),
             results: results.length,
           },
-          'RAG search completed via IPC',
+          'Memory recall completed via IPC',
         );
         return { success: true, results };
       } catch (err) {
         logger.error(
           { err, sourceGroup, ragQuery },
-          'RAG search failed via IPC',
+          'Memory recall failed via IPC',
         );
-
         return { success: false, message: String(err) };
+      }
+    }
+
+    case 'smart_extract': {
+      if (!isMemoryEnabled()) {
+        return { success: false, message: 'Memory system is disabled' };
+      }
+      const transcript = (data as any).transcript as string;
+      const sessionId = (data as any).sessionId as string;
+      if (!transcript || !sessionId) {
+        return { success: false, message: 'Missing transcript or sessionId' };
+      }
+      try {
+        const ragGroup = Object.values(registeredGroups).find(
+          (g) => g.folder === sourceGroup,
+        );
+        const ragAgentName = resolveAgentName(ragGroup?.botToken);
+        
+        // This is async and runs in the background
+        extractSmartMemories(ragAgentName, transcript, sessionId).catch(() => {});
+        return { success: true };
+      } catch (err) {
+        return { success: false, message: String(err) };
+      }
+    }
+    case 'index_agent_memory': {
+      if (!isMemoryEnabled()) {
+        return { success: false, message: 'Memory disabled' };
+      }
+      try {
+        const ragGroup = Object.values(registeredGroups).find((g) => g.folder === sourceGroup);
+        const ragAgentName = resolveAgentName(ragGroup?.botToken);
+        const finalAgentText = (data as any).text as string;
+        if (finalAgentText) {
+          indexMessage(ragAgentName, finalAgentText, ragGroup?.assistantName || 'assistant', 'assistant').catch(() => {});
+        }
+        return { success: true };
+      } catch (err) {
+        return { success: false };
       }
     }
 

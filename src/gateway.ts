@@ -16,7 +16,7 @@ import path from 'path';
 import * as crypto from 'crypto';
 import { GATEWAY_PORT, WORKSPACE_DIR, GATEWAY_AUTH_TOKEN } from './config.js';
 import { storeMessage, insertTokenUsage, getTaskById } from './db.js';
-import { searchMemory, isRagEnabled } from './rag.js';
+import { recallMemory, isMemoryEnabled } from './services/memory/index.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { getFullStatus } from './status.js';
@@ -636,9 +636,9 @@ export class GatewayServer {
     const { sourceGroup, isMain } = identity;
 
     // Fast-path for RAG Search: synchronous HTTP response
-    if (data.type === 'rag_search') {
-      if (!isRagEnabled()) {
-        this.sendJson(res, 400, { error: 'RAG is disabled' });
+    if (data.type === 'recall_memory') {
+      if (!isMemoryEnabled()) {
+        this.sendJson(res, 400, { error: 'Memory system is disabled' });
         return;
       }
       const ragQuery = data.query as string;
@@ -655,14 +655,14 @@ export class GatewayServer {
           (g) => g.folder === sourceGroup,
         );
         const ragAgentName = resolveAgentName(ragGroup?.botToken);
-        const results = await searchMemory(ragAgentName, ragQuery, ragTopK);
+        const results = await recallMemory(ragAgentName, ragQuery, ragTopK);
         logger.info(
           {
             sourceGroup,
             query: ragQuery.slice(0, 50),
             results: results.length,
           },
-          'RAG search completed via Gateway',
+          'Memory recall completed via Gateway',
         );
 
         this.sendJson(res, 200, { results, success: true });
@@ -670,7 +670,7 @@ export class GatewayServer {
       } catch (err: any) {
         logger.error(
           { err, sourceGroup, ragQuery },
-          'RAG search failed via Gateway',
+          'Memory recall failed via Gateway',
         );
         this.sendJson(res, 500, { error: String(err), results: [] });
         return;

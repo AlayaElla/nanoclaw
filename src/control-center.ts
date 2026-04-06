@@ -6,7 +6,8 @@
 import { createServer, type Server } from 'node:http';
 import { execSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { createReadStream, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, statSync, writeFileSync, existsSync } from 'node:fs';
+import Database from 'better-sqlite3';
 import { GATEWAY_PORT } from './config.js';
 import { logger } from './logger.js';
 import { Section, SECTIONS, Lang } from './web/types.js';
@@ -442,11 +443,17 @@ export function getControlCenterHandler() {
 
       // ======== LOGGER APIS ========
       if (url.pathname === '/api/logs/litellm/clear' && req.method === 'POST') {
-        const logPath = join(process.cwd(), 'litellm', 'litellm.jsonl');
-        const fs = await import('node:fs');
+        const dbPath = join(
+          process.cwd(),
+          'litellm',
+          'logs',
+          'litellm_logs.db',
+        );
         try {
-          if (fs.existsSync(logPath)) {
-            fs.writeFileSync(logPath, '');
+          if (existsSync(dbPath)) {
+            const db = new Database(dbPath);
+            db.exec('DELETE FROM logs');
+            db.close();
           }
           res.writeHead(200, { 'Content-Type': 'text/html' });
           return res.end(
@@ -468,45 +475,57 @@ export function getControlCenterHandler() {
         const modelFilter = url.searchParams.get('model');
         const searchFilter = url.searchParams.get('search');
 
-        const logPath = join(process.cwd(), 'litellm', 'litellm.jsonl');
+        const dbPath = join(
+          process.cwd(),
+          'litellm',
+          'logs',
+          'litellm_logs.db',
+        );
         try {
-          // Read log synchronously (since it's capped, we don't have performance issues)
-          const fs = await import('node:fs');
-          if (!fs.existsSync(logPath)) {
+          if (!existsSync(dbPath)) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             return res.end(
               '<tr><td colspan="4" class="empty-state">No logs found</td></tr>' +
                 '\n<template><span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span></template>\n',
             );
           }
-          const content = fs.readFileSync(logPath, 'utf-8');
-          let allLines = content.split('\n').filter(Boolean);
 
+          const db = new Database(dbPath, { readonly: true });
+
+          // Build SQL query with optional filters
+          const conditions: string[] = [];
+          const params: any[] = [];
+          if (eventFilter) {
+            conditions.push('event_type = ?');
+            params.push(eventFilter);
+          }
+          if (modelFilter) {
+            conditions.push('model LIKE ?');
+            params.push(`%${modelFilter}%`);
+          }
           if (searchFilter) {
-            allLines = allLines.filter((line) => line.includes(searchFilter));
+            conditions.push('data LIKE ?');
+            params.push(`%${searchFilter}%`);
           }
 
-          const scanWindow = allLines.slice(-Math.max(lines * 10, 500));
-          const rowLines = scanWindow
-            .map((line) => {
+          const whereClause =
+            conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+          const sql = `SELECT data FROM logs ${whereClause} ORDER BY id DESC LIMIT ?`;
+          params.push(lines);
+
+          const rows = db.prepare(sql).all(...params) as { data: string }[];
+          db.close();
+
+          // Parse JSON data from each row
+          const filtered = rows
+            .map((row) => {
               try {
-                return JSON.parse(line);
+                return JSON.parse(row.data);
               } catch {
                 return null;
               }
             })
             .filter(Boolean);
-
-          let filtered = rowLines;
-          if (eventFilter) {
-            filtered = filtered.filter((row) => row.event_type === eventFilter);
-          }
-          if (modelFilter) {
-            filtered = filtered.filter(
-              (row) => row.model && row.model.includes(modelFilter),
-            );
-          }
-          filtered = filtered.slice(-lines);
 
           if (filtered.length === 0) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -688,8 +707,8 @@ export function getControlCenterHandler() {
             return html;
           };
 
+          // rows are already in DESC order from SQL, no need to reverse
           const htmlResp = filtered
-            .reverse()
             .map((e) => {
               const d = e.timestamp ? new Date(e.timestamp) : new Date();
               const time = isNaN(d.getTime())
@@ -767,7 +786,7 @@ export function getControlCenterHandler() {
           res.writeHead(200, { 'Content-Type': 'text/html' });
           return res.end(htmlResp + countBadge);
         } catch (err) {
-          logger.error({ err }, 'Error reading litellm.jsonl');
+          logger.error({ err }, 'Error reading litellm_logs.db');
           res.writeHead(200, { 'Content-Type': 'text/html' });
           return res.end(
             '<tr><td colspan="4" class="empty-state" style="color:var(--red);">Failed to load logs</td></tr>' +

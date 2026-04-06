@@ -49,9 +49,9 @@ ENV_ARGS=""
 [ -n "$WHATAI_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e WHATAI_API_KEY=$WHATAI_API_KEY"
 [ -n "$VOLCANO_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e VOLCANO_API_KEY=$VOLCANO_API_KEY"
 
-# 启动容器前确保日志文件存在并可写
-touch "$(pwd)/litellm.jsonl"
-chmod 666 "$(pwd)/litellm.jsonl"
+# 启动容器前确保日志目录存在并可写
+mkdir -p "$(pwd)/logs"
+chmod 777 "$(pwd)/logs"
 
 echo -e "\e[33m可用模型:\e[0m"
 [ -n "$QWEN_API_KEY" ] && echo -e "  \e[36mqwen-plus\e[0m        → DashScope 千问"
@@ -63,7 +63,7 @@ echo ""
 exec docker run --rm \
   -v "$(pwd)/config.yaml:/app/config.yaml" \
   -v "$(pwd)/raw_logger.py:/app/raw_logger.py" \
-  -v "$(pwd)/litellm.jsonl:/app/litellm.jsonl" \
+  -v "$(pwd)/logs:/app/logs" \
   $ENV_ARGS \
   -p 127.0.0.1:4000:4000 \
   --name "$CONTAINER_NAME" \

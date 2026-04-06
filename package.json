@@ -23,7 +23,7 @@
     "@lancedb/lancedb": "^0.26.2",
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "apache-arrow": "^18.1.0",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^11.10.0",
     "cron-parser": "^5.5.0",
     "dotenv-cli": "^11.0.0",
     "grammy": "^1.41.1",
@@ -36,7 +36,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.18",

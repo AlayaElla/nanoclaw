@@ -50,3 +50,4 @@ GEMINI.md
 
 .agents/
 docs/plans/
+litellm/__pycache__/raw_logger.cpython-314.pyc

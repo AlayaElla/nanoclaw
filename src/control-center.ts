@@ -451,14 +451,26 @@ export function getControlCenterHandler() {
         );
         try {
           if (existsSync(dbPath)) {
-            const db = new Database(dbPath);
-            db.exec('DELETE FROM logs');
-            db.close();
+            try {
+              const db = new Database(dbPath);
+              db.exec('DELETE FROM logs');
+              db.close();
+            } catch (err: any) {
+              if (err.message && err.message.includes('readonly')) {
+                // If the LiteLLM container created the DB as root, we fallback to deleting it via docker exec
+                execSync(`docker exec nanoclaw-litellm-proxy python3 -c 'import sqlite3; conn=sqlite3.connect("/app/logs/litellm_logs.db"); conn.execute("DELETE FROM logs"); conn.commit(); conn.close()'`);
+              } else {
+                throw err;
+              }
+            }
           }
-          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'HX-Trigger': 'refreshLogTable'
+          });
           return res.end(
-            '<tr><td colspan="4" class="empty-state" style="padding: 24px; text-align: center; color: var(--text-muted);">No logs found</td></tr>' +
-              '\n<span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">0</span>\n',
+            '<tr><td colspan="4" class="empty-state" style="padding: 40px; text-align: center; color: var(--text-muted);">Loading logs...</td></tr>' +
+              '\n<span id="log-count-badge" hx-swap-oob="true" style="font-size: 13px; color: var(--text-muted); background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 2px 10px; border-radius: 12px; font-weight: 500; letter-spacing: 0;">-</span>\n',
           );
         } catch (e: any) {
           logger.error({ err: e }, 'Failed to clear litellm logs');

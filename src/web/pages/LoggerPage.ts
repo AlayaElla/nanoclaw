@@ -81,7 +81,7 @@ export class LoggerPage {
               <tbody id="log-table-body" 
                      hx-get="/cc/api/logs/litellm" 
                      hx-include="#logger-filters" 
-                     hx-trigger="load, change from:#logger-filters">
+                     hx-trigger="load, change from:#logger-filters, refreshLogTable from:body">
                 <tr><td colspan="4" class="empty-state" style="padding: 40px; text-align: center; color: var(--text-muted);">Loading logs...</td></tr>
               </tbody>
             </table>

@@ -21,7 +21,12 @@ import {
 } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
-import { recallMemory, isMemoryEnabled, extractSmartMemories, indexMessage } from './services/memory/index.js';
+import {
+  recallMemory,
+  isMemoryEnabled,
+  extractSmartMemories,
+  indexMessage,
+} from './services/memory/index.js';
 import { resolveAgentName } from './agents-config.js';
 import { RegisteredGroup } from './types.js';
 
@@ -409,9 +414,11 @@ export async function processTaskIpc(
           (g) => g.folder === sourceGroup,
         );
         const ragAgentName = resolveAgentName(ragGroup?.botToken);
-        
+
         // This is async and runs in the background
-        extractSmartMemories(ragAgentName, transcript, sessionId).catch(() => {});
+        extractSmartMemories(ragAgentName, transcript, sessionId).catch(
+          () => {},
+        );
         return { success: true };
       } catch (err) {
         return { success: false, message: String(err) };
@@ -422,11 +429,18 @@ export async function processTaskIpc(
         return { success: false, message: 'Memory disabled' };
       }
       try {
-        const ragGroup = Object.values(registeredGroups).find((g) => g.folder === sourceGroup);
+        const ragGroup = Object.values(registeredGroups).find(
+          (g) => g.folder === sourceGroup,
+        );
         const ragAgentName = resolveAgentName(ragGroup?.botToken);
         const finalAgentText = (data as any).text as string;
         if (finalAgentText) {
-          indexMessage(ragAgentName, finalAgentText, ragGroup?.assistantName || 'assistant', 'assistant').catch(() => {});
+          indexMessage(
+            ragAgentName,
+            finalAgentText,
+            ragGroup?.assistantName || 'assistant',
+            'assistant',
+          ).catch(() => {});
         }
         return { success: true };
       } catch (err) {

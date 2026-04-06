@@ -27,11 +27,17 @@ export function initExtractor(): void {
 
   // Fallback to primary LLM configuration if extraction config is missing
   const model =
-    process.env.MEMORY_EXTRACTION_MODEL || envVars.MEMORY_EXTRACTION_MODEL || 'qwen3.5-plus-non-thinking';
+    process.env.MEMORY_EXTRACTION_MODEL ||
+    envVars.MEMORY_EXTRACTION_MODEL ||
+    'qwen3.5-plus-non-thinking';
   const baseUrl =
-    process.env.MEMORY_EXTRACTION_API_BASE || envVars.MEMORY_EXTRACTION_API_BASE || 'http://host.docker.internal:18788/v1'; // Default LiteLLM proxy
+    process.env.MEMORY_EXTRACTION_API_BASE ||
+    envVars.MEMORY_EXTRACTION_API_BASE ||
+    'http://host.docker.internal:18788/v1'; // Default LiteLLM proxy
   const apiKey =
-    process.env.MEMORY_EXTRACTION_API_KEY || envVars.MEMORY_EXTRACTION_API_KEY || 'sk-nanoclaw';
+    process.env.MEMORY_EXTRACTION_API_KEY ||
+    envVars.MEMORY_EXTRACTION_API_KEY ||
+    'sk-nanoclaw';
 
   extractorConfig = { apiKey, baseUrl, model };
   logger.info({ model, baseUrl }, 'Smart Extractor initialized');
@@ -50,11 +56,11 @@ async function callLLM(prompt: string, systemPrompt: string): Promise<string> {
       model: extractorConfig.model,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
+        { role: 'user', content: prompt },
       ],
       temperature: 0.1,
-      response_format: { type: 'json_object' }
-    })
+      response_format: { type: 'json_object' },
+    }),
   });
 
   if (!response.ok) {
@@ -62,7 +68,7 @@ async function callLLM(prompt: string, systemPrompt: string): Promise<string> {
     throw new Error(`Extraction LLM error ${response.status}: ${errorText}`);
   }
 
-  const result = await response.json() as any;
+  const result = (await response.json()) as any;
   return result.choices[0].message.content;
 }
 
@@ -97,7 +103,11 @@ If no valuable knowledge is present, return {"memories": []}.
 export class SmartExtractor {
   constructor(private store: MemoryStore) {}
 
-  public async extractAndPersist(scope: string, transcript: string, sourceSession: string): Promise<ExtractionStats> {
+  public async extractAndPersist(
+    scope: string,
+    transcript: string,
+    sourceSession: string,
+  ): Promise<ExtractionStats> {
     const stats: ExtractionStats = { created: 0, merged: 0, skipped: 0 };
     if (!extractorConfig) {
       logger.warn('Extractor config missing, skipping smart extraction');
@@ -110,7 +120,10 @@ export class SmartExtractor {
       try {
         parsed = JSON.parse(responseText);
       } catch (e) {
-        logger.warn({ responseText }, 'Failed to parse JSON from smart extraction');
+        logger.warn(
+          { responseText },
+          'Failed to parse JSON from smart extraction',
+        );
         return stats;
       }
 
@@ -122,10 +135,10 @@ export class SmartExtractor {
         }
 
         const vector = await embedQuery(mem.content);
-        
+
         // Basic pre-screening for exact duplicates in the vector space
         const existingList = await this.store.vectorSearch(scope, vector, 1);
-        if (existingList.length > 0 && existingList[0].score > 0.90) {
+        if (existingList.length > 0 && existingList[0].score > 0.9) {
           // If a highly similar concept exists, we merge (here implemented as 'skip' due to LanceDB limits,
           // though ideal implementation would re-embed a combined string or update accessCount)
           stats.merged++;
@@ -149,7 +162,7 @@ export class SmartExtractor {
             confidence: 0.9,
             source_session: sourceSession,
             source: 'smart-extraction',
-          })
+          }),
         };
 
         await this.store.insert(scope, entry);

@@ -28,7 +28,12 @@ export function isMemoryEnabled(): boolean {
  * Legacy API equivalent: Indises a raw text message.
  * We apply basic noise filtering here directly.
  */
-export async function indexMessage(scope: string, text: string, senderName: string, role: string): Promise<void> {
+export async function indexMessage(
+  scope: string,
+  text: string,
+  senderName: string,
+  role: string,
+): Promise<void> {
   if (!shouldCapture(text)) {
     logger.debug({ scope }, 'Skipped indexing low-value message');
     return;
@@ -37,7 +42,7 @@ export async function indexMessage(scope: string, text: string, senderName: stri
   try {
     const vector = await embedQuery(text);
     const now = Date.now();
-    
+
     await memoryStore.insert(scope, {
       id: crypto.randomUUID(),
       vector,
@@ -53,7 +58,7 @@ export async function indexMessage(scope: string, text: string, senderName: stri
         accessCount: 0,
         tier: 'peripheral', // Raw logs start at bottom tier
         confidence: 0.9,
-        source: 'transcript'
+        source: 'transcript',
       }),
     });
   } catch (err) {
@@ -64,7 +69,11 @@ export async function indexMessage(scope: string, text: string, senderName: stri
 /**
  * High-performance hybrid recall used by Auto-Recall and slash commands.
  */
-export async function recallMemory(scope: string, query: string, limit: number = 5): Promise<StoreSearchResult[]> {
+export async function recallMemory(
+  scope: string,
+  query: string,
+  limit: number = 5,
+): Promise<StoreSearchResult[]> {
   if (!isMemoryEnabled()) return [];
   try {
     return await retriever.retrieve(scope, query, limit);
@@ -78,10 +87,19 @@ export async function recallMemory(scope: string, query: string, limit: number =
  * Triggers LLM analysis of the transcript.
  * Recommended to trigger fire-and-forget in the Stop hook.
  */
-export async function extractSmartMemories(scope: string, transcript: string, sessionId: string): Promise<void> {
+export async function extractSmartMemories(
+  scope: string,
+  transcript: string,
+  sessionId: string,
+): Promise<void> {
   if (!isMemoryEnabled()) return;
   // Fire and forget
-  smartExtractor.extractAndPersist(scope, transcript, sessionId).catch((err) => {
-    logger.error({ err, scope }, 'Failed to run async smart memory extraction');
-  });
+  smartExtractor
+    .extractAndPersist(scope, transcript, sessionId)
+    .catch((err) => {
+      logger.error(
+        { err, scope },
+        'Failed to run async smart memory extraction',
+      );
+    });
 }

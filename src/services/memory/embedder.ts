@@ -23,7 +23,8 @@ export function initEmbedder(): void {
     'EMBEDDING_MODEL',
   ]);
 
-  const apiKey = process.env.EMBEDDING_API_KEY || envVars.EMBEDDING_API_KEY || '';
+  const apiKey =
+    process.env.EMBEDDING_API_KEY || envVars.EMBEDDING_API_KEY || '';
   let baseUrl =
     process.env.EMBEDDING_BASE_URL ||
     envVars.EMBEDDING_BASE_URL ||
@@ -34,8 +35,13 @@ export function initEmbedder(): void {
     'qwen3-vl-embedding';
 
   // Force multimodal endpoint if using multimodal models, as they don't support compatible-mode
-  if (model.includes('vl-embedding') || model.includes('vision') || model.includes('multimodal')) {
-    baseUrl = 'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
+  if (
+    model.includes('vl-embedding') ||
+    model.includes('vision') ||
+    model.includes('multimodal')
+  ) {
+    baseUrl =
+      'https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding';
   }
 
   if (!apiKey) {
@@ -51,7 +57,9 @@ export function isEmbedderEnabled(): boolean {
   return embeddingConfig !== null;
 }
 
-export async function getEmbedding(input: string | EmbeddingInput): Promise<number[]> {
+export async function getEmbedding(
+  input: string | EmbeddingInput,
+): Promise<number[]> {
   if (!embeddingConfig) {
     throw new Error('Embedder not initialized: EMBEDDING_API_KEY not set');
   }
@@ -59,7 +67,11 @@ export async function getEmbedding(input: string | EmbeddingInput): Promise<numb
   const inputObj = typeof input === 'string' ? { text: input } : input;
 
   // Use compatible mode for standard text embeddings like text-embedding-v3
-  if (!embeddingConfig.model.includes('vl-embedding') && !embeddingConfig.model.includes('vision') && !embeddingConfig.model.includes('multimodal')) {
+  if (
+    !embeddingConfig.model.includes('vl-embedding') &&
+    !embeddingConfig.model.includes('vision') &&
+    !embeddingConfig.model.includes('multimodal')
+  ) {
     const textInput = inputObj.text || '';
     const response = await fetch(embeddingConfig.baseUrl, {
       method: 'POST',
@@ -78,7 +90,7 @@ export async function getEmbedding(input: string | EmbeddingInput): Promise<numb
       throw new Error(`Embedding API error ${response.status}: ${errorText}`);
     }
 
-    const result = await response.json() as any;
+    const result = (await response.json()) as any;
     return result.data[0].embedding;
   }
 
@@ -99,7 +111,9 @@ export async function getEmbedding(input: string | EmbeddingInput): Promise<numb
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Multimodal Embedding API error ${response.status}: ${errorText}`);
+    throw new Error(
+      `Multimodal Embedding API error ${response.status}: ${errorText}`,
+    );
   }
 
   const result = (await response.json()) as {
@@ -117,20 +131,24 @@ export async function getEmbedding(input: string | EmbeddingInput): Promise<numb
 
   // Natively log token usage for RAG
   if (result.usage?.total_tokens) {
-    import('../../db.js').then(module => {
-      import('crypto').then(crypto => {
-        module.insertTokenUsage({
-          id: crypto.randomUUID(),
-          group_id: 'system',
-          task_id: 'rag',
-          timestamp: new Date().toISOString(),
-          model: embeddingConfig!.model,
-          input_tokens: result.usage!.total_tokens,
-          output_tokens: 0,
-          total_tokens: result.usage!.total_tokens,
-        });
-      }).catch(() => {});
-    }).catch(() => {});
+    import('../../db.js')
+      .then((module) => {
+        import('crypto')
+          .then((crypto) => {
+            module.insertTokenUsage({
+              id: crypto.randomUUID(),
+              group_id: 'system',
+              task_id: 'rag',
+              timestamp: new Date().toISOString(),
+              model: embeddingConfig!.model,
+              input_tokens: result.usage!.total_tokens,
+              output_tokens: 0,
+              total_tokens: result.usage!.total_tokens,
+            });
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
   }
 
   return result.output.embeddings[0].embedding;

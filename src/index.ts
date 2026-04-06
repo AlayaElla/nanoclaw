@@ -54,7 +54,11 @@ import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { statusInit, statusEmit, statusDestroy } from './status.js';
 import { findChannel, formatMessages } from './router.js';
-import { initMemorySystem, indexMessage, isMemoryEnabled } from './services/memory/index.js';
+import {
+  initMemorySystem,
+  indexMessage,
+  isMemoryEnabled,
+} from './services/memory/index.js';
 import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
 import {
   isSenderAllowed,
@@ -640,7 +644,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
           // Cross-post to sibling agents in same Telegram group
           crossPostToSiblingAgents(chatJid, text, group.assistantName!);
-          
+
           // NOTE: We no longer index Agent's raw transcript messages into the LanceDB Vector Memory.
           // Intermediate thoughts/status (sent to Telegram above) are preserved in SQLite via storeMessage,
           // but we leave long-term structured memory extraction entirely to the background SmartExtractor at the Stop hook.
@@ -821,12 +825,12 @@ async function runAgent(
     // Wrap onOutput to track session ID from streamed results
     const wrappedOnOutput = onOutput
       ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          if (output.newSessionId) {
+            sessions[group.folder] = output.newSessionId;
+            setSession(group.folder, output.newSessionId);
+          }
+          await onOutput(output);
         }
-        await onOutput(output);
-      }
       : undefined;
 
     try {
@@ -1136,13 +1140,16 @@ async function main(): Promise<void> {
       if (isMemoryEnabled()) {
         const group = registeredGroups[msg.chat_jid];
         if (group) {
-          const textMsg = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          const textMsg =
+            typeof msg.content === 'string'
+              ? msg.content
+              : JSON.stringify(msg.content);
           indexMessage(
             resolveAgentName(group.botToken),
             textMsg,
             msg.sender_name || 'user',
-            'user'
-          ).catch(() => { });
+            'user',
+          ).catch(() => {});
         }
       }
     },
@@ -1291,7 +1298,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-  new URL(`file://${process.argv[1]}`).pathname;
+    new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

@@ -32,7 +32,7 @@ export class MemoryStore {
     return this.db;
   }
 
-  // Use a common table for all memories or one per scope. 
+  // Use a common table for all memories or one per scope.
   // memory-lancedb-pro uses a single table ('memories') and filters by scope/agent id.
   // NanoClaw used one table per groupFolder. We will adapt to one table per groupFolder to keep isolation intact.
   private sanitizeTableName(scope: string): string {
@@ -71,12 +71,15 @@ export class MemoryStore {
           metadata: '{}',
         },
       ]);
-      
+
       try {
         // Enable Full Text Search index for BM25
         await table.createIndex('text', { config: lancedb.Index.fts() });
       } catch (e) {
-        logger.warn({ tableName, err: e }, "Failed to create FTS index for BM25. BM25 may be disabled.");
+        logger.warn(
+          { tableName, err: e },
+          'Failed to create FTS index for BM25. BM25 may be disabled.',
+        );
       }
 
       logger.info({ scope, tableName }, 'Created memory RAG table');
@@ -103,13 +106,13 @@ export class MemoryStore {
     limit: number,
   ): Promise<StoreSearchResult[]> {
     const table = await this.getOrCreateTable(scope);
-    const search = table.search(vector).limit(limit + 5); 
+    const search = table.search(vector).limit(limit + 5);
     const rawResults = await search.toArray();
 
     const results: StoreSearchResult[] = [];
     for (const row of rawResults) {
       if (row.id === '__init__') continue;
-      
+
       results.push({
         entry: {
           id: row.id,
@@ -135,13 +138,13 @@ export class MemoryStore {
     const table = await this.getOrCreateTable(scope);
     try {
       // requires valid FTS index
-      const search = table.search(query).limit(limit + 5); 
+      const search = table.search(query).limit(limit + 5);
       const rawResults = await search.toArray();
 
       const results: StoreSearchResult[] = [];
       for (const row of rawResults) {
         if (row.id === '__init__') continue;
-        
+
         results.push({
           entry: {
             id: row.id,
@@ -153,13 +156,16 @@ export class MemoryStore {
             metadata: row.metadata,
           },
           // BM25 score could be unnormalized, so we just pass it along
-          score: row._score != null ? row._score : 0, 
+          score: row._score != null ? row._score : 0,
         });
         if (results.length >= limit) break;
       }
       return results;
     } catch (e) {
-      logger.warn({ scope, query, err: e }, 'BM25 search failed, likely FTS not indexed yet');
+      logger.warn(
+        { scope, query, err: e },
+        'BM25 search failed, likely FTS not indexed yet',
+      );
       return [];
     }
   }
@@ -167,12 +173,16 @@ export class MemoryStore {
   public async patchMetadata(
     scope: string,
     id: string,
-    patch: Record<string, any>
+    patch: Record<string, any>,
   ): Promise<void> {
     const table = await this.getOrCreateTable(scope);
     // LanceDB doesn't have partial update easily; we might have to select, mutate, delete, insert.
     // BUT we can use table.update
-    const records = await table.search('').where(`id = '${id}'`).limit(1).toArray();
+    const records = await table
+      .search('')
+      .where(`id = '${id}'`)
+      .limit(1)
+      .toArray();
     if (records.length === 0) return;
 
     const record = records[0];
@@ -183,12 +193,19 @@ export class MemoryStore {
 
     metaObj = { ...metaObj, ...patch };
 
-    await table.update({ where: `id = '${id}'`, values: { metadata: JSON.stringify(metaObj) } });
+    await table.update({
+      where: `id = '${id}'`,
+      values: { metadata: JSON.stringify(metaObj) },
+    });
   }
 
   public async updateAccessStats(scope: string, id: string): Promise<void> {
     const table = await this.getOrCreateTable(scope);
-    const records = await table.search('').where(`id = '${id}'`).limit(1).toArray();
+    const records = await table
+      .search('')
+      .where(`id = '${id}'`)
+      .limit(1)
+      .toArray();
     if (records.length === 0) return;
 
     const record = records[0];
@@ -199,16 +216,23 @@ export class MemoryStore {
 
     const accessCount = (metaObj.accessCount || 0) + 1;
     const lastAccessedAt = Date.now();
-    
+
     metaObj.accessCount = accessCount;
     metaObj.lastAccessedAt = lastAccessedAt;
 
-    await table.update({ where: `id = '${id}'`, values: { metadata: JSON.stringify(metaObj) } });
+    await table.update({
+      where: `id = '${id}'`,
+      values: { metadata: JSON.stringify(metaObj) },
+    });
   }
 
   public async hasId(scope: string, id: string): Promise<boolean> {
     const table = await this.getOrCreateTable(scope);
-    const records = await table.search('').where(`id = '${id}'`).limit(1).toArray();
+    const records = await table
+      .search('')
+      .where(`id = '${id}'`)
+      .limit(1)
+      .toArray();
     return records.length > 0;
   }
 }

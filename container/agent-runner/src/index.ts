@@ -576,10 +576,58 @@ function createPreToolUseHook(): HookCallback {
   };
 }
 
+let lastToolSig = '';
+let exactRepeatCount = 0;
+let lastToolName = '';
+let toolNameCount = 0;
+
 function createPostToolUseHook(): HookCallback {
-  return async () => {
-    // Keep the previous status visible until the final result
-    // writeToolStatus({ type: 'tool_status', status: 'idle' });
+  return async (input) => {
+    const postInput = input as any;
+    const toolName = postInput.tool_name || '';
+    const toolInputStr = postInput.tool_input ? JSON.stringify(postInput.tool_input) : '';
+    const sig = `${toolName}_${toolInputStr}`;
+
+    // 精确的特征匹配 (参数也完全一致)
+    if (sig === lastToolSig && toolName) {
+      exactRepeatCount++;
+    } else {
+      exactRepeatCount = 0;
+    }
+    lastToolSig = sig;
+
+    // 仅工具名的宽泛匹配
+    if (toolName === lastToolName && toolName) {
+      toolNameCount++;
+    } else {
+      toolNameCount = 0;
+    }
+    lastToolName = toolName;
+
+    // 完全参数死循环防线 (第5次拦截)
+    if (exactRepeatCount >= 4) {
+      exactRepeatCount = 0;
+      toolNameCount = 0;
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `[System Recovery] 🚨 严重异常警告：你提取了与前 4 次完全相同的参数调用了 ${toolName} 发生深度死循环，且均未取得有效突破。系统已强制阻断当前调用。请立刻彻底放弃当前执行路径，重新分析错误源或换一种方法，必要时直接寻求用户帮助！`,
+        },
+      };
+    }
+
+    // 同工具多态无脑卡死防线 (第11次拦截)
+    if (toolNameCount >= 10) {
+      exactRepeatCount = 0;
+      toolNameCount = 0;
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `[System Recovery] ⚠️ 过载警告：你已经连续 10 次调用同一个工具 (${toolName}) 进行尝试。该任务大概率遇到了无法单点打平的结构死胡同。严禁再继续盲目重试该工具。请迅速跳出现有视角，对目前的死境进行总结，明确告诉你的操作者（用户）你需要新路子。`,
+        },
+      };
+    }
+
     return {};
   };
 }

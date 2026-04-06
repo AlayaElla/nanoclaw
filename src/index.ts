@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 import { getHeartbeat } from './services/heartbeat.js';
+import {
+  classifyError,
+  getRecoveryAction,
+  clearRecoveryState,
+} from './services/recovery-recipes.js';
 
 import {
   IDLE_TIMEOUT,
@@ -784,99 +789,146 @@ async function runAgent(
   },
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  let currentPrompt = prompt;
+  let maxLoopAttempts = 3;
 
-  // Update tasks snapshot for container to read (filtered by agent)
-  const tasks = getAllTasks();
-  const agentFolders = Object.values(registeredGroups)
-    .filter((g) => (g.botToken || '') === (group.botToken || ''))
-    .map((g) => g.folder);
-  writeTasksSnapshot(
-    group.folder,
-    isMain,
-    tasks.map((t) => ({
-      id: t.id,
-      groupFolder: t.group_folder,
-      prompt: t.prompt,
-      schedule_type: t.schedule_type,
-      schedule_value: t.schedule_value,
-      status: t.status,
-      next_run: t.next_run,
-    })),
-    agentFolders,
-  );
+  while (maxLoopAttempts > 0) {
+    maxLoopAttempts--;
+    const sessionId = sessions[group.folder];
 
-  // Update available groups snapshot (main group only can see all groups)
-  const availableGroups = getAvailableGroups();
-  writeGroupsSnapshot(
-    group.folder,
-    isMain,
-    availableGroups,
-    new Set(Object.keys(registeredGroups)),
-  );
-
-  // Wrap onOutput to track session ID from streamed results
-  const wrappedOnOutput = onOutput
-    ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
-        }
-        await onOutput(output);
-      }
-    : undefined;
-
-  try {
-    const isGroup = getChatIsGroup(chatJid) ?? group.requiresTrigger !== false;
-
-    const output = await runContainerAgent(
-      group,
-      {
-        prompt,
-        sessionId,
-        groupFolder: group.folder,
-        chatJid,
-        isMain,
-        isGroup,
-        assistantName: group.assistantName,
-        pullPendingOnStart: options?.pullPendingOnStart,
-      },
-      (proc, containerName) => {
-        queue.registerProcess(chatJid, proc, containerName, group.folder);
-        statusEmit('container_start', { group: chatJid });
-      },
-      wrappedOnOutput,
-      onIpcStatus,
+    // Update tasks snapshot for container to read (filtered by agent)
+    const tasks = getAllTasks();
+    const agentFolders = Object.values(registeredGroups)
+      .filter((g) => (g.botToken || '') === (group.botToken || ''))
+      .map((g) => g.folder);
+    writeTasksSnapshot(
+      group.folder,
+      isMain,
+      tasks.map((t) => ({
+        id: t.id,
+        groupFolder: t.group_folder,
+        prompt: t.prompt,
+        schedule_type: t.schedule_type,
+        schedule_value: t.schedule_value,
+        status: t.status,
+        next_run: t.next_run,
+      })),
+      agentFolders,
     );
 
-    statusEmit('container_stop', { group: chatJid });
+    // Update available groups snapshot (main group only can see all groups)
+    const availableGroups = getAvailableGroups();
+    writeGroupsSnapshot(
+      group.folder,
+      isMain,
+      availableGroups,
+      new Set(Object.keys(registeredGroups)),
+    );
 
-    if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
-    }
+    // Wrap onOutput to track session ID from streamed results
+    const wrappedOnOutput = onOutput
+      ? async (output: ContainerOutput) => {
+          if (output.newSessionId) {
+            sessions[group.folder] = output.newSessionId;
+            setSession(group.folder, output.newSessionId);
+          }
+          await onOutput(output);
+        }
+      : undefined;
 
-    if (output.status === 'error') {
-      logger.error(
-        { group: group.name, error: output.error },
-        'Container agent error',
+    try {
+      const isGroup =
+        getChatIsGroup(chatJid) ?? group.requiresTrigger !== false;
+
+      const output = await runContainerAgent(
+        group,
+        {
+          prompt: currentPrompt,
+          sessionId,
+          groupFolder: group.folder,
+          chatJid,
+          isMain,
+          isGroup,
+          assistantName: group.assistantName,
+          pullPendingOnStart: options?.pullPendingOnStart,
+        },
+        (proc, containerName) => {
+          queue.registerProcess(chatJid, proc, containerName, group.folder);
+          statusEmit('container_start', { group: chatJid });
+        },
+        wrappedOnOutput,
+        onIpcStatus,
       );
-      // Clear corrupted session so next retry starts fresh
+
+      statusEmit('container_stop', { group: chatJid });
+
+      if (output.newSessionId) {
+        sessions[group.folder] = output.newSessionId;
+        setSession(group.folder, output.newSessionId);
+      }
+
+      if (output.status === 'error') {
+        const errObj = output.error || 'Container crash';
+        logger.error(
+          { group: group.name, error: errObj },
+          'Container agent error',
+        );
+
+        const scenario = classifyError(errObj);
+        const actionRecipe = getRecoveryAction(group.folder, scenario);
+
+        if (actionRecipe) {
+          logger.warn(
+            { group: group.name, delayMs: actionRecipe.delayMs },
+            'Attempting automated recovery',
+          );
+          if (actionRecipe.delayMs > 0) {
+            await new Promise((r) => setTimeout(r, actionRecipe.delayMs));
+          }
+          currentPrompt = actionRecipe.action.systemPrompt;
+          delete sessions[group.folder];
+          deleteSession(group.folder);
+          continue; // Retry loop
+        }
+
+        // Clear corrupted session so next user retry starts fresh
+        delete sessions[group.folder];
+        deleteSession(group.folder);
+        logger.info({ group: group.name }, 'Cleared session for fresh retry');
+        return 'error';
+      }
+
+      clearRecoveryState(group.folder);
+      return 'success';
+    } catch (err) {
+      logger.error({ group: group.name, err }, 'Agent error');
+
+      const scenario = classifyError(err);
+      const actionRecipe = getRecoveryAction(group.folder, scenario);
+
+      if (actionRecipe) {
+        logger.warn(
+          { group: group.name, delayMs: actionRecipe.delayMs },
+          'Attempting automated recovery on catch',
+        );
+        if (actionRecipe.delayMs > 0) {
+          await new Promise((r) => setTimeout(r, actionRecipe.delayMs));
+        }
+        currentPrompt = actionRecipe.action.systemPrompt;
+        delete sessions[group.folder];
+        deleteSession(group.folder);
+        continue;
+      }
+
+      // Clear corrupted session so next user retry starts fresh
       delete sessions[group.folder];
       deleteSession(group.folder);
       logger.info({ group: group.name }, 'Cleared session for fresh retry');
       return 'error';
     }
-
-    return 'success';
-  } catch (err) {
-    logger.error({ group: group.name, err }, 'Agent error');
-    // Clear corrupted session so next retry starts fresh
-    delete sessions[group.folder];
-    deleteSession(group.folder);
-    logger.info({ group: group.name }, 'Cleared session for fresh retry');
-    return 'error';
   }
+
+  return 'error';
 }
 
 async function startMessageLoop(): Promise<void> {

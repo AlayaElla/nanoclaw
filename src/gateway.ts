@@ -5,6 +5,8 @@ import {
   Server,
   request as httpRequest,
 } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import * as url from 'url';
 import { logger } from './logger.js';
 import { IpcDeps, processTaskIpc } from './ipc.js';
 import { sendPoolMessage } from './channels/telegram.js';
@@ -32,6 +34,11 @@ const tokenRegistry = new Map<string, TokenPayload>();
 export class GatewayServer {
   private server: Server;
   private deps: IpcDeps;
+  private wsServer: WebSocketServer;
+  private wsUpgradeHandlers = new Map<
+    string,
+    (req: IncomingMessage, ws: WebSocket) => void
+  >();
 
   private ccHandler: ReturnType<typeof getControlCenterHandler>;
 
@@ -39,6 +46,35 @@ export class GatewayServer {
     this.deps = deps;
     this.ccHandler = getControlCenterHandler();
     this.server = createServer(this.handleRequest.bind(this));
+    this.wsServer = new WebSocketServer({ noServer: true });
+
+    this.server.on('upgrade', (req, socket, head) => {
+      try {
+        const parsedUrl = url.parse(req.url || '', true);
+        const path = parsedUrl.pathname;
+
+        if (path && this.wsUpgradeHandlers.has(path)) {
+          const handler = this.wsUpgradeHandlers.get(path)!;
+          this.wsServer.handleUpgrade(req, socket, head, (ws) => {
+            // We can emit a connection event or call the handler directly.
+            // The handler can parse tokens from the URL or headers if needed.
+            handler(req, ws);
+          });
+        } else {
+          socket.destroy();
+        }
+      } catch (e) {
+        socket.destroy();
+      }
+    });
+  }
+
+  public registerWsHandler(
+    path: string,
+    handler: (req: IncomingMessage, ws: WebSocket) => void,
+  ) {
+    this.wsUpgradeHandlers.set(path, handler);
+    logger.info({ path }, 'Registered Gateway WebSocket handler');
   }
 
   public start(port = GATEWAY_PORT): void {

@@ -1,4 +1,5 @@
 import { Bot, InputFile, InlineKeyboard } from 'grammy';
+import { autoRetry } from '@grammyjs/auto-retry';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -63,6 +64,14 @@ export class TelegramChannel implements Channel {
   private tokenEnvName: string;
   /** Numeric bot ID extracted from token */
   private botId: string;
+  /** Whether grammY's polling loop is currently active */
+  private pollingActive = false;
+  /** Prevents concurrent reconnect attempts */
+  private reconnecting: Promise<boolean> | null = null;
+  /** Consecutive reconnect failures (for exponential backoff) */
+  private reconnectAttempts = 0;
+  /** Set to true during graceful shutdown to suppress auto-reconnect */
+  private shutdownRequested = false;
   /** Per-JID intervals that refresh the Telegram typing indicator every 4s */
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
   /** Buffered media waiting for a possible follow-up text (key: chatJid) */
@@ -148,6 +157,15 @@ export class TelegramChannel implements Channel {
 
   async connect(): Promise<void> {
     this.bot = new Bot(this.botToken);
+
+    // Install auto-retry: retries API calls on network errors (ECONNRESET),
+    // rate limits (429), and internal server errors (500+).
+    this.bot.api.config.use(
+      autoRetry({
+        maxRetryAttempts: 3,
+        maxDelaySeconds: 10,
+      }),
+    );
 
     // ─── Generic command handler ─────────────────────────────────────
     // Delegate all /commands to the shared commands module.
@@ -904,9 +922,10 @@ export class TelegramChannel implements Channel {
         );
       }, CONNECT_TIMEOUT);
 
-      this.bot!.start({
+      const startPromise = this.bot!.start({
         onStart: (botInfo) => {
           clearTimeout(timer);
+          this.pollingActive = true;
           logger.info(
             {
               username: botInfo.username,
@@ -924,12 +943,32 @@ export class TelegramChannel implements Channel {
           resolve();
         },
       });
+
+      // Track when polling stops unexpectedly (bot.start() resolves on
+      // bot.stop(), rejects on fatal polling error).
+      startPromise
+        .then(() => {
+          // Normal stop (e.g. graceful shutdown) — don't log as unexpected
+          this.pollingActive = false;
+        })
+        .catch((err) => {
+          this.pollingActive = false;
+          if (this.shutdownRequested) return;
+          logger.error(
+            { err, bot: this.tokenEnvName },
+            'Telegram polling crashed — scheduling auto-reconnect',
+          );
+          this.scheduleReconnect();
+        });
     });
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
-    if (!this.bot) {
-      logger.warn({ bot: this.tokenEnvName }, 'Telegram bot not initialized');
+    if (!(await this.ensureConnected())) {
+      logger.warn(
+        { bot: this.tokenEnvName },
+        'Telegram bot not available after reconnect attempt',
+      );
       return;
     }
 
@@ -942,11 +981,11 @@ export class TelegramChannel implements Channel {
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
-        await sendTelegramMessage(this.bot.api, numericId, text);
+        await sendTelegramMessage(this.bot!.api, numericId, text);
       } else {
         for (let i = 0; i < text.length; i += MAX_LENGTH) {
           await sendTelegramMessage(
-            this.bot.api,
+            this.bot!.api,
             numericId,
             text.slice(i, i + MAX_LENGTH),
           );
@@ -965,10 +1004,102 @@ export class TelegramChannel implements Channel {
   }
 
   isConnected(): boolean {
-    return this.bot !== null;
+    return this.bot !== null && this.pollingActive;
+  }
+
+  /**
+   * Ensure the bot is connected and polling. If polling has stopped,
+   * attempt a reconnect. Returns true if the bot is ready.
+   */
+  private async ensureConnected(): Promise<boolean> {
+    if (this.bot && this.pollingActive) return true;
+
+    // Deduplicate concurrent reconnect attempts
+    if (this.reconnecting) return this.reconnecting;
+
+    this.reconnecting = this._doReconnect();
+    try {
+      return await this.reconnecting;
+    } finally {
+      this.reconnecting = null;
+    }
+  }
+
+  private async _doReconnect(): Promise<boolean> {
+    logger.warn(
+      {
+        bot: this.tokenEnvName,
+        hadBot: !!this.bot,
+        pollingActive: this.pollingActive,
+        attempt: this.reconnectAttempts + 1,
+      },
+      'Telegram bot not active, attempting reconnect',
+    );
+
+    // Tear down the old instance
+    if (this.bot) {
+      try {
+        this.bot.stop();
+      } catch {}
+      this.bot = null;
+    }
+    this.pollingActive = false;
+
+    // Clear stale intervals/timers (handlers will be re-registered)
+    for (const interval of this.typingIntervals.values())
+      clearInterval(interval);
+    this.typingIntervals.clear();
+    for (const entry of this.pendingMedia.values()) clearTimeout(entry.timer);
+    this.pendingMedia.clear();
+
+    try {
+      await this.connect();
+      this.reconnectAttempts = 0; // Reset on success
+      logger.info(
+        { bot: this.tokenEnvName },
+        'Telegram bot reconnected successfully',
+      );
+      return true;
+    } catch (err) {
+      this.reconnectAttempts++;
+      logger.error(
+        { err, bot: this.tokenEnvName, attempt: this.reconnectAttempts },
+        'Telegram bot reconnect failed',
+      );
+      // Schedule another attempt unless shutdown was requested
+      if (!this.shutdownRequested) {
+        this.scheduleReconnect();
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Schedule an auto-reconnect with exponential backoff.
+   * Delays: 5s, 10s, 20s, 40s, 60s (cap).
+   */
+  private scheduleReconnect(): void {
+    const baseDelay = 5_000;
+    const delay = Math.min(
+      baseDelay * Math.pow(2, this.reconnectAttempts),
+      60_000,
+    );
+    logger.info(
+      {
+        bot: this.tokenEnvName,
+        delayMs: delay,
+        attempt: this.reconnectAttempts + 1,
+      },
+      'Scheduling Telegram reconnect',
+    );
+    setTimeout(() => {
+      if (this.shutdownRequested) return;
+      this.ensureConnected().catch(() => {});
+    }, delay);
   }
 
   async disconnect(): Promise<void> {
+    this.shutdownRequested = true;
     // Clear all typing intervals
     for (const interval of this.typingIntervals.values()) {
       clearInterval(interval);
@@ -982,6 +1113,7 @@ export class TelegramChannel implements Channel {
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
+      this.pollingActive = false;
       logger.info({ bot: this.tokenEnvName }, 'Telegram bot stopped');
     }
   }
@@ -1089,10 +1221,10 @@ export class TelegramChannel implements Channel {
   }
 
   async sendStatusMessage(jid: string, text: string): Promise<number | null> {
-    if (!this.bot) return null;
+    if (!(await this.ensureConnected())) return null;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
-      const msg = await sendTelegramMessage(this.bot.api, numericId, text);
+      const msg = await sendTelegramMessage(this.bot!.api, numericId, text);
       return msg.message_id;
     } catch (err) {
       logger.debug(
@@ -1108,11 +1240,11 @@ export class TelegramChannel implements Channel {
     messageId: number,
     text: string,
   ): Promise<void> {
-    if (!this.bot) return;
+    if (!(await this.ensureConnected())) return;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       try {
-        await this.bot.api.editMessageText(
+        await this.bot!.api.editMessageText(
           numericId,
           messageId,
           telegramify(text, 'escape'),
@@ -1121,7 +1253,7 @@ export class TelegramChannel implements Channel {
           },
         );
       } catch {
-        await this.bot.api.editMessageText(numericId, messageId, text);
+        await this.bot!.api.editMessageText(numericId, messageId, text);
       }
     } catch (err) {
       logger.debug(
@@ -1132,10 +1264,10 @@ export class TelegramChannel implements Channel {
   }
 
   async deleteMessage(jid: string, messageId: number): Promise<void> {
-    if (!this.bot) return;
+    if (!(await this.ensureConnected())) return;
     try {
       const numericId = TelegramChannel.extractChatId(jid);
-      await this.bot.api.deleteMessage(numericId, messageId);
+      await this.bot!.api.deleteMessage(numericId, messageId);
     } catch (err) {
       logger.debug(
         { jid, messageId, err, bot: this.tokenEnvName },
@@ -1151,8 +1283,11 @@ export class TelegramChannel implements Channel {
     caption?: string,
     fileName?: string,
   ): Promise<void> {
-    if (!this.bot) {
-      logger.warn({ bot: this.tokenEnvName }, 'Telegram bot not initialized');
+    if (!(await this.ensureConnected())) {
+      logger.warn(
+        { bot: this.tokenEnvName },
+        'Telegram bot not available after reconnect attempt',
+      );
       return;
     }
 
@@ -1179,16 +1314,16 @@ export class TelegramChannel implements Channel {
 
       switch (mediaType) {
         case 'photo':
-          await this.bot.api.sendPhoto(numericId, file, opts);
+          await this.bot!.api.sendPhoto(numericId, file, opts);
           break;
         case 'video':
-          await this.bot.api.sendVideo(numericId, file, opts);
+          await this.bot!.api.sendVideo(numericId, file, opts);
           break;
         case 'audio':
-          await this.bot.api.sendVoice(numericId, file, opts);
+          await this.bot!.api.sendVoice(numericId, file, opts);
           break;
         case 'document':
-          await this.bot.api.sendDocument(numericId, file, opts);
+          await this.bot!.api.sendDocument(numericId, file, opts);
           break;
       }
       logger.info(

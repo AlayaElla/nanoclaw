@@ -1270,7 +1270,7 @@ async function runQuery(
       return {
         hookSpecificOutput: {
           hookEventName: 'PostToolUse',
-          additionalContext: combined
+          additionalContext: `<user-message-arrived>\n用户在你工作期间发来了新消息，请注意查看：\n${combined}\n</user-message-arrived>`
         }
       };
     }

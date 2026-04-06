@@ -458,7 +458,9 @@ export function getControlCenterHandler() {
             } catch (err: any) {
               if (err.message && err.message.includes('readonly')) {
                 // If the LiteLLM container created the DB as root, we fallback to deleting it via docker exec
-                execSync(`docker exec nanoclaw-litellm-proxy python3 -c 'import sqlite3; conn=sqlite3.connect("/app/logs/litellm_logs.db"); conn.execute("DELETE FROM logs"); conn.commit(); conn.close()'`);
+                execSync(
+                  `docker exec nanoclaw-litellm-proxy python3 -c 'import sqlite3; conn=sqlite3.connect("/app/logs/litellm_logs.db"); conn.execute("DELETE FROM logs"); conn.commit(); conn.close()'`,
+                );
               } else {
                 throw err;
               }
@@ -466,7 +468,7 @@ export function getControlCenterHandler() {
           }
           res.writeHead(200, {
             'Content-Type': 'text/html',
-            'HX-Trigger': 'refreshLogTable'
+            'HX-Trigger': 'refreshLogTable',
           });
           return res.end(
             '<tr><td colspan="4" class="empty-state" style="padding: 40px; text-align: center; color: var(--text-muted);">Loading logs...</td></tr>' +

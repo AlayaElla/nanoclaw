@@ -16,16 +16,18 @@ export interface GatewayEventMap {
   'system:shutdown': { action?: string; [key: string]: any };
 
   // --- 💬 Session: Conversation Pipeline ---
-  'session:new_message': {
-    content?: string;
-    from?: string;
-    timestamp?: string;
-    [key: string]: any;
-  };
-  'session:before_reset': {
+
+  'session:clear': {
     action: 'new' | 'clear';
     sessionKey: string;
     cfg?: any;
+    [key: string]: any;
+  };
+  'session:start': {
+    sessionKey: string;
+    chatJid: string;
+    isMain: boolean;
+    hasExistingSession: boolean;
     [key: string]: any;
   };
 
@@ -40,18 +42,31 @@ export interface GatewayEventMap {
     status?: string;
     [key: string]: any;
   };
-  'agent:before_prompt_build': {
-    systemPrompt?: string;
-    context?: any;
+  'agent:pre_tool_use': {
+    group: string;
+    tool: string;
+    tool_input?: string;
     [key: string]: any;
   };
-  'agent:tool_use': { group: string; tool: string; [key: string]: any };
+  'agent:post_tool_use': {
+    group: string;
+    tool: string;
+    tool_input?: string;
+    [key: string]: any;
+  };
   'agent:sdk_task_status': {
     group: string;
     detail: string;
     [key: string]: any;
   };
-  'agent:before_message_write': {
+  'agent:new_message': {
+    sourceGroup: string;
+    chatJid: string;
+    messages: any[];
+    prompt: string;
+    [key: string]: any;
+  };
+  'agent:end_message': {
     text?: string;
     channelId?: string;
     [key: string]: any;
@@ -113,10 +128,7 @@ export interface HookMeta {
   priority?: number; // Higher runs first, default 0
 }
 
-export type HookCallback<T = any> = (
-  event: T,
-  ctx?: any,
-) => Promise<void> | void;
+export type HookCallback<T = any> = (event: T, ctx?: any) => Promise<any> | any;
 
 export class HookManager {
   private hooks: Record<string, { cb: HookCallback; priority: number }[]> = {};
@@ -130,13 +142,19 @@ export class HookManager {
 
   /**
    * Executes hooks sequentially, allowing preceding hooks to mutate the event object before the next hook runs.
+   * Returns an array of whatever values the hook callbacks returned.
    * After all hooks match and mutate, it automatically broadcasts the final event status on GatewayBus.
    */
-  public async execute(name: string, event: any, ctx?: any): Promise<void> {
+  public async execute(name: string, event: any, ctx?: any): Promise<any[]> {
+    const results: any[] = [];
+
     if (this.hooks[name]) {
       for (const hook of this.hooks[name]) {
         try {
-          await Promise.resolve(hook.cb(event, ctx));
+          const res = await Promise.resolve(hook.cb(event, ctx));
+          if (res !== undefined) {
+            results.push(res);
+          }
         } catch (err) {
           logger.error({ err, hook: name }, 'Error executing hook');
         }
@@ -148,6 +166,8 @@ export class HookManager {
     GatewayBus.emitAsync(name as keyof GatewayEventMap, event, ctx).catch(
       () => {},
     );
+
+    return results;
   }
 }
 

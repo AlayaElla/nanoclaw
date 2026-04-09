@@ -39,6 +39,7 @@ interface ContainerInput {
   contextModeContent?: string;
   toolsContent?: string;
   adminToolsContent?: string;
+  pluginSystemContext?: string;
   secrets?: Record<string, string>;
   gatewayToken?: string;
   gatewayUrl?: string;
@@ -65,6 +66,7 @@ async function runQuery(
   resumeAt?: string,
   consumedThroughTimestamp?: string,
   isHeartbeat?: boolean,
+  pluginNewMessageContext?: string,
 ): Promise<{
   newSessionId?: string;
   lastAssistantUuid?: string;
@@ -184,6 +186,13 @@ async function runQuery(
 
   additionalContext += cachedSessionStartHooksOutput;
 
+  // Inject plugin-provided system context from GatewayHooks (session:start)
+  // This is set once when the container starts and persists for the session lifecycle.
+  if (containerInput.pluginSystemContext) {
+    additionalContext += '\n' + containerInput.pluginSystemContext + '\n';
+    log('Injecting plugin system context from session:start hook');
+  }
+
   const finalAdditionalContext = additionalContext.trim() || undefined;
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -223,6 +232,23 @@ async function runQuery(
 
   // Trigger UserPromptSubmit manually to persist user intents
   await invokeUserPromptSubmit(prompt);
+
+
+  // ─── One-shot plugin context injection (agent:new_message) ──────────
+  // Injects context from gateway plugins via SDK's hookSpecificOutput on UserPromptSubmit,
+  // matching how external hooks invisibly inject context blocks.
+  let pluginNewMessageContextFired = false;
+  const pluginNewMessageHook: HookCallback = async () => {
+    if (pluginNewMessageContextFired || !pluginNewMessageContext) return {};
+    pluginNewMessageContextFired = true;
+    log('Injecting plugin context from agent:new_message hook via UserPromptSubmit');
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: pluginNewMessageContext
+      }
+    };
+  };
 
   // Push the original pristine prompt tightly coupled to the message flow
   stream.push(prompt);
@@ -296,6 +322,10 @@ async function runQuery(
       if (batch.success && batch.pending && batch.prompt) {
         let msg = typeof batch.prompt === 'string' ? batch.prompt : JSON.stringify(batch.prompt);
         injectedMessages.push(msg);
+        // Also inject plugin system context from agent:new_message hook
+        if (batch.systemContext) {
+          injectedMessages.push(batch.systemContext);
+        }
         // NOTE: intentionally NOT advancing updatedConsumedThroughTimestamp
         // so the same messages are re-fetched as the next query's formal prompt
       }
@@ -420,15 +450,15 @@ async function runQuery(
           ],
           PreToolUse: [
             { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-            { matcher: '', hooks: [createPreToolUseHook(), createContextModeHook('pretooluse')] },
+            { matcher: '', hooks: [createPreToolUseHook(containerInput.gatewayUrl, containerInput.gatewayToken), createContextModeHook('pretooluse')] },
             ...extHooks.filter(h => h.event === 'PreToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           PostToolUse: [
-            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttooluse'), injectionHook] },
+            { matcher: '', hooks: [createPostToolUseHook(containerInput.gatewayUrl, containerInput.gatewayToken), createToolUsageHintHook(), createContextModeHook('posttooluse'), injectionHook] },
             ...extHooks.filter(h => h.event === 'PostToolUse').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           PostToolUseFailure: [
-            { matcher: '', hooks: [createPostToolUseHook(), createToolUsageHintHook(), createContextModeHook('posttoolusefailure'), injectionHook] },
+            { matcher: '', hooks: [createPostToolUseHook(containerInput.gatewayUrl, containerInput.gatewayToken), createToolUsageHintHook(), createContextModeHook('posttoolusefailure'), injectionHook] },
             ...extHooks.filter(h => h.event === 'PostToolUseFailure').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           SessionStart: [
@@ -436,6 +466,7 @@ async function runQuery(
             ...extHooks.filter(h => h.event === 'SessionStart').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           UserPromptSubmit: [
+            { matcher: '', hooks: [pluginNewMessageHook] },
             ...extHooks.filter(h => h.event === 'UserPromptSubmit').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
           Stop: [
@@ -617,6 +648,7 @@ async function main(): Promise<void> {
   // Build the initial prompt.
   let prompt: string | any[] = containerInput.prompt;
   let consumedThroughTimestamp: string | undefined;
+  let pluginSystemContext: string | undefined;
   if (containerInput.isScheduledTask) {
     if (typeof prompt === 'string') {
       prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
@@ -649,6 +681,7 @@ async function main(): Promise<void> {
     if (batch.pending && batch.prompt) {
       prompt = batch.prompt;
       consumedThroughTimestamp = batch.consumedThroughTimestamp;
+      pluginSystemContext = batch.systemContext;
       pendingRequested = false;
       log(`Fetched initial pending batch (${batch.messageCount || 0} messages) through ${consumedThroughTimestamp || 'unknown'}`);
     } else {
@@ -698,6 +731,7 @@ async function main(): Promise<void> {
           resumeAt,
           consumedThroughTimestamp,
           isHeartbeatQuery,
+          pluginSystemContext,
         );
       } catch (queryErr) {
         const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
@@ -782,6 +816,7 @@ async function main(): Promise<void> {
           if (batch.pending && batch.prompt) {
             prompt = batch.prompt;
             consumedThroughTimestamp = batch.consumedThroughTimestamp;
+            pluginSystemContext = batch.systemContext;
             log(`Fetched pending batch for next query (${batch.messageCount || 0} messages) through ${consumedThroughTimestamp || 'unknown'}`);
             break;
           }

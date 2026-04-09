@@ -169,10 +169,10 @@ function getVisibleOutputSeq(groupFolder: string): number {
   return visibleOutputSeqByGroupFolder[groupFolder] || 0;
 }
 
-function getPendingBatch(
+async function getPendingBatch(
   sourceGroup: string,
   overrideSinceTimestamp?: string,
-): PendingBatchResult {
+): Promise<PendingBatchResult> {
   const entry = Object.entries(registeredGroups).find(
     ([, group]) => group.folder === sourceGroup,
   );
@@ -210,10 +210,30 @@ function getPendingBatch(
     'Prepared pending batch for container pull',
   );
 
+  let basePrompt = formatMessages(pendingMessages, TIMEZONE);
+
+  const results = await GatewayHooks.execute('agent:new_message', {
+    sourceGroup,
+    chatJid,
+    messages: pendingMessages,
+    prompt: basePrompt,
+  });
+
+  let additionalContexts = [];
+  for (const res of results) {
+    if (res && res.additionalContext) {
+      additionalContexts.push(res.additionalContext);
+    }
+  }
+
+  const systemContext =
+    additionalContexts.length > 0 ? additionalContexts.join('\n') : undefined;
+
   return {
     success: true,
     pending: true,
-    prompt: formatMessages(pendingMessages, TIMEZONE),
+    prompt: basePrompt,
+    systemContext,
     consumedThroughTimestamp,
     messageCount: pendingMessages.length,
   };
@@ -543,12 +563,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!channel.sendStatusMessage) return;
 
     // Emit UI status event
-    if (event.status === 'running') {
-      GatewayBus.emitAsync('agent:tool_use', {
-        group: chatJid,
-        tool: event.tool || '',
-      });
-    }
+    // (agent:tool_use hook execution moved to synchronous /ipc/hook/sync endpoint)
 
     if (event.status === 'running' && event.tool) {
       let displayName = event.description;
@@ -629,10 +644,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           `Agent output: ${raw.slice(0, 200)}`,
         );
         if (text) {
-          GatewayBus.emitAsync('agent:before_message_write', {
+          const writeEvent = {
             text,
             channelId: chatJid,
-          });
+          };
+          await GatewayHooks.execute('agent:end_message', writeEvent);
+          text = writeEvent.text; // allow hook to modify the text directly before it gets sent
+
           // Stop typing indicator before sending — user should see the reply, not "typing..."
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, text);
@@ -861,22 +879,30 @@ async function runAgent(
       const isGroup =
         getChatIsGroup(chatJid) ?? group.requiresTrigger !== false;
 
-      GatewayBus.emitAsync('agent:before_prompt_build', {
-        systemPrompt:
-          typeof currentPrompt === 'string'
-            ? currentPrompt
-            : JSON.stringify(currentPrompt),
-        context: {
-          messages: getMessagesSince(
+      // Fire session:start hook — plugins can inject persistent system context
+      let pluginSystemContext: string | undefined;
+      try {
+        const sessionStartResults = await GatewayHooks.execute(
+          'session:start',
+          {
+            sessionKey: group.folder,
             chatJid,
-            lastAgentTimestamp[chatJid] || '',
-          ),
-          promptOverride: currentPrompt,
-          sessionId,
-          chatJid,
-          isGroup,
-        },
-      });
+            isMain,
+            hasExistingSession: !!sessionId,
+          },
+        );
+        const contexts: string[] = [];
+        for (const res of sessionStartResults) {
+          if (res && res.additionalContext) {
+            contexts.push(res.additionalContext);
+          }
+        }
+        if (contexts.length > 0) {
+          pluginSystemContext = contexts.join('\n');
+        }
+      } catch (err) {
+        logger.warn({ err }, 'session:start hook error');
+      }
 
       const output = await runContainerAgent(
         group,
@@ -888,6 +914,7 @@ async function runAgent(
           isMain,
           isGroup,
           assistantName: group.assistantName,
+          pluginSystemContext,
           pullPendingOnStart: options?.pullPendingOnStart,
         },
         (proc, containerName) => {
@@ -996,13 +1023,6 @@ async function startMessageLoop(): Promise<void> {
         // Deduplicate by group
         const messagesByGroup = new Map<string, NewMessage[]>();
         for (const msg of messages) {
-          GatewayBus.emitAsync('session:new_message', {
-            content: getTextContent(msg.content),
-            from: msg.sender,
-            timestamp: msg.timestamp,
-            chatJid: msg.chat_jid,
-          });
-
           const existing = messagesByGroup.get(msg.chat_jid);
           if (existing) {
             existing.push(msg);

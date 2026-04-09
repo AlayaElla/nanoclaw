@@ -21,6 +21,7 @@ export interface PendingBatchResponse {
   success: boolean;
   pending: boolean;
   prompt?: string;
+  systemContext?: string;
   consumedThroughTimestamp?: string;
   messageCount?: number;
   error?: string;
@@ -191,5 +192,39 @@ export async function fetchPendingBatch(
       pending: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+export interface SyncHookResponse {
+  success: boolean;
+  additionalContext?: string;
+  error?: string;
+}
+
+export async function fetchSyncHook(
+  gatewayUrl: string | undefined,
+  gatewayToken: string | undefined,
+  hookName: string,
+  payload: any
+): Promise<SyncHookResponse> {
+  if (!gatewayUrl || !gatewayToken) {
+    return { success: false, error: 'Missing gateway URL or token' };
+  }
+  try {
+    const response = await fetch(`${gatewayUrl}/ipc/hook/sync`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${gatewayToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ hookName, payload }),
+    });
+    const body = await response.json() as SyncHookResponse;
+    if (!response.ok) {
+      return { success: false, error: body.error || `Sync hook failed with status ${response.status}` };
+    }
+    return body;
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

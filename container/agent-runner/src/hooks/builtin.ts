@@ -3,6 +3,7 @@ import path from 'path';
 import { HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { log, writeIpcStatus } from '../utils/index.js';
 import { parseTranscript, formatTranscriptMarkdown, getSessionSummary, sanitizeFilename, generateFallbackName } from '../utils/index.js';
+import { fetchSyncHook } from '../utils/ipc.js';
 
 /**
  * Archive the full transcript to conversations/ before compaction.
@@ -73,7 +74,7 @@ export function createSanitizeBashHook(): HookCallback {
   };
 }
 
-export function createPreToolUseHook(): HookCallback {
+export function createPreToolUseHook(gatewayUrl?: string, gatewayToken?: string): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preInput = input as PreToolUseHookInput;
     if (preInput.tool_name) {
@@ -97,6 +98,27 @@ export function createPreToolUseHook(): HookCallback {
       }
 
       writeIpcStatus({ type: 'tool_status', tool: preInput.tool_name, description, status: 'running' });
+
+      // Synchronously block and query the gateway's agent:tool_use hooks
+      if (gatewayUrl && gatewayToken) {
+        try {
+          const res = await fetchSyncHook(gatewayUrl, gatewayToken, 'agent:pre_tool_use', {
+            tool: preInput.tool_name,
+            tool_input: toolInput,
+          });
+          if (res && res.success && res.additionalContext) {
+            log(`Received synchronous context from gateway hook agent:pre_tool_use`);
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                additionalContext: res.additionalContext,
+              }
+            };
+          }
+        } catch (err) {
+          log(`Sync hook fetch failed: ${err}`);
+        }
+      }
     }
     return {};
   };
@@ -107,7 +129,7 @@ let exactRepeatCount = 0;
 let lastToolName = '';
 let toolNameCount = 0;
 
-export function createPostToolUseHook(): HookCallback {
+export function createPostToolUseHook(gatewayUrl?: string, gatewayToken?: string): HookCallback {
   return async (input) => {
     const postInput = input as any;
     const toolName = postInput.tool_name || '';
@@ -152,6 +174,27 @@ export function createPostToolUseHook(): HookCallback {
           additionalContext: `[System Recovery] ⚠️ 过载警告：你已经连续 10 次调用同一个工具 (${toolName}) 进行尝试。该任务大概率遇到了无法单点打平的结构死胡同。严禁再继续盲目重试该工具。请迅速跳出现有视角，对目前的死境进行总结，明确告诉你的操作者（用户）你需要新路子。`,
         },
       };
+    }
+
+    // Synchronously block and query the gateway's agent:post_tool_use hook
+    if (gatewayUrl && gatewayToken) {
+      try {
+        const res = await fetchSyncHook(gatewayUrl, gatewayToken, 'agent:post_tool_use', {
+          tool: toolName,
+          tool_input: postInput.tool_input,
+        });
+        if (res && res.success && res.additionalContext) {
+          log(`Received synchronous context from gateway hook agent:post_tool_use`);
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PostToolUse',
+              additionalContext: res.additionalContext,
+            }
+          };
+        }
+      } catch (err) {
+        log(`Sync hook fetch failed: ${err}`);
+      }
     }
 
     return {};

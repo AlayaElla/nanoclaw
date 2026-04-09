@@ -134,7 +134,7 @@ const newSessionHandler: CommandHandler = async (ctx) => {
   try {
     const sessionKey = ctx.group!.folder;
     await GatewayHooks.execute(
-      'session:before_reset',
+      'session:clear',
       { action: 'new', sessionKey, cfg: {} },
       { sessionKey },
     );
@@ -175,7 +175,7 @@ registerCommand('/clear', '硬重置 — 清空工作区和所有历史数据', 
   try {
     const sessionKey = ctx.group!.folder;
     await GatewayHooks.execute(
-      'session:before_reset',
+      'session:clear',
       { action: 'clear', sessionKey, cfg: {} },
       { sessionKey },
     );

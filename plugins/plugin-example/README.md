@@ -62,11 +62,11 @@ export default function initMyPlugin(api, config) {
 2. **`api.registerHook(hookName, callback)`**: 串行阻塞拦截。触发时，引擎将暂停执行主流程，**严格按注册优先级等待并遍历所有的 Hook**。在前置 Hook 中你可以直接修改传入的 `payload` 对象，后置的 Hook 和宿主代码会接收到你篡改后的参数！如果在执行时抛出异常，可以直接熔断当前行为的继续执行。
 
 > [!TIP]
-> **设计精髓**：其实**所有的 Hook 最终都会无条件地镜像降级广播为一份同名的异步事件（Event）**！所以你不用担心用 `api.on` 会漏掉某些只能用 `registerHook` 拦截的事件。它们俩共享同一套 15 个字符串的名称词库！
+> **设计精髓**：其实**所有的 Hook 最终都会无条件地镜像降级广播为一份同名的异步事件（Event）**！所以你不用担心用 `api.on` 会漏掉某些只能用 `registerHook` 拦截的事件。它们俩共享同一套 16 个字符串的名称词库！
 
 ## 网关全域事件（与钩子）地图
 
-这是系统当前**全部且完整**的 15 个事件集合。由于所有 Hook 执行前都会同名广播 Event，所以**这 15 个单词全都可以挂载为异步的 `api.on`**。
+这是系统当前**全部且完整**的 16 个事件集合。由于所有 Hook 执行前都会同名广播 Event，所以**这 16 个单词全都可以挂载为异步的 `api.on`**。
 但在这些事件中，宿主目前**仅针对破坏性指令开放了串行阻塞的 `registerHook`**。
 
 ### 1. 系统底层级 (System)
@@ -76,25 +76,27 @@ export default function initMyPlugin(api, config) {
   - **Payload**: `{ action?: string }`
 
 ### 2. 会话生命流 (Session)
-- `session:new_message` (仅 Event): 当 Gateway 后台轮询从数据库拿到尚未被大模型消费的新消息时触发。
-  - **Payload**: `{ content: string, from: string, timestamp: string, chatJid: string }`
-- `session:before_reset` (**🔥Hook** + Event): 当要求手动清理/重置隔离容器沙盒（如发送 `/new`）时触发。由于具有破坏性，该事件是当前唯一开放的阻塞式钩子。
+- `session:clear` (**🔥Hook** + Event): 当要求手动清理/重置隔离容器沙盒（如发送 `/new` 或 `/clear`）时触发。
   - **Payload**: `{ action: 'new' | 'clear', sessionKey: string, cfg?: any }`
+- `session:start` (**🔥Hook** + Event): 每次会话启动（容器即将拉起执行）时触发。通过 Hook 返回 `{ additionalContext: "..." }` 可注入**持久化的 SDK 系统级上下文**，在整个会话生命周期内生效（与容器内 `external.ts` 的 `hookSpecificOutput.additionalContext` 效果一致）。
+  - **Payload**: `{ sessionKey: string, chatJid: string, isMain: boolean, hasExistingSession: boolean }`
 
 ### 3. 沙箱引擎流 (Agent)
 - `agent:container_start` (仅 Event): 容器拉起进入忙碌时触发。
   - **Payload**: `{ group: string, containerName?: string }`
 - `agent:container_stop` (仅 Event): 当系统清理资源终结某个容器时触发。
   - **Payload**: `{ group: string, status?: string }`
-- `agent:tool_use` (仅 Event): 当 LLM 开始调用某个底层技能池函数时瞬间触发。
-  - **Payload**: `{ group: string, tool: string }`
+- `agent:pre_tool_use` (**🔥Hook** + Event): 当 LLM 决定使用工具尚未启动进程前瞬间触发。可通过 Hook 的 `additionalContext` 同步阻塞注入前置拦截验证。
+  - **Payload**: `{ group: string, tool: string, tool_input?: string }`
+- `agent:post_tool_use` (**🔥Hook** + Event): 当底层容器获得工具执行结果并即将返回给大模型前瞬间触发。极其适合用于结果脱敏审查与修改。
+  - **Payload**: `{ group: string, tool: string, tool_input?: string }`
 - `agent:sdk_task_status` (仅 Event): Agent SDK 内层执行并行后台子任务（Swarm）时上报的数据信标。
   - **Payload**: `{ group: string, detail: string }`
 - `agent:idle` (仅 Event): 整个对话查询回合处理完毕且大模型停止回答，退回空闲状态时触发。
   - **Payload**: `{ group: string, sessionKey: string, status: string, sessionId: string }`
-- `agent:before_prompt_build` (仅 Event): 在向子进程容器下发推理配置的前一刻触发，主要用于截获本轮新进入的待处理消息记录。
-  - **Payload**: `{ systemPrompt: string, context: { messages: any[], promptOverride: string, sessionId: string, chatJid: string, isGroup: boolean } }`
-- `agent:before_message_write` (仅 Event): 大模型生成完文本并在宿主侧完成解析，即将调用外部通信通道回信给你前触发。
+- `agent:new_message` (**🔥Hook** + Event): **针对常驻容器环境**！这个 Hook 会在无论大模型容器是死是活，只要有任何从数据库/IPC 被提成 Pending 状态的“最新新消息合集”将要推入给底层大模型沙箱时瞬间触发。可非常方便地通过返回 `{ additionalContext: "..." }` 对**此轮**的所有对话开头强制增加额外的前置系统上下文。
+  - **Payload**: `{ sourceGroup: string, chatJid: string, messages: any[], prompt: string }`
+- `agent:end_message` (**🔥Hook** + Event): 大模型生成完文本并在宿主侧完成解析，即将调用外部通信通道回信给你前触发。注册 Hook 后，可直接覆写 `payload.text` 从而对最终将发送的消息进行任意过滤与修改。
   - **Payload**: `{ text: string, channelId: string }`
 
 ### 4. 适配通道流 (Channel)

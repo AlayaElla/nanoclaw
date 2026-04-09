@@ -53,6 +53,7 @@ export interface ContainerInput {
   contextModeContent?: string;
   toolsContent?: string;
   adminToolsContent?: string;
+  pluginSystemContext?: string;
   secrets?: Record<string, string>;
   gatewayToken?: string;
   gatewayUrl?: string;

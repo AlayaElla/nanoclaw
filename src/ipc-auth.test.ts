@@ -63,7 +63,7 @@ beforeEach(() => {
     syncGroups: async () => {},
     getAvailableGroups: () => [],
     writeGroupsSnapshot: () => {},
-    getPendingBatch: () => ({
+    getPendingBatch: async () => ({
       success: true,
       pending: false,
       messageCount: 0,

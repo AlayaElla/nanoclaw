@@ -30,6 +30,7 @@ export interface PendingBatchResult {
   success: boolean;
   pending: boolean;
   prompt?: string;
+  systemContext?: string;
   consumedThroughTimestamp?: string;
   messageCount?: number;
   error?: string;
@@ -57,7 +58,7 @@ export interface IpcDeps {
   getPendingBatch: (
     sourceGroup: string,
     consumedThroughTimestamp?: string,
-  ) => PendingBatchResult;
+  ) => Promise<PendingBatchResult>;
   recordVisibleOutput?: (sourceGroup: string) => void;
 }
 

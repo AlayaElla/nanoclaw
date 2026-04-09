@@ -22,6 +22,7 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { getHostStatus } from './web/data.js';
 
 import { getControlCenterHandler } from './control-center.js';
+import { GatewayHooks } from './gateway-bus/index.js';
 
 export interface TokenPayload {
   sourceGroup: string;
@@ -257,6 +258,9 @@ export class GatewayServer {
             break;
           case '/ipc/pending':
             await this.handlePendingIpc(body, identity!, res);
+            break;
+          case '/ipc/hook/sync':
+            await this.handleHookSyncIpc(body, identity!, res);
             break;
           default:
             this.sendJson(res, 404, { error: 'Not Found' });
@@ -612,7 +616,7 @@ export class GatewayServer {
     res: ServerResponse,
   ) {
     const consumedThroughTimestamp = body?.consumedThroughTimestamp;
-    const batch = this.deps.getPendingBatch(
+    const batch = await this.deps.getPendingBatch(
       identity.sourceGroup,
       consumedThroughTimestamp,
     );
@@ -621,8 +625,49 @@ export class GatewayServer {
       this.sendJson(res, statusCode, batch);
       return;
     }
-
     this.sendJson(res, 200, batch);
+  }
+
+  /**
+   * Synchronous IPC hook invocation from container
+   */
+  private async handleHookSyncIpc(
+    data: any,
+    identity: TokenPayload,
+    res: ServerResponse,
+  ) {
+    const { hookName, payload } = data;
+    if (!hookName || typeof hookName !== 'string') {
+      this.sendJson(res, 400, {
+        success: false,
+        error: 'Missing or invalid hookName',
+      });
+      return;
+    }
+
+    try {
+      const results = await GatewayHooks.execute(hookName as any, payload, {
+        sessionKey: identity.sourceGroup,
+      });
+
+      const additionalContexts: string[] = [];
+      for (const result of results) {
+        if (result && result.additionalContext) {
+          additionalContexts.push(result.additionalContext);
+        }
+      }
+
+      this.sendJson(res, 200, {
+        success: true,
+        additionalContext:
+          additionalContexts.length > 0
+            ? additionalContexts.join('\n')
+            : undefined,
+      });
+    } catch (err) {
+      logger.error({ err, hookName }, 'Synchronous hook IPC failed');
+      this.sendJson(res, 500, { success: false, error: String(err) });
+    }
   }
 
   /**

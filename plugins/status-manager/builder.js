@@ -151,6 +151,7 @@ export class StatusBuilder {
           return {
             jid,
             name: g.name,
+            folder: g.folder,
             status: this.state.containers.has(jid) ? 'running' : 'idle',
             isMain: g.isMain === true,
             container: this.state.containers.get(jid) || null,
@@ -182,6 +183,7 @@ export class StatusBuilder {
       channelOrphans.get(channelLabel).push({
         jid,
         name: g.name,
+        folder: g.folder,
         status: this.state.containers.has(jid) ? 'running' : 'idle',
         isMain: g.isMain === true,
         container: this.state.containers.get(jid) || null,

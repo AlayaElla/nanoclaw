@@ -581,11 +581,13 @@ export function getControlCenterHandler() {
                 if (obj.length > 40) {
                   const trunc = escapeHtml(obj.substring(0, 40)) + '...';
                   const isHuge = obj.length > 5000;
-                  const displayStr = isHuge
-                    ? escapeHtml(obj.substring(0, 5000)) +
-                      `\n\n... [Truncated for UI performance, full length: ${obj.length}]`
-                    : valStr;
-                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none;">"${trunc}" <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); width: fit-content; min-width: 200px; max-width: 100%; overflow-x: auto;">"${displayStr}"</div></details></div>`;
+                  let contentHtml = '';
+                  if (isHuge) {
+                    contentHtml = `<span><span class="trunc-text">"${escapeHtml(obj.substring(0, 5000))}"</span><span class="full-text" style="display:none;">"${valStr}"</span><div class="expand-box" style="margin-top:8px; padding-top:8px; border-top:1px dashed rgba(16,185,129,0.3); color:rgba(16,185,129,0.8); font-size:12px; display:flex; align-items:center; gap:8px;">... [Truncated for UI performance, full length: ${obj.length}] <button type="button" onclick="const p=this.closest('.expand-box').parentElement; p.querySelector('.trunc-text').style.display='none'; p.querySelector('.full-text').style.display='inline'; this.closest('.expand-box').style.display='none';" style="padding: 2px 8px; font-size: 11px; border-radius: 4px; border: 1px solid rgba(16,185,129,0.5); background: rgba(16,185,129,0.1); color: #10b981; cursor: pointer;">加载全文</button></div></span>`;
+                  } else {
+                    contentHtml = `"${valStr}"`;
+                  }
+                  return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<details style="display: inline-block; vertical-align: top;"><summary style="cursor: pointer; color: #10b981; user-select: none; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;"><span>"${trunc}"</span> <span style="opacity:0.6; font-size:0.9em;">(${obj.length} chars)</span> <span style="padding: 2px 6px; font-size: 11px; border-radius: 4px; border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); color: #10b981;" onmouseover="this.style.background='rgba(16,185,129,0.1)'" onmouseout="this.style.background='rgba(16,185,129,0.05)'">展开</span></summary><div style="color: #10b981; word-break: break-all; white-space: pre-wrap; padding: 8px 12px; background: rgba(128,128,128,0.06); border: 1px solid rgba(128,128,128,0.1); border-radius: 6px; margin-top: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); width: fit-content; min-width: 200px; max-width: 100%; overflow-x: auto;">${contentHtml}</div></details></div>`;
                 }
                 return `<div style="display: flex; align-items: flex-start; margin-top: 4px;">${keyPrefix}<span style="color: #10b981; word-break: break-all; white-space: pre-wrap;">"${valStr}"</span></div>`;
               }

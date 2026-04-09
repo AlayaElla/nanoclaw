@@ -2,9 +2,45 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import Database from 'better-sqlite3';
 import { parse as parseYaml } from 'yaml';
-import { DATA_DIR, STORE_DIR, AGENTS_DIR } from '../config.js';
+import {
+  DATA_DIR,
+  STORE_DIR,
+  AGENTS_DIR,
+  CONTAINER_IMAGE,
+  MAX_CONCURRENT_CONTAINERS,
+  TIMEZONE,
+} from '../config.js';
 
 const LITELLM_DIR = join(process.cwd(), 'litellm');
+
+export function getHostStatus(): any {
+  const hostJsonPath = join(DATA_DIR, 'status', 'host.json');
+  if (existsSync(hostJsonPath)) {
+    try {
+      return JSON.parse(readFileSync(hostJsonPath, 'utf8'));
+    } catch {
+      // Fallback
+    }
+  }
+  // Safe default fallback to prevent crashes if status-manager plugin is disabled
+  return {
+    version: '1.2.1',
+    uptime: 0,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    channels: [],
+    tasks: { total: 0, active: 0, paused: 0, completed: 0 },
+    system: {
+      maxConcurrentContainers: MAX_CONCURRENT_CONTAINERS,
+      timezone: TIMEZONE,
+      dataDir: DATA_DIR,
+      containerImage: CONTAINER_IMAGE,
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+    },
+  };
+}
 
 /**
  * Read the latest TodoWrite todos from a group's Claude SDK session JSONL.

@@ -19,7 +19,7 @@ import { storeMessage, insertTokenUsage, getTaskById } from './db.js';
 import { recallMemory, isMemoryEnabled } from './services/memory/index.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
-import { getFullStatus } from './status.js';
+import { getHostStatus } from './web/data.js';
 
 import { getControlCenterHandler } from './control-center.js';
 
@@ -194,7 +194,7 @@ export class GatewayServer {
         this.sendJson(res, 401, { error: 'Unauthorized' });
         return;
       }
-      const status = getFullStatus();
+      const status = getHostStatus();
       if (status) {
         this.sendJson(res, 200, status);
       } else {

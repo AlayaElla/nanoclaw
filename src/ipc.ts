@@ -21,14 +21,10 @@ import {
 } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
-import {
-  recallMemory,
-  isMemoryEnabled,
-  extractSmartMemories,
-  indexMessage,
-} from './services/memory/index.js';
+
 import { resolveAgentName } from './agents-config.js';
 import { RegisteredGroup } from './types.js';
+import { GatewayBus } from './gateway-bus/index.js';
 
 export interface PendingBatchResult {
   success: boolean;
@@ -201,6 +197,7 @@ export async function processTaskIpc(
           { taskId, sourceGroup, targetFolder, contextMode },
           'Task created via IPC',
         );
+        GatewayBus.emitAsync('task:change', { taskId, status: 'created' });
         return { success: true, taskId };
       }
       return { success: false, message: 'Invalid schedule_task parameters' };
@@ -210,6 +207,10 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           updateTask(data.taskId, { status: 'paused' });
+          GatewayBus.emitAsync('task:change', {
+            taskId: data.taskId,
+            status: 'paused',
+          });
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task paused via Gateway',
@@ -239,6 +240,10 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           updateTask(data.taskId, { status: 'active' });
+          GatewayBus.emitAsync('task:change', {
+            taskId: data.taskId,
+            status: 'active',
+          });
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via Gateway',
@@ -268,6 +273,10 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           deleteTask(data.taskId);
+          GatewayBus.emitAsync('task:change', {
+            taskId: data.taskId,
+            status: 'deleted',
+          });
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via Gateway',
@@ -362,91 +371,6 @@ export async function processTaskIpc(
         );
         return { success: false, message: 'Missing required fields' };
       }
-
-    case 'recall_memory': {
-      // Memory recall via IPC
-      if (!isMemoryEnabled()) {
-        logger.debug('Memory search requested but disabled');
-        return { success: false, message: 'Memory system is disabled' };
-      }
-      const ragQuery = (data as any).query as string;
-      const ragTopK = ((data as any).topK as number) || 5;
-      if (!ragQuery) {
-        logger.warn({ data }, 'Invalid recall_memory request');
-        return { success: false, message: 'Invalid recall_memory request' };
-      }
-      try {
-        const ragGroup = Object.values(registeredGroups).find(
-          (g) => g.folder === sourceGroup,
-        );
-        const ragAgentName = resolveAgentName(ragGroup?.botToken);
-        const results = await recallMemory(ragAgentName, ragQuery, ragTopK);
-
-        logger.info(
-          {
-            sourceGroup,
-            query: ragQuery.slice(0, 50),
-            results: results.length,
-          },
-          'Memory recall completed via IPC',
-        );
-        return { success: true, results };
-      } catch (err) {
-        logger.error(
-          { err, sourceGroup, ragQuery },
-          'Memory recall failed via IPC',
-        );
-        return { success: false, message: String(err) };
-      }
-    }
-
-    case 'smart_extract': {
-      if (!isMemoryEnabled()) {
-        return { success: false, message: 'Memory system is disabled' };
-      }
-      const transcript = (data as any).transcript as string;
-      const sessionId = (data as any).sessionId as string;
-      if (!transcript || !sessionId) {
-        return { success: false, message: 'Missing transcript or sessionId' };
-      }
-      try {
-        const ragGroup = Object.values(registeredGroups).find(
-          (g) => g.folder === sourceGroup,
-        );
-        const ragAgentName = resolveAgentName(ragGroup?.botToken);
-
-        // This is async and runs in the background
-        extractSmartMemories(ragAgentName, transcript, sessionId).catch(
-          () => {},
-        );
-        return { success: true };
-      } catch (err) {
-        return { success: false, message: String(err) };
-      }
-    }
-    case 'index_agent_memory': {
-      if (!isMemoryEnabled()) {
-        return { success: false, message: 'Memory disabled' };
-      }
-      try {
-        const ragGroup = Object.values(registeredGroups).find(
-          (g) => g.folder === sourceGroup,
-        );
-        const ragAgentName = resolveAgentName(ragGroup?.botToken);
-        const finalAgentText = (data as any).text as string;
-        if (finalAgentText) {
-          indexMessage(
-            ragAgentName,
-            finalAgentText,
-            ragGroup?.assistantName || 'assistant',
-            'assistant',
-          ).catch(() => {});
-        }
-        return { success: true };
-      } catch (err) {
-        return { success: false };
-      }
-    }
 
     default: {
       const xResult = await handleXIpc(data, sourceGroup, isMain, DATA_DIR);

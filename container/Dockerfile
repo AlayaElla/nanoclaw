@@ -62,11 +62,11 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY container/agent-runner/package*.json ./
 
-# First copy our custom context-mode-ref
-COPY .context-mode-ref/ /app/.context-mode-ref/
+# First copy our custom context-mode
+COPY plugins/contextmode/ /app/plugins/contextmode/
 
 # Install the custom context-mode and other dependencies
-RUN npm install /app/.context-mode-ref && npm install
+RUN npm install /app/plugins/contextmode && npm install
 
 # Copy source code
 COPY container/agent-runner/ ./

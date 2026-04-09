@@ -1,0 +1,19 @@
+{
+    "plugins": [
+        {
+            "path": "../.openclaw_temp/memory-lancedb-pro-repo/index.ts",
+            "config": {
+                "embedding": {
+                    "provider": "openai-compatible",
+                    "apiKey": "sk-YOUR_EMBEDDING_API_KEY",
+                    "baseURL": "https://api.openai.com/v1"
+                },
+                "autoRecall": true,
+                "autoCapture": true,
+                "selfImprovement": {
+                    "enabled": true
+                }
+            }
+        }
+    ]
+}

@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR } from './config.js';
+import { GatewayBus, GatewayHooks } from './gateway-bus/index.js';
 import { logger } from './logger.js';
 import { GroupQueue } from './group-queue.js';
 import { RegisteredGroup, OnInboundMessage } from './types.js';
@@ -128,6 +129,19 @@ registerCommand(
 // ─── /new & /start ──────────────────────────────────────────────────
 
 const newSessionHandler: CommandHandler = async (ctx) => {
+  // Emit hooks BEFORE container shutdown and state purging.
+  // Useful for plugins that need to extract a summary of the closing session.
+  try {
+    const sessionKey = ctx.group!.folder;
+    await GatewayHooks.execute(
+      'session:before_reset',
+      { action: 'new', sessionKey, cfg: {} },
+      { sessionKey },
+    );
+  } catch (err) {
+    logger.warn(`GatewayBus hook error in /new: ${String(err)}`);
+  }
+
   // 1. Gracefully shut down active container
   await gracefulShutdown(ctx);
 
@@ -158,6 +172,17 @@ registerCommand('/start', '启动/新建会话（同 /new）', newSessionHandler
 // ─── /clear ─────────────────────────────────────────────────────────
 
 registerCommand('/clear', '硬重置 — 清空工作区和所有历史数据', async (ctx) => {
+  try {
+    const sessionKey = ctx.group!.folder;
+    await GatewayHooks.execute(
+      'session:before_reset',
+      { action: 'clear', sessionKey, cfg: {} },
+      { sessionKey },
+    );
+  } catch (err) {
+    logger.warn(`GatewayBus hook error in /clear: ${String(err)}`);
+  }
+
   const groupSessionsDir = path.join(DATA_DIR, 'sessions', ctx.group!.folder);
 
   let clearedOptions = false;

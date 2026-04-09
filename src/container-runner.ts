@@ -153,6 +153,16 @@ function buildVolumeMounts(
     }
   }
 
+  // Auto-create EXPERIENCE.md if it doesn't exist
+  // Copy template from agents/EXPERIENCE.md
+  const experienceFile = path.join(agentWorkspaceDir, 'EXPERIENCE.md');
+  if (!fs.existsSync(experienceFile)) {
+    const experienceTemplate = path.join(AGENTS_DIR, 'EXPERIENCE.md');
+    if (fs.existsSync(experienceTemplate)) {
+      fs.cpSync(experienceTemplate, experienceFile);
+    }
+  }
+
   mounts.push({
     hostPath: agentWorkspaceDir,
     containerPath: '/workspace/group',
@@ -252,7 +262,7 @@ function buildVolumeMounts(
         const srcDir = path.join(src, skillDir);
         if (!fs.statSync(srcDir).isDirectory()) continue;
         const dstDir = path.join(skillsDst, skillDir);
-        fs.cpSync(srcDir, dstDir, { recursive: true });
+        fs.cpSync(srcDir, dstDir, { recursive: true, force: false });
       }
     }
   };

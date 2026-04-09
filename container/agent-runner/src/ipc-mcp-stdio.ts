@@ -168,7 +168,7 @@ if (chatJid.endsWith('@feishu')) {
 
       await dispatchMessage(data);
 
-      return { content: [{ type: 'text' as const, text: `Card sent: ${args.title}\n\n【重要提醒】：卡片已发送给用户。如果不需要补充其他文字，请直接结束输出，或者将后续的思考包裹在 <internal>...</internal> 标签中，避免向用户重复发送废话。` }] };
+      return { content: [{ type: 'text' as const, text: `Card sent: ${args.title}\n\n【重要提醒】：卡片已发送给用户。如果不需要补充其他文字，不要向用户发送重复无用的消息。` }] };
     },
   );
 }
@@ -279,7 +279,7 @@ server.tool(
       await dispatchMessage(data);
 
       const fileSize = fs.statSync(cachedPath).size;
-      return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
+      return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${fileSize} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不需要补充其他文字，不要向用户发送重复无用的消息。` }] };
     } else {
       return { content: [{ type: 'text' as const, text: 'Must provide one of: file_path, url, or media_id.' }], isError: true };
     }
@@ -304,7 +304,7 @@ server.tool(
     };
     await dispatchMessage(data);
 
-    return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不再需要补充说明，请直接结束输出，或者将后续的思考包裹在 <internal> 标签中，避免向用户重复发送废话。` }] };
+    return { content: [{ type: 'text' as const, text: `Media sent (${mediaType}, ${buffer.length} bytes).\n\n【重要提醒】：该媒体已发送给用户。如果不需要补充其他文字，不要向用户发送重复无用的消息。` }] };
   },
 );
 
@@ -313,7 +313,7 @@ server.tool(
   `使用 AI 生成图片。支持两种模式：
 • 文生图（text-to-image）：根据文字描述生成图片。只需提供 prompt。
 • 图生图（image-to-image）：基于已有图片进行修改/编辑。需同时提供 prompt 和 source_image（本地路径或 media_id）。
-【重要提醒】：生成的图片会自动发送到聊天中。为了避免连续发送两条重复消息，调用此工具后，请**必须**将你的所有后续回复文本（如"图片已生成"）包裹在 <internal>...</internal> 标签中，或者直接结束输出。`,
+【重要提醒】：生成的图片会自动发送到聊天中。如果不需要补充其他文字，不要向用户发送重复无用的消息。`,
   {
     prompt: z.string().describe('图片描述或编辑指令（例如"一只在月光下散步的猫"）'),
     source_image: z.string().optional().describe('图生图的源图片路径（容器内绝对路径，例如 /tmp/input.png）或缓存的 MediaID'),
@@ -470,7 +470,7 @@ server.tool(
       };
       await dispatchMessage(ipcData);
 
-      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || defaultModel}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，请直接完成任务，或者将你的任何后续回复或思考包裹在 <internal>...</internal> 标签中，避免向用户发送重复无用的确认消息。` }] };
+      return { content: [{ type: 'text' as const, text: `Image generated and sent (${args.model || defaultModel}, ${args.size || '1024x1024'}, ${totalBytes} bytes). MediaID: ${mediaId}\n\n【重要提醒】：图片已自动发送给用户。如果不需要补充其他文字，不要向用户发送重复无用的消息。` }] };
     } catch (err: any) {
       return { content: [{ type: 'text' as const, text: `Image generation failed: ${err.message}` }], isError: true };
     }
@@ -491,7 +491,7 @@ server.tool(
 - "跟进我的请求" \u2192 group（需要知道请求了什么）
 - "生成每日报告" \u2192 isolated（只需要提示中的指令）
 
-消息行为 - 任务代理的输出会发送给用户或群组。它也可以使用 send_message 进行即时发送，或用 <internal> 标签包裹输出以抑制发送。在提示中说明代理是否应该：
+消息行为 - 任务代理的输出会发送给用户或群组。它也可以使用 send_message 进行即时发送。在提示中说明代理是否应该：
 \u2022 始终发送消息（例如，提醒、每日简报）
 \u2022 仅在有内容可报告时发送消息（例如，"如果...则通知我"）
 \u2022 永不发送消息（后台维护任务）
@@ -725,73 +725,10 @@ server.tool(
   },
 );
 
-server.tool(
-  'recall_memory',
-  `使用混合检索架构（语义向量+全文关键词）来深度搜索并召回持久化对话记忆。使用场景：
-• 用户询问之前讨论过的内容（"上次说的..."、"之前提到的..."）
-• 你需要过去对话的上下文
-• 寻找聊天历史中的特定信息
 
-返回按相似度排序的最相关历史消息。`,
-  {
-    query: z.string().describe('自然语言搜索查询（例如 "上次讨论的项目方案"、"用户的偏好设置"）'),
-    top_k: z.number().optional().default(5).describe('返回结果数量（默认：5）'),
-  },
-  async (args) => {
-    const requestId = `rag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    // Write search request via IPC
-    const data = {
-      type: 'recall_memory',
-      query: args.query,
-      topK: args.top_k || 5,
-      requestId,
-      groupFolder,
-      timestamp: new Date().toISOString(),
-    };
-    let resultData: any;
-    const result = await dispatchTask(data);
-
-    if (!result.success) {
-      return {
-        content: [{ type: 'text' as const, text: `搜索失败: ${result.message}` }],
-        isError: true,
-      };
-    }
-    resultData = { results: result.results || [] };
-
-    if (!resultData.results || resultData.results.length === 0) {
-      return {
-        content: [{ type: 'text' as const, text: '没有找到相关的历史记忆。' }],
-      };
-    }
-
-    const formatted = resultData.results
-      .map((r: any, i: number) => {
-        const text = r.entry?.text || r.text || '';
-        let meta: any = {};
-        try { meta = JSON.parse(r.entry?.metadata || '{}'); } catch {}
-        const roleStr = meta.role || r.role;
-        const sender = meta.sender_name || r.sender_name;
-        const ts = meta.created_at || r.timestamp;
-        
-        const roleBadge = roleStr === 'user' ? `👤 ${sender || 'User'}` : (roleStr ? '🤖 Assistant' : `[分类: ${r.entry?.category || 'fact'}]`);
-        const timeBadge = ts ? `时间: ${new Date(ts).toLocaleString()}, ` : '';
-        const source = meta.source_session || r.chat_source ? ` | 来源: ${meta.source_session || r.chat_source}` : '';
-        return `[${i + 1}] ${roleBadge} (${timeBadge}相关度: ${(r.score * 100).toFixed(0)}%${source})\n${text}`;
-      })
-      .join('\n\n---\n\n');
-
-    return {
-      content: [{ type: 'text' as const, text: `搜索 "${args.query}" 的结果:\n\n${formatted}` }],
-    };
-  },
-);
 
 // --- X Integration Tools (main group only) ---
 if (isMain) {
-
-
   server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args) => {
     const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() };

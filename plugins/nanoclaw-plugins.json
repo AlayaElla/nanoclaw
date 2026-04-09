@@ -1,0 +1,14 @@
+{
+  "plugins": [
+    {
+      "id": "plugin-example",
+      "path": "plugin-example/index.js",
+      "enabled": false
+    },
+    {
+      "id": "status-manager",
+      "path": "status-manager/index.js",
+      "enabled": true
+    }
+  ]
+}

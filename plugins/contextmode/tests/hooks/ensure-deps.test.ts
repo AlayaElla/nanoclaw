@@ -1,0 +1,183 @@
+/**
+ * ensure-deps.mjs — TDD tests for native binary detection (#206)
+ *
+ * Tests the detection logic that determines whether to:
+ * 1. npm install (package dir missing)
+ * 2. npm rebuild (package dir exists but native binary missing)
+ * 3. skip (native binary already present)
+ *
+ * Uses subprocess pattern (like integration.test.ts) with a test harness
+ * that captures commands instead of executing them.
+ */
+
+import { describe, test, expect, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+// ── Test harness script ──
+// Replicates ensure-deps.mjs logic but captures commands instead of executing.
+const HARNESS = `
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = process.argv[2];
+const NATIVE_DEPS = ["better-sqlite3"];
+const captured = [];
+
+for (const pkg of NATIVE_DEPS) {
+  const pkgDir = resolve(root, "node_modules", pkg);
+  if (!existsSync(pkgDir)) {
+    captured.push("install:" + pkg);
+  } else if (
+    !existsSync(resolve(pkgDir, "build", "Release")) &&
+    !existsSync(resolve(pkgDir, "prebuilds"))
+  ) {
+    captured.push("rebuild:" + pkg);
+  }
+}
+
+console.log(JSON.stringify(captured));
+`;
+
+const cleanups: Array<() => void> = [];
+afterAll(() => {
+  for (const fn of cleanups) {
+    try { fn(); } catch { /* ignore */ }
+  }
+});
+
+function createTempRoot(): string {
+  const dir = mkdtempSync(join(tmpdir(), "ensure-deps-test-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function runHarness(root: string): string[] {
+  const harnessPath = join(root, "_test-harness.mjs");
+  writeFileSync(harnessPath, HARNESS, "utf-8");
+  const result = spawnSync("node", [harnessPath, root], {
+    encoding: "utf-8",
+    timeout: 30_000,
+  });
+  return JSON.parse(result.stdout.trim());
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// RED-GREEN tests for ensure-deps native binary detection
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("ensure-deps: native binary detection (#206)", () => {
+  test("runs npm install when package directory is missing", () => {
+    const root = createTempRoot();
+    // No node_modules at all
+    const commands = runHarness(root);
+    expect(commands).toEqual(["install:better-sqlite3"]);
+  });
+
+  test("runs npm rebuild when package dir exists but no native binary", () => {
+    const root = createTempRoot();
+    // Simulate ignore-scripts=true: directory exists, no build/Release or prebuilds
+    mkdirSync(join(root, "node_modules", "better-sqlite3"), { recursive: true });
+    const commands = runHarness(root);
+    expect(commands).toEqual(["rebuild:better-sqlite3"]);
+  });
+
+  test("skips when build/Release exists", () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, "node_modules", "better-sqlite3", "build", "Release"), { recursive: true });
+    const commands = runHarness(root);
+    expect(commands).toEqual([]);
+  });
+
+  test("skips when prebuilds exists", () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, "node_modules", "better-sqlite3", "prebuilds"), { recursive: true });
+    const commands = runHarness(root);
+    expect(commands).toEqual([]);
+  });
+
+  test("rebuild triggers even when package.json and JS files exist", () => {
+    const root = createTempRoot();
+    const pkgDir = join(root, "node_modules", "better-sqlite3");
+    mkdirSync(pkgDir, { recursive: true });
+    // JS files exist (npm installed the package) but no native binary
+    writeFileSync(join(pkgDir, "package.json"), '{"name":"better-sqlite3"}', "utf-8");
+    writeFileSync(join(pkgDir, "index.js"), "module.exports = {};", "utf-8");
+    const commands = runHarness(root);
+    expect(commands).toEqual(["rebuild:better-sqlite3"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// RED-GREEN tests for macOS codesign after binary copy (#SIGKILL fix)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Subprocess harness that imports codesignBinary from ensure-deps.mjs and
+// exercises it with mocked execSync to verify codesign behavior.
+const ensureDepsAbsPath = join(fileURLToPath(import.meta.url), "..", "..", "..", "hooks", "ensure-deps.mjs");
+const CODESIGN_HARNESS = `
+import { codesignBinary } from ${JSON.stringify("file://" + ensureDepsAbsPath.replace(/\\/g, "/"))};
+
+// Test: function must exist and be callable
+if (typeof codesignBinary !== "function") {
+  console.log(JSON.stringify({ error: "codesignBinary is not exported" }));
+  process.exit(0);
+}
+
+const action = process.argv[2];
+const fakePath = process.argv[3] || "/tmp/fake.node";
+
+if (action === "check-export") {
+  console.log(JSON.stringify({ exported: true }));
+} else if (action === "run") {
+  // Actually call codesignBinary — on macOS it will invoke codesign,
+  // on non-macOS it should be a no-op. Either way it must not throw.
+  try {
+    codesignBinary(fakePath);
+    console.log(JSON.stringify({ success: true, platform: process.platform }));
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: err.message }));
+  }
+}
+`;
+
+describe("ensure-deps: codesignBinary macOS SIGKILL fix", () => {
+  function runCodesignHarness(action: string, fakePath?: string): Record<string, unknown> {
+    const root = createTempRoot();
+    const harnessPath = join(root, "_codesign-harness.mjs");
+    writeFileSync(harnessPath, CODESIGN_HARNESS, "utf-8");
+    const args = [harnessPath, action];
+    if (fakePath) args.push(fakePath);
+    const result = spawnSync("node", args, {
+      encoding: "utf-8",
+      timeout: 30_000,
+      cwd: join(fileURLToPath(import.meta.url), "..", ".."),
+    });
+    if (result.error) throw result.error;
+    const stdout = result.stdout?.trim();
+    if (!stdout) {
+      throw new Error(`Harness produced no output. stderr: ${result.stderr}`);
+    }
+    return JSON.parse(stdout);
+  }
+
+  test("Test A: codesignBinary is exported as a function", () => {
+    const out = runCodesignHarness("check-export");
+    expect(out).toEqual({ exported: true });
+  });
+
+  test("Test B: codesignBinary does not throw (works on any platform)", () => {
+    const out = runCodesignHarness("run", "/tmp/nonexistent.node");
+    expect(out).toHaveProperty("success", true);
+  });
+
+  test("Test C: codesignBinary is safe when codesign target does not exist", () => {
+    // On macOS, codesign will fail on a nonexistent file — must not throw.
+    // On non-macOS, it should be a no-op.
+    const out = runCodesignHarness("run", "/tmp/definitely-does-not-exist-12345.node");
+    expect(out).toHaveProperty("success", true);
+  });
+});

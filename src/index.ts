@@ -12,6 +12,9 @@ import {
   IDLE_TIMEOUT,
   POLL_INTERVAL,
   TIMEZONE,
+  CONTAINER_IMAGE,
+  DATA_DIR,
+  MAX_CONCURRENT_CONTAINERS,
   escapeRegex,
 } from './config.js';
 import './channels/index.js';
@@ -52,14 +55,19 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
-import { statusInit, statusEmit, statusDestroy } from './status.js';
+import { GatewayBus, GatewayHooks } from './gateway-bus/index.js';
+import { loadPlugins } from './gateway-bus/plugin-loader.js';
 import { findChannel, formatMessages } from './router.js';
 import {
   initMemorySystem,
   indexMessage,
   isMemoryEnabled,
 } from './services/memory/index.js';
-import { resolveAgentName, getBotConfigByChannel } from './agents-config.js';
+import {
+  resolveAgentName,
+  getBotConfigByChannel,
+  getAllBotConfigs,
+} from './agents-config.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -521,7 +529,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
     // Dispatch task_status events to status manager
     if (event.type === 'task_status') {
-      statusEmit('sdk_task', {
+      GatewayBus.emitAsync('agent:sdk_task_status', {
         group: chatJid,
         detail: JSON.stringify({
           task_id: event.task_id,
@@ -534,11 +542,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     if (!channel.sendStatusMessage) return;
 
-    // Emit status event for status.json
-    statusEmit(event.status === 'running' ? 'tool_use' : 'agent_idle', {
-      group: chatJid,
-      tool: event.tool,
-    });
+    // Emit UI status event
+    if (event.status === 'running') {
+      GatewayBus.emitAsync('agent:tool_use', {
+        group: chatJid,
+        tool: event.tool || '',
+      });
+    }
 
     if (event.status === 'running' && event.tool) {
       let displayName = event.description;
@@ -619,6 +629,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           `Agent output: ${raw.slice(0, 200)}`,
         );
         if (text) {
+          GatewayBus.emitAsync('agent:before_message_write', {
+            text,
+            channelId: chatJid,
+          });
           // Stop typing indicator before sending — user should see the reply, not "typing..."
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, text);
@@ -668,6 +682,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         getHeartbeat().markHeartbeatProcessed(group.folder);
         if (!activeHeartbeatSkipQuery && !wasHeartbeat) {
           resetIdleTimer();
+        }
+
+        // Emit unified agent idle event after completion
+        if (result.status === 'success' || result.status === 'error') {
+          GatewayBus.emitAsync('agent:idle', {
+            sessionKey: group.folder,
+            sessionId: sessions[group.folder],
+            status: result.status,
+            group: chatJid,
+          });
         }
       }
 
@@ -837,6 +861,23 @@ async function runAgent(
       const isGroup =
         getChatIsGroup(chatJid) ?? group.requiresTrigger !== false;
 
+      GatewayBus.emitAsync('agent:before_prompt_build', {
+        systemPrompt:
+          typeof currentPrompt === 'string'
+            ? currentPrompt
+            : JSON.stringify(currentPrompt),
+        context: {
+          messages: getMessagesSince(
+            chatJid,
+            lastAgentTimestamp[chatJid] || '',
+          ),
+          promptOverride: currentPrompt,
+          sessionId,
+          chatJid,
+          isGroup,
+        },
+      });
+
       const output = await runContainerAgent(
         group,
         {
@@ -851,13 +892,16 @@ async function runAgent(
         },
         (proc, containerName) => {
           queue.registerProcess(chatJid, proc, containerName, group.folder);
-          statusEmit('container_start', { group: chatJid });
+          GatewayBus.emitAsync('agent:container_start', {
+            group: chatJid,
+            containerName,
+          });
         },
         wrappedOnOutput,
         onIpcStatus,
       );
 
-      statusEmit('container_stop', { group: chatJid });
+      GatewayBus.emitAsync('agent:container_stop', { group: chatJid });
 
       if (output.newSessionId) {
         sessions[group.folder] = output.newSessionId;
@@ -952,6 +996,13 @@ async function startMessageLoop(): Promise<void> {
         // Deduplicate by group
         const messagesByGroup = new Map<string, NewMessage[]>();
         for (const msg of messages) {
+          GatewayBus.emitAsync('session:new_message', {
+            content: getTextContent(msg.content),
+            from: msg.sender,
+            timestamp: msg.timestamp,
+            chatJid: msg.chat_jid,
+          });
+
           const existing = messagesByGroup.get(msg.chat_jid);
           if (existing) {
             existing.push(msg);
@@ -1070,6 +1121,8 @@ function ensureContainerSystemRunning(): void {
 }
 
 async function main(): Promise<void> {
+  await loadPlugins();
+
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
@@ -1079,8 +1132,7 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    statusEmit('shutdown');
-    statusDestroy();
+    GatewayBus.emitAsync('system:shutdown', {}).catch(() => {});
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -1278,16 +1330,32 @@ async function main(): Promise<void> {
 
   startGatewayServer(ipcDeps);
 
-  // Initialize status manager and emit startup
-  statusInit({
-    registeredGroups: () => registeredGroups,
-    channels,
-    queue,
-  });
-  statusEmit('startup');
-
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
+
+  // EMIT RICH STARTUP PAYLOAD FOR PLUGINS
+  GatewayBus.emitAsync('system:startup', {
+    action: 'startup',
+    config: {
+      maxConcurrentContainers: MAX_CONCURRENT_CONTAINERS,
+      timezone: TIMEZONE,
+      dataDir: DATA_DIR,
+      containerImage: CONTAINER_IMAGE,
+    },
+    system: {
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    bots: getAllBotConfigs(),
+    groups: registeredGroups,
+    tasks: getAllTasks(),
+    channels: channels.map((ch) => ({
+      name: ch.name,
+      connected: ch.isConnected(),
+    })),
+  }).catch((err) => logger.error({ err }, 'GatewayBus startup error'));
+
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);

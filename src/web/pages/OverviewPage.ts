@@ -8,13 +8,16 @@ import {
   pageHeader,
 } from '../utils.js';
 import { Lang } from '../types.js';
-import { getAgentStatusFiles, getUsageSummary } from '../data.js';
-import { getFullStatus } from '../../status.js';
+import {
+  getAgentStatusFiles,
+  getUsageSummary,
+  getHostStatus,
+} from '../data.js';
 import { getAllTasks } from '../../db.js';
 
 export class OverviewPage extends Page<any> {
   render(_: any, lang: Lang): string {
-    const status = getFullStatus();
+    const status = getHostStatus();
     const agents = getAgentStatusFiles();
     const tasks = getAllTasks();
     const spend1d = getUsageSummary(1);
@@ -77,7 +80,7 @@ export class OverviewPage extends Page<any> {
       // Some agent.channel strings might include the platform e.g. 'telegram:bot1', handle accordingly
       const agentCh = agent.channel || '';
       let ch = channels.find(
-        (c) =>
+        (c: any) =>
           c.name === agentCh ||
           agentCh.includes(c.name) ||
           c.name.includes(agentCh),
@@ -86,7 +89,7 @@ export class OverviewPage extends Page<any> {
       if (!ch && agentCh && channels.length > 0) {
         ch =
           channels.find(
-            (c) =>
+            (c: any) =>
               agentCh.toLowerCase().includes('telegram') &&
               c.name.toLowerCase().includes('tele'),
           ) || undefined;

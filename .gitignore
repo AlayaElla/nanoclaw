@@ -52,3 +52,5 @@ GEMINI.md
 docs/plans/
 litellm/__pycache__/raw_logger.cpython-314.pyc
 claw-code-ref/
+vitest_output.txt
+container/skill.test/

@@ -22,6 +22,7 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
+import { GatewayBus } from './gateway-bus/index.js';
 
 /**
  * Compute the next run time for a recurring task, anchored to the
@@ -87,6 +88,10 @@ async function runTask(
     const error = err instanceof Error ? err.message : String(err);
     // Stop retry churn for malformed legacy rows.
     updateTask(task.id, { status: 'paused' });
+    GatewayBus.emitAsync('task:change', {
+      taskId: task.id,
+      status: 'paused',
+    }).catch(() => {});
     logger.error(
       { taskId: task.id, groupFolder: task.group_folder, error },
       'Task has invalid group folder',
@@ -107,6 +112,11 @@ async function runTask(
     { taskId: task.id, group: task.group_folder },
     'Running scheduled task',
   );
+  GatewayBus.emitAsync('task:execute', {
+    taskId: task.id,
+    group: task.group_folder,
+    scheduleType: task.schedule_type,
+  }).catch(() => {});
 
   const groups = deps.registeredGroups();
   const group = Object.values(groups).find(
@@ -335,6 +345,10 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         // next_run causes the task to fire again on restart.
         if (currentTask.schedule_type === 'once') {
           updateTask(currentTask.id, { status: 'completed' });
+          GatewayBus.emitAsync('task:change', {
+            taskId: currentTask.id,
+            status: 'completed',
+          }).catch(() => {});
         } else {
           const nextRun = computeNextRun(currentTask);
           if (nextRun) {

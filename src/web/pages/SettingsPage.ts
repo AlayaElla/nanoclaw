@@ -1,12 +1,16 @@
 import { Page, t, esc, pageHeader } from '../utils.js';
 import { Lang } from '../types.js';
-import { getLiteLLMModels, getNanoClawEnv, getAgentsConfig } from '../data.js';
-import { getFullStatus } from '../../status.js';
+import {
+  getLiteLLMModels,
+  getNanoClawEnv,
+  getAgentsConfig,
+  getHostStatus,
+} from '../data.js';
 import { getAllRegisteredGroups } from '../../db.js';
 
 export class SettingsPage extends Page<any> {
   render(_: any, lang: Lang): string {
-    const status = getFullStatus();
+    const status = getHostStatus();
     const models = getLiteLLMModels();
     const envVars = getNanoClawEnv();
     const agents = getAgentsConfig();

@@ -1,0 +1,14 @@
+src/
+tests/
+*.ts
+!build/**/*.js
+!build/**/*.d.ts
+tsconfig.json
+bun.lock
+BENCHMARK.md
+PRD*.md
+skills/context-mode-ops/
+tasks/
+.github/
+.DS_Store
+*.db

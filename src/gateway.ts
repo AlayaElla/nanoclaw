@@ -10,7 +10,7 @@ import * as url from 'url';
 import { logger } from './logger.js';
 import { IpcDeps, processTaskIpc } from './ipc.js';
 import { sendPoolMessage } from './channels/telegram.js';
-import { resolveAgentName } from './agents-config.js';
+import { resolveAgentName, resolveAgentFolder } from './agents-config.js';
 import fs from 'fs';
 import path from 'path';
 import * as crypto from 'crypto';
@@ -554,7 +554,8 @@ export class GatewayServer {
         (g) => g.folder === sourceGroup,
       );
       const agentName = resolveAgentName(sourceGroupEntry?.botToken);
-      const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
+      const agentFolder = resolveAgentFolder(sourceGroupEntry?.botToken);
+      const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentFolder);
       const mediaPath = path.join(
         agentWorkspaceDir,
         '.claude',

@@ -3,7 +3,7 @@
     {
       "id": "plugin-example",
       "path": "plugin-example/index.js",
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "status-manager",

@@ -18,8 +18,11 @@ export class AppChannel implements Channel {
 
   // Maps JID (e.g. app:pixel_123) to active WebSocket connection
   private connections = new Map<string, WebSocket>();
-  // Inverse map to lookup JID by WS
-  private socketJids = new WeakMap<WebSocket, string>();
+  // Inverse map to lookup context by WS
+  private socketInfo = new WeakMap<
+    WebSocket,
+    { jid: string; deviceId: string; userName?: string }
+  >();
 
   constructor(opts: AppChannelOpts) {
     this.opts = opts;
@@ -141,10 +144,10 @@ export class AppChannel implements Channel {
     });
 
     ws.on('close', () => {
-      const jid = this.socketJids.get(ws);
-      if (jid) {
-        this.connections.delete(jid);
-        logger.info({ jid }, 'App device disconnected');
+      const info = this.socketInfo.get(ws);
+      if (info) {
+        this.connections.delete(info.jid);
+        logger.info({ jid: info.jid }, 'App device disconnected');
       }
     });
 
@@ -157,7 +160,7 @@ export class AppChannel implements Channel {
     const type = msg.type;
 
     if (type === 'auth') {
-      const { deviceId, token } = msg;
+      const { deviceId, token, userName, agentName } = msg;
 
       // Also support query param auth optionally, but payload is cleaner
       const urlToken = url.parse(ws.url || '', true)?.query?.token;
@@ -188,7 +191,7 @@ export class AppChannel implements Channel {
         return;
       }
 
-      const jid = `app:${deviceId}`;
+      const jid = `app:${agentName}`;
 
       // Handle replace connection
       const existing = this.connections.get(jid);
@@ -197,7 +200,7 @@ export class AppChannel implements Channel {
       }
 
       this.connections.set(jid, ws);
-      this.socketJids.set(ws, jid);
+      this.socketInfo.set(ws, { jid, deviceId, userName });
 
       ws.send(JSON.stringify({ type: 'auth_result', success: true, jid }));
       logger.info({ jid }, 'App device authenticated successfully');
@@ -206,19 +209,40 @@ export class AppChannel implements Channel {
       this.opts.onChatMetadata(
         jid,
         new Date().toISOString(),
-        `Device ${deviceId}`,
+        userName || `User ${deviceId}`,
         'app',
         false,
       );
+
+      // If an agentName is provided, automatically bind the device to the agent
+      if (agentName && this.opts.registerGroup) {
+        this.opts.registerGroup(jid, {
+          name: userName || `User ${deviceId}`,
+          folder: agentName,
+          trigger: '.*',
+          added_at: new Date().toISOString(),
+          requiresTrigger: false, // Core instruction: respond directly without mentioning
+          isMain: true,
+          botToken: agentName,
+          assistantName: agentName,
+        });
+        logger.info(
+          { jid, agentName, userName },
+          'Automatically registered App connection to agent',
+        );
+      }
+
       return;
     }
 
     // Require auth for other messages
-    const jid = this.socketJids.get(ws);
-    if (!jid) {
+    const info = this.socketInfo.get(ws);
+    if (!info) {
       ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated' }));
       return;
     }
+
+    const { jid, deviceId, userName } = info;
 
     if (type === 'message') {
       const { content } = msg;
@@ -231,8 +255,8 @@ export class AppChannel implements Channel {
       this.opts.onMessage(jid, {
         id: messageId,
         chat_jid: jid,
-        sender: jid.split(':')[1],
-        sender_name: 'App User',
+        sender: deviceId,
+        sender_name: userName || 'App User',
         content: content,
         timestamp: new Date().toISOString(),
         is_from_me: false,

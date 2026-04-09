@@ -11,6 +11,7 @@ export interface BotConfig {
   name: string;
   token?: string; // Optional for channels like Feishu that use global tokens
   channel?: string; // Optional, defaults to 'telegram' if has token
+  folder?: string; // Optional, custom workspace folder instead of name
   model?: string;
   // Internal property injected during load for backward compatibility
   id?: string;
@@ -111,4 +112,13 @@ export function getBotConfigByChannel(channel: string): BotConfig | undefined {
 export function resolveAgentName(botRef?: string): string {
   const config = botRef ? getBotConfig(botRef) : getBotConfigByIndex(0);
   return config?.name || 'default';
+}
+
+/**
+ * Resolve the agent workspace folder from a bot reference.
+ * Uses the config's 'folder' property if present, otherwise falls back to 'name'.
+ */
+export function resolveAgentFolder(botRef?: string): string {
+  const config = botRef ? getBotConfig(botRef) : getBotConfigByIndex(0);
+  return config?.folder || config?.name || 'default';
 }

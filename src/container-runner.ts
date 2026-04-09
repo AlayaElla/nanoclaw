@@ -31,7 +31,11 @@ import {
 } from './container-runtime.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
-import { getBotConfig, getBotConfigByIndex } from './agents-config.js';
+import {
+  getBotConfig,
+  getBotConfigByIndex,
+  resolveAgentFolder,
+} from './agents-config.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -115,8 +119,9 @@ function resolveAgentClaudeFile(
   const botConfig = botToken ? getBotConfig(botToken) : getBotConfigByIndex(0);
   if (!botConfig?.name) return null;
 
+  const agentDirName = botConfig.folder || botConfig.name;
   const subDir = isMain ? 'main' : 'group';
-  const agentClaudeDir = path.join(AGENTS_DIR, botConfig.name, subDir);
+  const agentClaudeDir = path.join(AGENTS_DIR, agentDirName, subDir);
   fs.mkdirSync(agentClaudeDir, { recursive: true });
 
   const claudeFile = path.join(agentClaudeDir, 'CLAUDE.md');
@@ -140,8 +145,8 @@ function buildVolumeMounts(
   const botConfig = group.botToken
     ? getBotConfig(group.botToken)
     : getBotConfigByIndex(0);
-  const agentName = botConfig?.name || 'default';
-  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
+  const agentDirName = botConfig?.folder || botConfig?.name || 'default';
+  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentDirName);
   fs.mkdirSync(agentWorkspaceDir, { recursive: true });
 
   // Auto-create USER.md (master profile) if it doesn't exist
@@ -456,8 +461,9 @@ export async function runContainerAgent(
   const botConfigAgentName = group.botToken
     ? getBotConfig(group.botToken)
     : getBotConfigByIndex(0);
-  const agentName = botConfigAgentName?.name || 'default';
-  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentName);
+  const agentDirName =
+    botConfigAgentName?.folder || botConfigAgentName?.name || 'default';
+  const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentDirName);
 
   const userProfilePath = path.join(agentWorkspaceDir, 'USER.md');
   if (fs.existsSync(userProfilePath)) {

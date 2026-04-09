@@ -14,6 +14,7 @@ export interface ChannelOpts {
   registeredGroups: () => Record<string, RegisteredGroup>;
   groupQueue: GroupQueue;
   onQuestionAnswer?: OnQuestionAnswer;
+  registerGroup?: (jid: string, group: RegisteredGroup) => void;
 }
 
 export type ChannelFactory = (opts: ChannelOpts) => Channel | Channel[] | null;

@@ -134,16 +134,30 @@ function loadState(): void {
   // agent config instead of falling back to the first bot.
   for (const [jid, group] of Object.entries(registeredGroups)) {
     if (!group.botToken) {
-      const channelMatch = jid.match(/@(\w+)$/);
-      if (channelMatch && channelMatch[1] !== 'telegram') {
-        const channelBot = getBotConfigByChannel(channelMatch[1]);
-        if (channelBot) {
-          group.botToken = channelBot.name;
+      if (jid.startsWith('app:')) {
+        const appBots = getAllBotConfigs().filter((b) => b.channel === 'app');
+        const targetBot =
+          appBots.find((b) => b.name === 'xingmeng-app') || appBots[0];
+        if (targetBot) {
+          group.botToken = targetBot.name;
           setRegisteredGroup(jid, group);
           logger.info(
             { jid, botToken: group.botToken },
-            'Patched missing botToken for existing group',
+            'Patched missing botToken for existing app group',
           );
+        }
+      } else {
+        const channelMatch = jid.match(/@(\w+)$/);
+        if (channelMatch && channelMatch[1] !== 'telegram') {
+          const channelBot = getBotConfigByChannel(channelMatch[1]);
+          if (channelBot) {
+            group.botToken = channelBot.name;
+            setRegisteredGroup(jid, group);
+            logger.info(
+              { jid, botToken: group.botToken },
+              'Patched missing botToken for existing group',
+            );
+          }
         }
       }
     }
@@ -254,16 +268,29 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
   // Auto-inject botToken for channel-based bots (e.g. Feishu) that don't use
   // per-bot tokens. Without this, they fall back to the first bot in agents.yaml.
   if (!group.botToken) {
-    const channelMatch = jid.match(/@(\w+)$/);
-    if (channelMatch && channelMatch[1] !== 'telegram') {
-      const channelName = channelMatch[1];
-      const channelBot = getBotConfigByChannel(channelName);
-      if (channelBot) {
-        group.botToken = channelBot.name;
+    if (jid.startsWith('app:')) {
+      const appBots = getAllBotConfigs().filter((b) => b.channel === 'app');
+      const targetBot =
+        appBots.find((b) => b.name === 'xingmeng-app') || appBots[0];
+      if (targetBot) {
+        group.botToken = targetBot.name;
         logger.info(
-          { jid, channel: channelName, botToken: group.botToken },
-          'Auto-injected botToken from channel config',
+          { jid, channel: 'app', botToken: group.botToken },
+          'Auto-injected botToken from app channel config',
         );
+      }
+    } else {
+      const channelMatch = jid.match(/@(\w+)$/);
+      if (channelMatch && channelMatch[1] !== 'telegram') {
+        const channelName = channelMatch[1];
+        const channelBot = getBotConfigByChannel(channelName);
+        if (channelBot) {
+          group.botToken = channelBot.name;
+          logger.info(
+            { jid, channel: channelName, botToken: group.botToken },
+            'Auto-injected botToken from channel config',
+          );
+        }
       }
     }
   }
@@ -1233,6 +1260,7 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    registerGroup,
     groupQueue: queue,
     onQuestionAnswer: (
       chatJid: string,

@@ -145,10 +145,14 @@ const newSessionHandler: CommandHandler = async (ctx) => {
   // 1. Gracefully shut down active container
   await gracefulShutdown(ctx);
 
-  // 2. Clear Claude session state only (keep workspace/DB/tasks/RAG)
+  // 2. Flush un-extracted memory buffer to LanceDB
+  const { forceMemoryExtraction } = await import('./services/memory/index.js');
+  await forceMemoryExtraction(ctx.chatJid);
+
+  // 3. Clear Claude session state only (keep workspace/DB/tasks/RAG)
   clearClaudeSessionState(ctx.group!.folder);
 
-  // 3. Clear IPC input state
+  // 4. Clear IPC input state
   clearIpcInput(ctx.group!.folder);
 
   const { clearSessionForGroup } = await import('./index.js');
@@ -157,7 +161,7 @@ const newSessionHandler: CommandHandler = async (ctx) => {
   await new Promise((r) => setTimeout(r, 1000));
 
   await ctx.reply(
-    '✅ 新会话已就绪！会话记忆已清除，工作区、任务和长期记忆保持不变。',
+    '✅ 新会话已就绪！未归档记忆已强制写入长尾库，会话记忆已清除。工作区、任务和长期记忆保持不变。',
   );
   logger.info(
     { chatJid: ctx.chatJid },
@@ -219,7 +223,7 @@ registerCommand('/compact', '软重置 — 生成对话总结后重置会话', a
 
   // 1. Fetch recent history from DB
   const { getRecentMessages } = await import('./db.js');
-  const recentMessages = getRecentMessages(ctx.chatJid, 20);
+  const recentMessages = getRecentMessages(ctx.chatJid, 100);
   let historyBlock = '';
   if (recentMessages && recentMessages.length > 0) {
     for (const msg of recentMessages.reverse()) {
@@ -236,7 +240,11 @@ registerCommand('/compact', '软重置 — 生成对话总结后重置会话', a
   // 3. Gracefully shut down active container
   await gracefulShutdown(ctx);
 
-  // 4. Clear session state
+  // 4. Flush un-extracted memory buffer to LanceDB
+  const { forceMemoryExtraction } = await import('./services/memory/index.js');
+  await forceMemoryExtraction(ctx.chatJid);
+
+  // 5. Clear session state
   clearClaudeSessionState(ctx.group!.folder);
   clearIpcInput(ctx.group!.folder);
 

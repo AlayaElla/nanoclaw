@@ -462,3 +462,45 @@ function registerAutoCaptureHook(): void {
 
   logger.info('Auto-capture hook registered on agent:idle');
 }
+
+/**
+ * Forcibly flush the current un-extracted message buffer for a chat into LanceDB long-term memory.
+ * This is useful before destructive actions like /new, /compact, or /clear.
+ */
+export async function forceMemoryExtraction(chatJid: string): Promise<void> {
+  if (!provider?.isEnabled()) return;
+
+  const bufferedMessages = messageBuffer[chatJid];
+  if (!bufferedMessages || bufferedMessages.length === 0) {
+    logger.debug({ chatJid }, 'No pending messages in buffer to flush.');
+    return;
+  }
+
+  // Clear buffer immediately
+  messageBuffer[chatJid] = []; 
+  
+  const transcriptPieces = bufferedMessages.map((m: any) => {
+    let text = '';
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else if (Array.isArray(m.content)) {
+      text = m.content
+        .filter((p: any) => p.type === 'text')
+        .map((p: any) => p.text)
+        .join(' ');
+    }
+    const sender = m.sender_name || m.role || 'unknown';
+    return `${sender}: ${text}`;
+  });
+
+  const bufferedFullTranscript = transcriptPieces.join('\n');
+  const agentScope = getAgentScope(chatJid);
+  const pseudoSessionId = `flush-${Date.now()}`;
+
+  logger.info(
+    { chatJid, agentScope, messagesCount: bufferedMessages.length },
+    'Forcibly flushing pending memory buffer to long-term memory...',
+  );
+
+  await extractSmartMemories(agentScope, bufferedFullTranscript, pseudoSessionId);
+}

@@ -95,9 +95,40 @@ export class MemoryStore {
     }
   }
 
+  private ftsRebuildTimers = new Map<string, NodeJS.Timeout>();
+
+  private triggerFTSRebuild(scope: string, delayMs: number = 3000): void {
+    if (this.ftsRebuildTimers.has(scope)) {
+      clearTimeout(this.ftsRebuildTimers.get(scope));
+    }
+    const timer = setTimeout(() => {
+      this.ftsRebuildTimers.delete(scope);
+      this.getOrCreateTable(scope)
+        .then((table) => {
+          return table.createIndex('text', { config: lancedb.Index.fts(), replace: true });
+        })
+        .then(() => {
+          logger.debug({ scope }, 'FTS index rebuilt asynchronously');
+        })
+        .catch((err) => {
+          logger.warn(
+            { scope, err: err?.message || err },
+            'Failed to rebuild FTS index in background',
+          );
+        });
+    }, delayMs);
+    
+    // Unref timer so it doesn't block Node.js from exiting if resolving
+    if (timer.unref) timer.unref();
+    this.ftsRebuildTimers.set(scope, timer);
+  }
+
   public async insert(scope: string, entry: StoreEntry): Promise<void> {
     const table = await this.getOrCreateTable(scope);
     await table.add([entry as unknown as Record<string, unknown>]);
+    
+    // 异步触发 FTS 索引防抖重建
+    this.triggerFTSRebuild(scope);
   }
 
   public async vectorSearch(

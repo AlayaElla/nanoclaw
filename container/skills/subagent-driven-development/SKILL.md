@@ -55,15 +55,15 @@ digraph process {
         "分派代码质量评审子 Agent (./code-quality-reviewer-prompt.md)" [shape=box];
         "代码质量评审子 Agent 批准？" [shape=diamond];
         "实施子 Agent 修复质量问题" [shape=box];
-        "在 TodoWrite 中标记任务完成" [shape=box];
+        "调用 TodoWrite 工具标记任务完成" [shape=box];
     }
 
-    "读取计划，提取所有任务全文，记录上下文，创建 TodoWrite" [shape=box];
+    "读取计划全文，调用 TodoWrite 工具创建任务" [shape=box];
     "还有剩余任务吗？" [shape=diamond];
     "为整个实施过程分派最终代码评审子 Agent" [shape=box];
     "使用 superpowers:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
 
-    "读取计划，提取所有任务全文，记录上下文，创建 TodoWrite" -> "分派实施子 Agent (./implementer-prompt.md)";
+    "读取计划全文，调用 TodoWrite 工具创建任务" -> "分派实施子 Agent (./implementer-prompt.md)";
     "分派实施子 Agent (./implementer-prompt.md)" -> "实施子 Agent 是否有问题？";
     "实施子 Agent 是否有问题？" -> "回答问题，提供上下文" [label="是"];
     "回答问题，提供上下文" -> "分派实施子 Agent (./implementer-prompt.md)";
@@ -76,8 +76,8 @@ digraph process {
     "分派代码质量评审子 Agent (./code-quality-reviewer-prompt.md)" -> "代码质量评审子 Agent 批准？";
     "代码质量评审子 Agent 批准？" -> "实施子 Agent 修复质量问题" [label="否"];
     "实施子 Agent 修复质量问题" -> "分派代码质量评审子 Agent (./code-quality-reviewer-prompt.md)" [label="重新评审"];
-    "代码质量评审子 Agent 批准？" -> "在 TodoWrite 中标记任务完成" [label="是"];
-    "在 TodoWrite 中标记任务完成" -> "还有剩余任务吗？";
+    "代码质量评审子 Agent 批准？" -> "调用 TodoWrite 工具标记任务完成" [label="是"];
+    "调用 TodoWrite 工具标记任务完成" -> "还有剩余任务吗？";
     "还有剩余任务吗？" -> "分派实施子 Agent (./implementer-prompt.md)" [label="是"];
     "还有剩余任务吗？" -> "为整个实施过程分派最终代码评审子 Agent" [label="否"];
     "为整个实施过程分派最终代码评审子 Agent" -> "使用 superpowers:finishing-a-development-branch";
@@ -128,9 +128,9 @@ digraph process {
 ```
 你：我正在使用“子 Agent 驱动开发”来执行此计划。
 
-[读取计划文件一次：docs/superpowers/plans/feature-plan.md]
+[读取使用 EnterPlanMode 保存的计划文件一次]
 [提取所有 5 项任务及其全文和上下文]
-[创建包含所有任务的 TodoWrite]
+[调用原生的 TodoWrite 工具创建并包含所有任务]
 
 任务 1：Hook 安装脚本
 

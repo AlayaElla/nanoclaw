@@ -1,6 +1,6 @@
 import * as lancedb from '@lancedb/lancedb';
-import { logger } from '../../logger.js';
-import { EMBEDDING_DIM } from './embedder.js';
+import { logger } from '../../../logger.js';
+import { EMBEDDING_DIM } from '../embedder.js';
 
 export interface StoreEntry {
   id: string; // A UUID for this memory

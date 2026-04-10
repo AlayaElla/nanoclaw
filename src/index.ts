@@ -1,5 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { EventEmitter } from 'events';
+
+export const loopEvents = new EventEmitter();
 
 import { getHeartbeat } from './services/heartbeat.js';
 import {
@@ -42,6 +45,7 @@ import {
   getMaxRowid,
   getMessagesSince,
   getNewMessages,
+  getRecentMessages,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -731,11 +735,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
         // Emit unified agent idle event after completion
         if (result.status === 'success' || result.status === 'error') {
+          const recentMessages = getRecentMessages(chatJid, 50)
+            .reverse() // oldest-first for natural conversation order
+            .map((m) => ({
+              role: m.is_bot_message ? 'assistant' : 'user',
+              timestamp: m.timestamp,
+              content:
+                typeof m.content === 'string'
+                  ? m.content
+                  : JSON.stringify(m.content),
+            }));
+
           GatewayBus.emitAsync('agent:idle', {
             sessionKey: group.folder,
             sessionId: sessions[group.folder],
             status: result.status,
             group: chatJid,
+            success: result.status === 'success',
+            messages: recentMessages,
           });
         }
       }
@@ -1121,7 +1138,17 @@ async function startMessageLoop(): Promise<void> {
     } catch (err) {
       logger.error({ err }, 'Error in message loop');
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        loopEvents.off('wakeup', onWakeup);
+        resolve();
+      }, POLL_INTERVAL);
+      const onWakeup = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      loopEvents.once('wakeup', onWakeup);
+    });
   }
 }
 
@@ -1235,22 +1262,7 @@ async function main(): Promise<void> {
         }
       }
       storeMessage(msg);
-      // Auto-index user messages for memory (fire-and-forget)
-      if (isMemoryEnabled()) {
-        const group = registeredGroups[msg.chat_jid];
-        if (group) {
-          const textMsg =
-            typeof msg.content === 'string'
-              ? msg.content
-              : JSON.stringify(msg.content);
-          indexMessage(
-            resolveAgentName(group.botToken),
-            textMsg,
-            msg.sender_name || 'user',
-            'user',
-          ).catch(() => {});
-        }
-      }
+      loopEvents.emit('wakeup');
     },
     onChatMetadata: (
       chatJid: string,

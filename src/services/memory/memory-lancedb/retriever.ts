@@ -1,7 +1,8 @@
 import { MemoryStore, StoreSearchResult } from './store.js';
-import { embedQuery } from './embedder.js';
+import { embedQuery } from '../embedder.js';
 import { DecayEngine } from './decay-engine.js';
-import { DecayableMemory } from './types.js';
+import { DecayableMemory } from '../types.js';
+import { rerank, isRerankerEnabled, type RerankInput } from './reranker.js';
 
 export interface RetrieverConfig {
   vectorWeight: number;
@@ -124,8 +125,37 @@ export class MemoryRetriever {
       (r) => r.score >= this.config.hardMinScore,
     );
 
+    // 7.5. Cross-Encoder Rerank (DashScope)
+    let reranked: StoreSearchResult[];
+    if (isRerankerEnabled() && hardFiltered.length > 1) {
+      const rerankInput: RerankInput[] = hardFiltered.map((r) => ({
+        id: r.entry.id,
+        text: r.entry.text,
+        originalScore: r.score,
+      }));
+
+      const rerankResults = await rerank(query, rerankInput);
+
+      // Map back to StoreSearchResult, blending rerank score with original
+      const idToEntry = new Map(hardFiltered.map((r) => [r.entry.id, r]));
+      reranked = rerankResults
+        .map((rr) => {
+          const original = idToEntry.get(rr.id);
+          if (!original) return null;
+          return {
+            ...original,
+            // Blend: 60% rerank score + 40% original pipeline score
+            score: clamp01(rr.rerankScore * 0.6 + rr.originalScore * 0.4),
+          };
+        })
+        .filter((r): r is StoreSearchResult => r !== null)
+        .sort((a, b) => b.score - a.score);
+    } else {
+      reranked = hardFiltered;
+    }
+
     // 8. MMR Diversity (Deduplication / Diversity)
-    const diverseResults = this.applyMMRDiversity(hardFiltered);
+    const diverseResults = this.applyMMRDiversity(reranked);
 
     // 9. Return top-k
     const finalResults = diverseResults.slice(0, limit);

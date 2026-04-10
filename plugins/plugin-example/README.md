@@ -93,7 +93,7 @@ export default function initMyPlugin(api, config) {
 - `agent:sdk_task_status` (仅 Event): Agent SDK 内层执行并行后台子任务（Swarm）时上报的数据信标。
   - **Payload**: `{ group: string, detail: string }`
 - `agent:idle` (仅 Event): 整个对话查询回合处理完毕且大模型停止回答，退回空闲状态时触发。
-  - **Payload**: `{ group: string, sessionKey: string, status: string, sessionId: string }`
+  - **Payload**: `{ group: string, sessionKey: string, status: string, sessionId: string, success: boolean, messages: any[] }`
 - `agent:new_message` (**🔥Hook** + Event): **针对常驻容器环境**！这个 Hook 会在无论大模型容器是死是活，只要有任何从数据库/IPC 被提成 Pending 状态的“最新新消息合集”将要推入给底层大模型沙箱时瞬间触发。可非常方便地通过返回 `{ additionalContext: "..." }` 对**此轮**的所有对话开头强制增加额外的前置系统上下文。
   - **Payload**: `{ sourceGroup: string, chatJid: string, messages: any[], prompt: string }`
 - `agent:end_message` (**🔥Hook** + Event): 大模型生成完文本并在宿主侧完成解析，即将调用外部通信通道回信给你前触发。注册 Hook 后，可直接覆写 `payload.text` 从而对最终将发送的消息进行任意过滤与修改。

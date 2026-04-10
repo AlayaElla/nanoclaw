@@ -1,4 +1,4 @@
-import { DecayableMemory, DecayScore, MemoryTier } from './types.js';
+import { DecayableMemory, DecayScore, MemoryTier } from '../types.js';
 
 export interface TierTransition {
   fromTier: MemoryTier;

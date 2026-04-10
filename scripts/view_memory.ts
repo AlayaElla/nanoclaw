@@ -46,12 +46,41 @@ async function main() {
     }
 
     records.forEach((r, idx) => {
-      console.log(`[#${idx + 1}] ID: ${r.id}`);
-      console.log(`  Category  : ${r.category}`);
-      console.log(`  Text      : ${String(r.text).substring(0, 150).replace(/\n/g, ' ')}${(r.text as string).length > 150 ? '...' : ''}`);
-      console.log(`  Importance: ${r.importance}`);
-      console.log(`  Metadata  : ${r.metadata}`);
-      console.log('----------------------------------------------------');
+      let metaObj: any = {};
+      try {
+        if (r.metadata) metaObj = JSON.parse(r.metadata as string);
+      } catch (e) {}
+
+      const dateStr = metaObj.created_at ? new Date(metaObj.created_at).toLocaleString() : 'Unknown';
+      const tier = metaObj.tier || '?';
+      const access = metaObj.accessCount || 0;
+      const media = (metaObj.MediaIDs && metaObj.MediaIDs.length > 0) ? ` \x1b[45m[Media: ${metaObj.MediaIDs.length}]\x1b[0m` : '';
+      const source = metaObj.source || 'N/A';
+
+      // Clean up text for terminal viewing
+      const rawText = String(r.text);
+      const textToPrint = rawText.length > 300 
+        ? rawText.substring(0, 300).replace(/\n/g, ' ') + '...\x1b[90m (truncated)\x1b[0m'
+        : rawText.replace(/\n/g, ' ');
+
+      console.log(`\x1b[36m[#${String(idx + 1).padStart(3, '0')}] ID:\x1b[0m ${r.id}`);
+      console.log(`  \x1b[33mCategory :\x1b[0m ${String(r.category).padEnd(12)} \x1b[90m|\x1b[0m \x1b[35mImportance:\x1b[0m ${Number(r.importance).toFixed(2)} \x1b[90m|\x1b[0m \x1b[32mTier:\x1b[0m ${tier} \x1b[90m|\x1b[0m \x1b[34mHits:\x1b[0m ${access}`);
+      console.log(`  \x1b[32mTime     :\x1b[0m ${dateStr}  \x1b[90m[Src: ${source}]\x1b[0m${media}`);
+      console.log(`  \x1b[37mText     :\x1b[0m ${textToPrint}`);
+      
+      // Print remaining metadata (except the ones we already extracted)
+      const otherMeta = { ...metaObj };
+      delete otherMeta.created_at;
+      delete otherMeta.last_accessed_at;
+      delete otherMeta.accessCount;
+      delete otherMeta.tier;
+      delete otherMeta.source;
+      delete otherMeta.MediaIDs;
+      
+      if (Object.keys(otherMeta).length > 0) {
+        console.log(`  \x1b[90mExtraMeta:\x1b[0m ${JSON.stringify(otherMeta).substring(0, 200)}`);
+      }
+      console.log('\x1b[90m--------------------------------------------------------------------------------\x1b[0m');
     });
 
   } catch (e: any) {

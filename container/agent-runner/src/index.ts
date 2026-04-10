@@ -209,7 +209,7 @@ async function runQuery(
     log('Propagated system context via dynamic SDK CLAUDE.md autoloader');
   }
 
-  const invokeUserPromptSubmit = async (text: string | any[]) => {
+  const recordPromptToContextModeStoreAsync = (text: string | any[]) => {
     let rawText = '';
     if (typeof text === 'string') {
       rawText = text;
@@ -218,20 +218,20 @@ async function runQuery(
     }
     if (!rawText || rawText.trim() === '') return;
     try {
-      log('Triggering UserPromptSubmit manually for incoming messages');
+      log('Background: Recording prompt to context-mode database');
       const hook = createContextModeHook('userpromptsubmit');
-      await hook(
+      hook(
         { hook_event_name: 'UserPromptSubmit', prompt: rawText, message: rawText, session_id: sessionId } as any,
         undefined,
         { signal: new AbortController().signal } as any
-      );
+      ).catch(err => log(`Async context-mode database write failed: ${err instanceof Error ? err.message : String(err)}`));
     } catch (err) {
-      log(`UserPromptSubmit manual hook failed: ${err instanceof Error ? err.message : String(err)}`);
+      log(`Context-mode database sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  // Trigger UserPromptSubmit manually to persist user intents
-  await invokeUserPromptSubmit(prompt);
+  // Record user prompt to context-mode's database in the background
+  recordPromptToContextModeStoreAsync(prompt);
 
 
   // ─── One-shot plugin context injection (agent:new_message) ──────────
@@ -340,8 +340,8 @@ async function runQuery(
       log(`Injected ${injectedMessages.length} new user message(s) into context.`);
       alreadyInjectedDuringQuery = true; // prevent re-injection until new messages arrive
 
-      // Also apply UserPromptSubmit to dynamically injected messages inside queries
-      await invokeUserPromptSubmit(combined);
+      // Record dynamically injected messages into context-mode's database in the background
+      recordPromptToContextModeStoreAsync(combined);
 
       return {
         hookSpecificOutput: {
@@ -461,10 +461,12 @@ async function runQuery(
             { matcher: '', hooks: [createPostToolUseHook(containerInput.gatewayUrl, containerInput.gatewayToken), createToolUsageHintHook(), createContextModeHook('posttoolusefailure'), injectionHook] },
             ...extHooks.filter(h => h.event === 'PostToolUseFailure').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
           ],
-          SessionStart: [
-            { matcher: '', hooks: [createExternalBootHook(extBootLog), createContextModeHook('sessionstart')] },
-            ...extHooks.filter(h => h.event === 'SessionStart').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
-          ],
+          //重复触发，不需要在这里添加hook
+          // SessionStart: [
+          //   { matcher: '', hooks: [createExternalBootHook(extBootLog), createContextModeHook('sessionstart')] },
+          //   ...extHooks.filter(h => h.event === 'SessionStart').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))
+          // ],
+          SessionStart: [],
           UserPromptSubmit: [
             { matcher: '', hooks: [pluginNewMessageHook] },
             ...extHooks.filter(h => h.event === 'UserPromptSubmit').map(h => ({ matcher: h.matcher, hooks: [h.caller] }))

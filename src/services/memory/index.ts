@@ -477,8 +477,8 @@ export async function forceMemoryExtraction(chatJid: string): Promise<void> {
   }
 
   // Clear buffer immediately
-  messageBuffer[chatJid] = []; 
-  
+  messageBuffer[chatJid] = [];
+
   const transcriptPieces = bufferedMessages.map((m: any) => {
     let text = '';
     if (typeof m.content === 'string') {
@@ -502,5 +502,9 @@ export async function forceMemoryExtraction(chatJid: string): Promise<void> {
     'Forcibly flushing pending memory buffer to long-term memory...',
   );
 
-  await extractSmartMemories(agentScope, bufferedFullTranscript, pseudoSessionId);
+  await extractSmartMemories(
+    agentScope,
+    bufferedFullTranscript,
+    pseudoSessionId,
+  );
 }

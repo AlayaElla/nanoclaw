@@ -105,7 +105,10 @@ export class MemoryStore {
       this.ftsRebuildTimers.delete(scope);
       this.getOrCreateTable(scope)
         .then((table) => {
-          return table.createIndex('text', { config: lancedb.Index.fts(), replace: true });
+          return table.createIndex('text', {
+            config: lancedb.Index.fts(),
+            replace: true,
+          });
         })
         .then(() => {
           logger.debug({ scope }, 'FTS index rebuilt asynchronously');
@@ -117,7 +120,7 @@ export class MemoryStore {
           );
         });
     }, delayMs);
-    
+
     // Unref timer so it doesn't block Node.js from exiting if resolving
     if (timer.unref) timer.unref();
     this.ftsRebuildTimers.set(scope, timer);
@@ -126,7 +129,7 @@ export class MemoryStore {
   public async insert(scope: string, entry: StoreEntry): Promise<void> {
     const table = await this.getOrCreateTable(scope);
     await table.add([entry as unknown as Record<string, unknown>]);
-    
+
     // 异步触发 FTS 索引防抖重建
     this.triggerFTSRebuild(scope);
   }

@@ -82,7 +82,7 @@ function createSchema(database: Database.Database): void {
   // Add context_mode column if it doesn't exist (migration for existing DBs)
   try {
     database.exec(
-      `ALTER TABLE scheduled_tasks ADD COLUMN context_mode TEXT DEFAULT 'isolated'`,
+      `ALTER TABLE scheduled_tasks ADD COLUMN context_mode TEXT DEFAULT 'group'`,
     );
   } catch {
     /* column already exists */
@@ -500,7 +500,7 @@ export function createTask(
     task.prompt,
     task.schedule_type,
     task.schedule_value,
-    task.context_mode || 'isolated',
+    task.context_mode || 'group',
     task.next_run,
     task.status,
     task.created_at,

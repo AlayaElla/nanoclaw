@@ -17,6 +17,7 @@ import {
   logTaskRun,
   updateTask,
   updateTaskAfterRun,
+  storeMessageDirect,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -170,28 +171,6 @@ async function runTask(
     agentFolders,
   );
 
-  let result: string | null = null;
-  let error: string | null = null;
-
-  // For group context mode, use the group's current session
-  const sessions = deps.getSessions();
-  const sessionId =
-    task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
-
-  // After the task produces a result, close the container promptly.
-  // Tasks are single-turn — no need to wait IDLE_TIMEOUT (30 min) for the
-  // query loop to time out. A short delay handles any final MCP calls.
-  const TASK_CLOSE_DELAY_MS = 10000;
-  let closeTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const scheduleClose = () => {
-    if (closeTimer) return; // already scheduled
-    closeTimer = setTimeout(() => {
-      logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(task.chat_jid);
-    }, TASK_CLOSE_DELAY_MS);
-  };
-
   let parsedPrompt: string | any[] = task.prompt;
   if (typeof task.prompt === 'string' && task.prompt.trim().startsWith('[')) {
     try {
@@ -201,16 +180,79 @@ async function runTask(
     }
   }
 
+  // ============================================
+  // GROUP CONTEXT MODE: INJECT AS SYSTEM MESSAGE
+  // ============================================
+  if (task.context_mode === 'group') {
+    logger.info(
+      { taskId: task.id },
+      'Injecting scheduled task prompt as message into normal flow',
+    );
+
+    // Parse the prompt so we can format it nicely
+    const textualPrompt =
+      typeof parsedPrompt === 'string'
+        ? parsedPrompt
+        : JSON.stringify(parsedPrompt);
+
+    storeMessageDirect({
+      id: `task_${task.id}_${Date.now()}`,
+      chat_jid: task.chat_jid,
+      sender: 'system',
+      sender_name: 'Scheduled Task',
+      content: `<scheduled-task>\n${textualPrompt}\n</scheduled-task>\n*(Please handle this background task using tools if necessary and proactively report back when done. If no tools are needed, reply directly.)*`,
+      timestamp: new Date().toISOString(),
+      is_from_me: true,
+    });
+
+    logTaskRun({
+      task_id: task.id,
+      run_at: new Date().toISOString(),
+      duration_ms: Date.now() - startTime,
+      status: 'success',
+      result: 'Dispatched to main container context loop.',
+      error: null,
+    });
+
+    const nextRun = computeNextRun(task);
+    updateTaskAfterRun(task.id, nextRun, 'Dispatched to main container');
+    return;
+  }
+
+  // ============================================
+  // ISOLATED CONTEXT MODE: BACKGROUND WORKER
+  // ============================================
+  let result: string | null = null;
+  let error: string | null = null;
+
+  // After the task produces a result, close the container promptly.
+  const TASK_CLOSE_DELAY_MS = 10000;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const workerJid = `isolated_${task.id.replace(/-/g, '_')}`;
+
+  const scheduleClose = () => {
+    if (closeTimer) return; // already scheduled
+    closeTimer = setTimeout(() => {
+      logger.debug({ taskId: task.id }, 'Closing task container after result');
+      deps.queue.closeStdin(workerJid);
+    }, TASK_CLOSE_DELAY_MS);
+  };
+
   try {
     const isGroup =
       getChatIsGroup(task.chat_jid) ?? group.requiresTrigger !== false;
 
+    // Use an isolated pseudo-folder so it doesn't clash with the main IPC input/status directories
+    const workerFolder = `worker_${task.id.replace(/-/g, '_')}`;
+    const workerGroup = { ...group, folder: workerFolder };
+
     const output = await runContainerAgent(
-      group,
+      workerGroup,
       {
         prompt: parsedPrompt,
-        sessionId,
-        groupFolder: task.group_folder,
+        sessionId: undefined,
+        groupFolder: workerFolder,
         chatJid: task.chat_jid,
         isMain,
         isGroup,
@@ -219,16 +261,15 @@ async function runTask(
         assistantName: group.assistantName,
       },
       (proc, containerName) =>
-        deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
+        deps.onProcess(workerJid, proc, containerName, workerFolder),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
-          // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(task.chat_jid);
+          deps.queue.notifyIdle(workerJid);
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
@@ -241,7 +282,6 @@ async function runTask(
     if (output.status === 'error') {
       error = output.error || 'Unknown error';
     } else if (output.result) {
-      // Messages are sent via MCP tool (IPC), result text is just logged
       result = output.result;
     }
 
@@ -356,9 +396,21 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           }
         }
 
-        deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
-          runTask(currentTask, deps),
-        );
+        if (currentTask.context_mode === 'group') {
+          // Send group task prompt directly matching context, no preemptive close needed
+          runTask(currentTask, deps).catch((err) =>
+            logger.error(
+              { taskId: currentTask.id, err },
+              'Failed to run group task',
+            ),
+          );
+        } else {
+          // Isolated tasks use a synthetic JID to avoid stopping the main container
+          const workerJid = `isolated_${currentTask.id.replace(/-/g, '_')}`;
+          deps.queue.enqueueTask(workerJid, currentTask.id, () =>
+            runTask(currentTask, deps),
+          );
+        }
       }
 
       await heartbeat.tick(deps.queue);

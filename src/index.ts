@@ -416,6 +416,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = missedMessages.some((m) => {
+      if (m.sender === 'system') return true;
       const text = getTextContent(m.content);
       const triggerPresent = isTriggerPresent(
         text,
@@ -1095,6 +1096,7 @@ async function startMessageLoop(): Promise<void> {
           if (needsTrigger) {
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some((m) => {
+              if (m.sender === 'system') return true;
               const text = getTextContent(m.content);
               const triggerPresent = isTriggerPresent(
                 text,

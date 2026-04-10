@@ -638,7 +638,7 @@ describe('schedule_task context_mode', () => {
     );
 
     const tasks = getAllTasks();
-    expect(tasks[0].context_mode).toBe('isolated');
+    expect(tasks[0].context_mode).toBe('group');
   });
 });
 

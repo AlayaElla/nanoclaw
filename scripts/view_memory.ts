@@ -63,7 +63,14 @@ async function main() {
         ? rawText.substring(0, 300).replace(/\n/g, ' ') + '...\x1b[90m (truncated)\x1b[0m'
         : rawText.replace(/\n/g, ' ');
 
+      let vecInfo = 'None';
+      if (r.vector && (r.vector as any).length) {
+        const v = Array.from(r.vector as any);
+        vecInfo = `\x1b[90m[${v.length} dims]\x1b[0m <${v.slice(0, 3).map(n => Number(n).toFixed(3)).join(', ')}...>`;
+      }
+
       console.log(`\x1b[36m[#${String(idx + 1).padStart(3, '0')}] ID:\x1b[0m ${r.id}`);
+      console.log(`  \x1b[36mVector   :\x1b[0m ${vecInfo}`);
       console.log(`  \x1b[33mCategory :\x1b[0m ${String(r.category).padEnd(12)} \x1b[90m|\x1b[0m \x1b[35mImportance:\x1b[0m ${Number(r.importance).toFixed(2)} \x1b[90m|\x1b[0m \x1b[32mTier:\x1b[0m ${tier} \x1b[90m|\x1b[0m \x1b[34mHits:\x1b[0m ${access}`);
       console.log(`  \x1b[32mTime     :\x1b[0m ${dateStr}  \x1b[90m[Src: ${source}]\x1b[0m${media}`);
       console.log(`  \x1b[37mText     :\x1b[0m ${textToPrint}`);

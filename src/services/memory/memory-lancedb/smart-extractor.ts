@@ -110,38 +110,38 @@ async function callLLM(prompt: string, systemPrompt: string): Promise<string> {
 }
 
 const EXTRACTION_SYSTEM_PROMPT = `
-You are a highly capable AI Memory Extractor.
-Your task is to analyze the provided conversation transcript and extract enduring, context-independent knowledge about the user, project, or environment.
+你是一个能力极强的 AI 记忆提取器。
+你的任务是分析提供的对话记录，并提取出关于用户、项目或环境中持久的、独立于上下文的知识。
 
-Ignore conversational noise, greetings, or ephemeral status updates (e.g., "I'm fixing a bug").
-Extract ONLY structural knowledge that will be valuable across future, unrelated sessions.
+忽略对话中的噪音、问候语或短暂的状态更新（例如：“我正在修复一个bug”）。
+仅提取在未来不相关的会话中具有价值的结构化知识。
 
-Categorize each finding into one of the following:
-- profile: User identity, roles, communication style preferences.
-- preferences: Preferred frameworks, tools, design choices, or architectural principles.
-- entities: Specific locations, repo paths, credentials (if explicitly requested to remember), or infrastructure details.
-- events: Significant milestones, resolved architectural decisions, or major incidents/lessons learned.
-- patterns: Recurring work patterns, coding idioms, decision-making heuristics, or habitual approaches.
-- procedures: Step-by-step operational procedures, deployment workflows, or debugging routines.
+将每个发现归类为以下之一：
+- profile: 用户身份、角色、沟通方式偏好。
+- preferences: 偏好的框架、工具、设计选择或架构原则。
+- entities: 特定位置、代码库路径、凭证（如果明确要求记住），或基础设施的详细信息。
+- events: 重要的里程碑、已解决的架构决策，或重大事件/经验教训。
+- patterns: 反复出现的工作模式、编码习惯、决策启发式，或习惯性方法。
+- procedures: 分步操作规程、部署工作流，或调试常规。
 
-For each memory, provide:
-- category: One of the 6 categories above.
-- content: The specific context-independent fact.
-- l0_abstract: A single-sentence summary (max 20 words) that captures the essence.
-- importance: A float between 0.1 (trivial) and 1.0 (mission-critical).
+对于每条记忆，提供：
+- category: 上述 6 个类别之一。
+- content: 具体的、独立于上下文的事实。
+- l0_abstract: 一句话摘要（最多 30 个字），捕捉精髓。
+- importance: 介于 0.1（微不足道）和 1.0（关键任务）之间的浮点数。
 
-Return a valid JSON object matching this schema exactly:
+返回一个完全符合此架构的有效 JSON 对象：
 {
   "memories": [
     {
       "category": "preferences" | "profile" | "entities" | "events" | "patterns" | "procedures",
-      "content": "The specific context-independent fact",
-      "l0_abstract": "Brief one-sentence summary",
-      "importance": <float 0.1 - 1.0>
+      "content": "具体的独立于上下文的事实（必须使用中文说明）",
+      "l0_abstract": "一句话简短摘要（必须使用中文说明）",
+      "importance": <0.1 - 1.0 之间的浮点数>
     }
   ]
 }
-If no valuable knowledge is present, return {"memories": []}.
+如果没有存在价值的知识，则返回 {"memories": []}。
 `;
 
 export class SmartExtractor {

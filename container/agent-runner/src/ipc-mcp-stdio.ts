@@ -728,49 +728,97 @@ server.tool(
 
 
 // --- X Integration Tools (main group only) ---
-if (isMain) {
-  server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args) => {
-    const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
+// if (isMain) {
+//   server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args) => {
+//     const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
 
-  server.tool('x_like', '点赞 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
-    const requestId = `xlike-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
+//   server.tool('x_like', '点赞 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
+//     const requestId = `xlike-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
 
-  server.tool('x_reply', '回复 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), content: z.string().max(280).describe('回复内容') }, async (args) => {
-    const requestId = `xreply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
+//   server.tool('x_reply', '回复 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), content: z.string().max(280).describe('回复内容') }, async (args) => {
+//     const requestId = `xreply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
 
-  server.tool('x_retweet', '转推 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
-    const requestId = `xretweet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
+//   server.tool('x_retweet', '转推 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
+//     const requestId = `xretweet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
 
-  server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args) => {
-    const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
+//   server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args) => {
+//     const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
 
-  server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args) => {
-    const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const data = { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() };
-    const result = await dispatchTask(data);
-    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
-  });
-}
+//   server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args) => {
+//     const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+//     const data = { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() };
+//     const result = await dispatchTask(data);
+//     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+//   });
+// }
+
+server.tool(
+  'search_memory',
+  `让Agent主动搜索和召回长期记忆。
+当你需要回忆之前的上下文、用户历史偏好，或者用户明确提问“你还记得xxx吗”时使用此工具。
+支持自然语言模糊匹配。`,
+  {
+    query: z.string().describe('搜索记忆使用的搜索词或自然语言描述（例如："用户喜欢的编程语言"）'),
+    top_k: z.number().optional().default(5).describe('要检索的记忆条数（默认 5）'),
+  },
+  async (args) => {
+    const data = {
+      type: 'recall_memory',
+      query: args.query,
+      topK: args.top_k,
+      chatJid,
+    };
+    
+    let result;
+    try {
+      result = await dispatchTask(data);
+    } catch (e: any) {
+      return { 
+        content: [{ type: 'text' as const, text: `Memory recall mapping error: ${e.message}` }], 
+        isError: true 
+      };
+    }
+    
+    if (!result.success) {
+      return { 
+        content: [{ type: 'text' as const, text: `Memory recall error: ${result.error || result.message}` }], 
+        isError: true 
+      };
+    }
+    
+    if (result.results && result.results.length > 0) {
+      const formatted = result.results
+        .map((r: any, i: number) => `[记忆 ${i + 1}] (Score: ${r.score.toFixed(2)})\n${r.text}`)
+        .join('\n\n');
+        
+      return { 
+        content: [{ type: 'text' as const, text: `找到了相关记忆：\n\n${formatted}` }] 
+      };
+    }
+    
+    return { content: [{ type: 'text' as const, text: '没有找到与查询相关的记忆。' }] };
+  }
+);
 
 // --- Media Analytics Tools ---
 

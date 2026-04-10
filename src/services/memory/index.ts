@@ -24,7 +24,7 @@ import { resolveAgentName } from '../../agents-config.js';
  * Resolves a chat JID to a unified Agent Scope (e.g., 'xingmeng')
  * so that memory is shared across all channels for the same agent.
  */
-function getAgentScope(chatJidOrFolder: string): string {
+export function getAgentScope(chatJidOrFolder: string): string {
   const groups = getAllRegisteredGroups();
 
   // Direct JID lookup
@@ -325,23 +325,25 @@ function registerAutoCaptureHook(): void {
       });
 
       const newFullTranscript = newTranscriptPieces.join('\n');
+      //logger.info({ newFullTranscript }, 'Debug: incoming transcript to memory capture');
 
       // Extract all MediaIDs and process true multimodal data
       const mediaRegex =
-        /\[(?:Photo|Video|Document|Audio):\s*([^|]*?)\s*\|\s*User:\s*([^|]*?)\s*\|\s*MediaID:\s*([\w.-]+)\]/gi;
+        /\[(Photo|Video|Document|Audio)(?:[\s:-]+([^|]*?))?(?:\s*\|\s*User:\s*([^|]*?))?\s*\|\s*MediaID:\s*([\w.-]+)\]/gi;
       let match;
       const allMediaIds: string[] = [];
 
       while ((match = mediaRegex.exec(newFullTranscript)) !== null) {
-        const typeStr = match[0].substring(1, match[0].indexOf(':')); // e.g., Photo, Video
-        const desc = match[1].trim();
-        const userCaption = match[2].trim();
-        const mediaId = match[3].trim();
+        const typeStr = match[1]; // e.g., Photo, Video
+        const desc = match[2] ? match[2].trim() : '';
+        const userCaption = match[3] ? match[3].trim() : '';
+        const mediaId = match[4].trim();
         allMediaIds.push(mediaId);
 
         // Immediate direct multimodal isolated storage for Images/Videos
         if (typeStr === 'Photo' || typeStr === 'Video') {
-          const filePath = getCachedMediaPath(event.group, mediaId);
+          const agentScope = getAgentScope(event.group);
+          const filePath = getCachedMediaPath(agentScope, mediaId);
           if (filePath && fs.existsSync(filePath)) {
             // Deduplication: prevent re-indexing the same media across sliding windows
             const indexedMarker = filePath + '.indexed';
@@ -356,7 +358,6 @@ function registerAutoCaptureHook(): void {
                   (userCaption ? ` - User said: ${userCaption}` : '');
 
                 const meta: IndexMeta = { senderName: 'user', role: 'user' };
-                const agentScope = getAgentScope(event.group);
                 // We trigger isolated multimodal embedding concurrently
                 if (provider.indexMultimodal) {
                   provider

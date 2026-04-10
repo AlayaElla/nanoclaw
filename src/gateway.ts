@@ -16,7 +16,11 @@ import path from 'path';
 import * as crypto from 'crypto';
 import { GATEWAY_PORT, WORKSPACE_DIR, GATEWAY_AUTH_TOKEN } from './config.js';
 import { storeMessage, insertTokenUsage, getTaskById } from './db.js';
-import { recallMemory, isMemoryEnabled } from './services/memory/index.js';
+import {
+  recallMemory,
+  isMemoryEnabled,
+  getAgentScope,
+} from './services/memory/index.js';
 import { RegisteredGroup } from './types.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { getHostStatus } from './web/data.js';

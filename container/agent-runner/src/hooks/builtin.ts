@@ -228,6 +228,7 @@ export function createToolUsageHintHook(): HookCallback {
     'mcp__nanoclaw__describe_cached_image': 'describe_cached_image({ mediaId: string, prompt: string })',
     'mcp__nanoclaw__describe_cached_video': 'describe_cached_video({ mediaId: string, prompt: string })',
     'mcp__nanoclaw__transcribe_cached_audio': 'transcribe_cached_audio({ mediaId: string })',
+    'mcp__nanoclaw__search_memory': 'search_memory({ query: string, top_k?: number })',
     'TeamCreate': 'TeamCreate({ team_name: string, description?: string, agent_type?: string })',
     'SendMessage': 'SendMessage({ to: string, content: string })',
   };

@@ -740,6 +740,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             .map((m) => ({
               role: m.is_bot_message ? 'assistant' : 'user',
               timestamp: m.timestamp,
+              sender_name: m.sender_name,
               content:
                 typeof m.content === 'string'
                   ? m.content

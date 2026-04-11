@@ -24,7 +24,7 @@ export class HeartbeatService {
       'Starting heartbeat service',
     );
     // We set intervalId just to mark as running for getStatus
-    this.intervalId = setInterval(() => {}, HEARTBEAT_INTERVAL);
+    this.intervalId = setInterval(() => { }, HEARTBEAT_INTERVAL);
   }
 
   stop(): void {
@@ -93,9 +93,15 @@ export class HeartbeatService {
           'Injecting background heartbeat prompt',
         );
         this.processingGroups.add(group.folder);
+
+        // Format current tasks for injection
+        const tasksList = todos
+          .map((t, i) => `${i + 1}. [${t.status}] ${t.content}`)
+          .join('\n');
+
         queue.sendMessage(
           jid,
-          '<system-reminder>\n[HEARTBEAT]请检查当前状态与最近对话，思考是否有未完成的任务。如果有，请立刻使用工具处理或者提醒用户。如果没有，请取消todolist，然后仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。\n</system-reminder>',
+          `<system-reminder>\n[HEARTBEAT] 环境唤醒。\n当前你拥有的未完成任务列表如下：\n${tasksList}\n\n请检查当前状态与最近对话，思考是否需要继续处理这些任务。如果需要处理请立刻使用工具处理或者提醒用户。如果任务已全部完成或无事可做，请直接取消后续操作并仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。\n</system-reminder>`,
         );
       }
     }

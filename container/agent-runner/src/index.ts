@@ -380,10 +380,9 @@ async function runQuery(
         cwd: '/workspace/group',
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
-        // Heartbeat queries use persistSession:false so they don't pollute
-        // the session transcript. The AI still sees full context via resume,
-        // but the heartbeat prompt and response are never written to disk.
-        ...(isHeartbeat ? { persistSession: false } : {}),
+        // Heartbeat queries now persist to the session transcript.
+        // This pollutes the logs slightly but allows the AI to execute tools
+        // in the background and permanently save memory state.
         resumeSessionAt: resumeAt,
         systemPrompt: undefined,
         allowedTools: [

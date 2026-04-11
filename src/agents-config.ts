@@ -13,6 +13,7 @@ export interface BotConfig {
   channel?: string; // Optional, defaults to 'telegram' if has token
   folder?: string; // Optional, custom workspace folder instead of name
   model?: string;
+  api_root?: string; // Optional custom telegram api root
   // Internal property injected during load for backward compatibility
   id?: string;
 }

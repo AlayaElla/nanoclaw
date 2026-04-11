@@ -17,12 +17,28 @@ if npx pm2 describe "$LITELLM_NAME" &>/dev/null; then
   echo "⏭️  LiteLLM 服务 [$LITELLM_NAME] 已存在，跳过创建"
 else
   echo "🚀 正在注册 LiteLLM 服务: [$LITELLM_NAME]"
-  npx pm2 start "${SCRIPT_DIR}/litellm/start_litellm.sh" \
+  npx pm2 start "${SCRIPT_DIR}/services/litellm/start_litellm.sh" \
     --name "$LITELLM_NAME" \
-    --cwd "${SCRIPT_DIR}/litellm" \
+    --cwd "${SCRIPT_DIR}/services/litellm" \
     -o /dev/null \
     -e /dev/null
   echo "✅ LiteLLM 注册完成"
+fi
+
+# --- 注册 Telegram Bot API ---
+TG_API_NAME="tg-api"
+if [ -f "${SCRIPT_DIR}/services/telegram-bot-api/.env" ]; then
+  if npx pm2 describe "$TG_API_NAME" &>/dev/null; then
+    echo "⏭️  Telegram API 服务 [$TG_API_NAME] 已存在，跳过创建"
+  else
+    echo "🚀 正在注册 Telegram API 服务: [$TG_API_NAME]"
+    npx pm2 start "${SCRIPT_DIR}/services/telegram-bot-api/start_tgapi.sh" \
+      --name "$TG_API_NAME" \
+      --cwd "${SCRIPT_DIR}/services/telegram-bot-api" \
+      -o /dev/null \
+      -e /dev/null
+    echo "✅ Telegram API 注册完成"
+  fi
 fi
 
 # --- 注册 NanoClaw ---

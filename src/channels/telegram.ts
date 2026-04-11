@@ -11,7 +11,11 @@ import { registerChannel, ChannelOpts } from './registry.js';
 import { transcribeAudioMessage } from '../transcription.js';
 import { describeImage, describeVideo } from '../vision.js';
 import { saveToMediaCache } from '../tools/mediaTools.js';
-import { getAllBotConfigs, resolveAgentName } from '../agents-config.js';
+import {
+  getAllBotConfigs,
+  resolveAgentName,
+  getBotConfig,
+} from '../agents-config.js';
 import {
   Channel,
   OnChatMetadata,
@@ -156,7 +160,10 @@ export class TelegramChannel implements Channel {
   }
 
   async connect(): Promise<void> {
-    this.bot = new Bot(this.botToken);
+    const botConfig = getBotConfig(this.tokenEnvName);
+    const apiRoot = botConfig?.api_root || process.env.TELEGRAM_API_ROOT;
+    const clientConfig = apiRoot ? { client: { apiRoot: apiRoot } } : undefined;
+    this.bot = new Bot(this.botToken, clientConfig);
 
     // Install auto-retry: retries API calls on network errors (ECONNRESET),
     // rate limits (429), and internal server errors (500+).

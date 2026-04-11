@@ -68,16 +68,37 @@ class RawLogger(CustomLogger):
         except Exception as e:
             self._log_error(f"DB init error: {e}")
 
+    def _sanitize(self, obj, depth=0, seen=None):
+        if depth > 10:
+            return "[Max Depth Reached]"
+        if seen is None:
+            seen = set()
+        
+        obj_id = id(obj)
+        if hasattr(obj, "__dict__") or isinstance(obj, (dict, list, set, tuple)):
+            if obj_id in seen:
+                return "[Circular Reference]"
+            seen.add(obj_id)
+            
+        try:
+            if isinstance(obj, dict):
+                return {str(k): self._sanitize(v, depth + 1, seen) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple, set)):
+                return [self._sanitize(v, depth + 1, seen) for v in obj]
+            elif isinstance(obj, (str, int, float, bool, type(None))):
+                return obj
+            else:
+                return str(obj)
+        except Exception:
+            return "[Unserializable]"
+        finally:
+            if hasattr(obj, "__dict__") or isinstance(obj, (dict, list, set, tuple)):
+                seen.remove(obj_id)
+
     def _write_record(self, record: dict):
         """Insert a record and enforce _MAX_ROWS limit."""
         try:
-            # Serialize the full record to JSON
-            try:
-                data_json = json.dumps(record, ensure_ascii=False, default=str)
-            except Exception as ve:
-                safe = {k: (str(v) if k in ["request", "response"] else v)
-                        for k, v in record.items()}
-                data_json = json.dumps(safe, ensure_ascii=False, default=str)
+            data_json = json.dumps(self._sanitize(record), ensure_ascii=False)
 
             with self._lock:
                 conn = self._get_conn()

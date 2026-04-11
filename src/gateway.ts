@@ -60,7 +60,7 @@ export class GatewayServer {
 
         if (path && this.wsUpgradeHandlers.has(path)) {
           const handler = this.wsUpgradeHandlers.get(path)!;
-          this.wsServer.handleUpgrade(req, socket, head, (ws) => {
+          this.wsServer.handleUpgrade(req, socket, head, (ws: WebSocket) => {
             // We can emit a connection event or call the handler directly.
             // The handler can parse tokens from the URL or headers if needed.
             handler(req, ws);

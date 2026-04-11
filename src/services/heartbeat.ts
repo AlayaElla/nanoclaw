@@ -24,7 +24,7 @@ export class HeartbeatService {
       'Starting heartbeat service',
     );
     // We set intervalId just to mark as running for getStatus
-    this.intervalId = setInterval(() => { }, HEARTBEAT_INTERVAL);
+    this.intervalId = setInterval(() => {}, HEARTBEAT_INTERVAL);
   }
 
   stop(): void {

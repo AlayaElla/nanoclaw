@@ -35,7 +35,7 @@ import {
 } from './web/data.js';
 import { GATEWAY_AUTH_TOKEN } from './config.js';
 
-const LITELLM_DIR = join(process.cwd(), 'litellm');
+const LITELLM_DIR = join(process.cwd(), 'services', 'litellm');
 const CC_PORT = GATEWAY_PORT + 1;
 
 export function getControlCenterHandler() {
@@ -443,12 +443,7 @@ export function getControlCenterHandler() {
 
       // ======== LOGGER APIS ========
       if (url.pathname === '/api/logs/litellm/clear' && req.method === 'POST') {
-        const dbPath = join(
-          process.cwd(),
-          'litellm',
-          'logs',
-          'litellm_logs.db',
-        );
+        const dbPath = join(LITELLM_DIR, 'logs', 'litellm_logs.db');
         try {
           if (existsSync(dbPath)) {
             try {
@@ -489,12 +484,7 @@ export function getControlCenterHandler() {
         const modelFilter = url.searchParams.get('model');
         const searchFilter = url.searchParams.get('search');
 
-        const dbPath = join(
-          process.cwd(),
-          'litellm',
-          'logs',
-          'litellm_logs.db',
-        );
+        const dbPath = join(LITELLM_DIR, 'logs', 'litellm_logs.db');
         try {
           if (!existsSync(dbPath)) {
             res.writeHead(200, { 'Content-Type': 'text/html' });

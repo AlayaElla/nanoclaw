@@ -23,10 +23,10 @@ trap cleanup SIGTERM SIGINT SIGHUP
 # 优先读取当前目录的 .env (LiteLLM 专用配置)
 if [ -f ".env" ]; then
     echo -e "\e[36m从当前目录 .env 加载环境变量...\e[0m"
-    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY|VOLCANO_API_KEY)=' ".env" | xargs)
-elif [ -f "../.env" ]; then
+    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY|VOLCANO_API_KEY|LITELLM_LOG)=' ".env" | xargs)
+elif [ -f "../../.env" ]; then
     echo -e "\e[36m从父目录 .env 加载环境变量...\e[0m"
-    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY|VOLCANO_API_KEY)=' "../.env" | xargs)
+    export $(grep -E '^(DASHSCOPE_API_KEY|QWEN_API_KEY|WHATAI_API_KEY|VOLCANO_API_KEY|LITELLM_LOG)=' "../../.env" | xargs)
 fi
 
 # 用 DASHSCOPE_API_KEY 做 QWEN_API_KEY 的后备
@@ -45,13 +45,14 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
 # 构建环境变量参数
 ENV_ARGS=""
+[ -n "$LITELLM_LOG" ] && ENV_ARGS="$ENV_ARGS -e LITELLM_LOG=$LITELLM_LOG"
 [ -n "$QWEN_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e QWEN_API_KEY=$QWEN_API_KEY"
 [ -n "$WHATAI_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e WHATAI_API_KEY=$WHATAI_API_KEY"
 [ -n "$VOLCANO_API_KEY" ] && ENV_ARGS="$ENV_ARGS -e VOLCANO_API_KEY=$VOLCANO_API_KEY"
 
 # 启动容器前确保日志目录存在并可写
 mkdir -p "$(pwd)/logs"
-chmod 777 "$(pwd)/logs"
+chmod 777 "$(pwd)/logs" 2>/dev/null || true
 
 echo -e "\e[33m可用模型:\e[0m"
 [ -n "$QWEN_API_KEY" ] && echo -e "  \e[36mqwen-plus\e[0m        → DashScope 千问"

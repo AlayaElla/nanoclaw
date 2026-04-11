@@ -22,6 +22,9 @@ trap cleanup SIGTERM SIGINT SIGHUP
 if [ -f ".env" ]; then
     echo -e "\e[36m从当前目录 .env 加载环境变量...\e[0m"
     export $(grep -E '^(TELEGRAM_API_ID|TELEGRAM_API_HASH)=' ".env" | xargs)
+elif [ -f "../../.env" ]; then
+    echo -e "\e[36m从父目录 .env 加载环境变量...\e[0m"
+    export $(grep -E '^(TELEGRAM_API_ID|TELEGRAM_API_HASH)=' "../../.env" | xargs)
 fi
 
 if [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
@@ -38,7 +41,7 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # 准备工作目录
 TG_DATA_DIR="$(pwd)/tg-data"
 mkdir -p "$TG_DATA_DIR"
-chmod 777 "$TG_DATA_DIR"
+chmod 777 "$TG_DATA_DIR" 2>/dev/null || true
 
 # 前台运行容器
 exec docker run --rm \

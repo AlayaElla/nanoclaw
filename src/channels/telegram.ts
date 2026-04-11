@@ -163,6 +163,11 @@ export class TelegramChannel implements Channel {
     const botConfig = getBotConfig(this.tokenEnvName);
     const apiRoot = botConfig?.api_root || process.env.TELEGRAM_API_ROOT;
     const clientConfig = apiRoot ? { client: { apiRoot: apiRoot } } : undefined;
+    const baseUrl = apiRoot
+      ? apiRoot.endsWith('/')
+        ? apiRoot.slice(0, -1)
+        : apiRoot
+      : 'https://api.telegram.org';
     this.bot = new Bot(this.botToken, clientConfig);
 
     // Install auto-retry: retries API calls on network errors (ECONNRESET),
@@ -517,7 +522,7 @@ export class TelegramChannel implements Channel {
       try {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const file = await ctx.api.getFile(photo.file_id);
-        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         buffer = Buffer.from(await resp.arrayBuffer());
@@ -634,7 +639,7 @@ export class TelegramChannel implements Channel {
       let buffer: Buffer;
       try {
         const file = await ctx.api.getFile(video.file_id);
-        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         buffer = Buffer.from(await resp.arrayBuffer());
@@ -748,7 +753,7 @@ export class TelegramChannel implements Channel {
       let finalContent: string;
       try {
         const file = await ctx.getFile();
-        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
@@ -816,7 +821,7 @@ export class TelegramChannel implements Channel {
 
       try {
         const file = await ctx.api.getFile(ctx.message.audio.file_id);
-        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
@@ -871,7 +876,7 @@ export class TelegramChannel implements Channel {
 
       try {
         const file = await ctx.api.getFile(ctx.message.document.file_id);
-        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
         const buffer = Buffer.from(await resp.arrayBuffer());
@@ -1407,9 +1412,12 @@ const poolApis: Api[] = [];
  * Only the first bot is used as the "spokesperson" for all sub-agents.
  */
 export async function initBotPool(tokens: string[]): Promise<void> {
+  const apiRoot = process.env.TELEGRAM_API_ROOT;
+  const apiConfig = apiRoot ? { apiRoot: apiRoot } : undefined;
+
   for (const token of tokens) {
     try {
-      const api = new Api(token);
+      const api = new Api(token, apiConfig);
       const me = await api.getMe();
       poolApis.push(api);
       logger.info(

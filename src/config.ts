@@ -69,7 +69,7 @@ export const WORKSPACE_DIR = path.resolve(DATA_DIR, 'workspace');
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';
 export const CONTAINER_TIMEOUT = parseInt(
-  process.env.CONTAINER_TIMEOUT || '1800000',
+  process.env.CONTAINER_TIMEOUT || '0', // disabled timeout since containers are persistent now
   10,
 );
 export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
@@ -77,7 +77,10 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   10,
 ); // 10MB default
 export const IPC_POLL_INTERVAL = 1000;
-export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
+export const IDLE_TIMEOUT = parseInt(
+  process.env.IDLE_TIMEOUT || '86400000',
+  10,
+); // default 24h as containers are now persistent
 export const HEARTBEAT_INTERVAL = parseInt(
   process.env.HEARTBEAT_INTERVAL || envConfig.HEARTBEAT_INTERVAL || '300000',
   10,

@@ -696,8 +696,76 @@ async function main(): Promise<void> {
     typeof prompt === 'string' &&
     prompt.trim() === ''
   ) {
-    log('No pending work available after startup pull, exiting without starting a query');
-    return;
+    log('No pending work available after startup pull, pre-warming hooks...');
+
+    // Pre-execute SessionStart hooks to initialize context-mode DB, external
+    // hooks, etc. This avoids the cold-start delay on first real message.
+    // NOTE: MCP servers (nanoclaw, context-mode, parallel-search) are managed
+    // by the SDK and can only be started via query(). They will still incur
+    // a one-time startup cost on the first real message.
+    if (cachedSessionStartHooksOutput === null) {
+      cachedSessionStartHooksOutput = '';
+      const sessionStartHooks = [
+        createExternalBootHook(extBootLog),
+        createContextModeHook('sessionstart'),
+        ...extHooks.filter(h => h.event === 'SessionStart').map(h => h.caller)
+      ];
+      log(`Pre-warming ${sessionStartHooks.length} SessionStart hooks...`);
+      for (const hook of sessionStartHooks) {
+        try {
+          const result = await hook(
+            { hook_event_name: 'SessionStart', source: 'startup', sessionId: 'pending' } as any,
+            undefined,
+            { signal: new AbortController().signal } as any,
+          );
+          const output = result as any;
+          if (output && output.hookSpecificOutput) {
+            const injectedContext = output.hookSpecificOutput.additionalContext || output.hookSpecificOutput.additionalSystemContext;
+            if (injectedContext) {
+              cachedSessionStartHooksOutput += '\n' + injectedContext + '\n';
+              log('Pre-warmed context from SessionStart hook');
+            }
+          }
+        } catch (err) {
+          log(`SessionStart hook pre-warm error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      log('SessionStart hooks pre-warmed');
+    }
+
+    // Enter standby: wait for real messages via IPC
+    log('Hooks warmed up, entering standby mode...');
+    
+    // Emit an idle marker so the host knows we've finished startup and are ready
+    writeOutput({
+      status: 'success',
+      result: null,
+      queryCompleted: true,
+      newSessionId: sessionId
+    });
+
+    while (true) {
+      const signal = await waitForIpcSignal();
+      if (signal === null) {
+        log('Close sentinel received during standby, exiting');
+        return;
+      }
+      if (signal.pendingAvailable) {
+        const batch = await fetchPendingBatch(containerInput.gatewayUrl, containerInput.gatewayToken, consumedThroughTimestamp);
+        if (batch.success && batch.pending && batch.prompt) {
+          prompt = batch.prompt;
+          consumedThroughTimestamp = batch.consumedThroughTimestamp;
+          pluginSystemContext = batch.systemContext;
+          log(`Standby: fetched pending batch (${batch.messageCount || 0} messages), starting query loop`);
+          break;
+        }
+      }
+      if (signal.legacyMessages.length > 0) {
+        prompt = appendPromptText('', signal.legacyMessages.join('\n'));
+        log(`Standby: received ${signal.legacyMessages.length} legacy IPC message(s), starting query loop`);
+        break;
+      }
+    }
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat

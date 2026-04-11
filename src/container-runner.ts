@@ -694,7 +694,8 @@ export async function runContainerAgent(
     const configTimeout = group.containerConfig?.timeout || CONTAINER_TIMEOUT;
     // Grace period: hard timeout must be at least IDLE_TIMEOUT + 30s so the
     // graceful _close sentinel has time to trigger before the hard kill fires.
-    const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
+    const timeoutMs =
+      configTimeout > 0 ? Math.max(configTimeout, IDLE_TIMEOUT + 30_000) : 0;
 
     const killOnTimeout = () => {
       timedOut = true;
@@ -713,11 +714,15 @@ export async function runContainerAgent(
       });
     };
 
-    let timeout = setTimeout(killOnTimeout, timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    if (timeoutMs > 0) {
+      timeout = setTimeout(killOnTimeout, timeoutMs);
+    }
 
     // Reset the timeout whenever there's activity (streaming output)
     const resetTimeout = () => {
-      clearTimeout(timeout);
+      if (timeoutMs <= 0) return;
+      if (timeout) clearTimeout(timeout);
       timeout = setTimeout(killOnTimeout, timeoutMs);
     };
 
@@ -725,7 +730,7 @@ export async function runContainerAgent(
       if (gatewayServer && input.gatewayToken) {
         gatewayServer.revokeToken(input.gatewayToken);
       }
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       statusPolling = false;
       const duration = Date.now() - startTime;
 
@@ -921,7 +926,7 @@ export async function runContainerAgent(
     });
 
     container.on('error', (err) => {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       logger.error(
         { group: group.name, containerName, error: err },
         'Container spawn error',

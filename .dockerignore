@@ -8,6 +8,7 @@ logs
 .env
 groups
 .nanoclaw
+services
 container/agent-runner/node_modules
 container/agent-runner/dist
 **/node_modules

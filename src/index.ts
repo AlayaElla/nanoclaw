@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
+import { CronExpressionParser } from 'cron-parser';
 
 export const loopEvents = new EventEmitter();
 
@@ -410,10 +411,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
   const missedMessages = getMessagesSince(chatJid, sinceTimestamp);
 
-  if (missedMessages.length === 0) return true;
-
   // For non-main groups, check if trigger is required and present
-  if (!isMainGroup && group.requiresTrigger !== false) {
+  if (
+    missedMessages.length > 0 &&
+    !isMainGroup &&
+    group.requiresTrigger !== false
+  ) {
     const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = missedMessages.some((m) => {
       if (m.sender === 'system') return true;
@@ -437,20 +440,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   );
 
   // Track idle timer for closing stdin when agent is idle
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null; // Left for satisfying cleanup block at end of function
 
   const resetIdleTimer = () => {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      logger.debug(
-        { group: group.name },
-        'Idle timeout, closing container stdin',
-      );
-      queue.closeStdin(chatJid);
-    }, IDLE_TIMEOUT);
+    // idle stdin close removed for persistent container support
   };
 
-  await channel.setTyping?.(chatJid, true);
+  // Only show typing indicator when there are actual messages to process
+  if (missedMessages.length > 0) {
+    await channel.setTyping?.(chatJid, true);
+  }
   let hadError = false;
   let outputSentToUser = false;
   let committedCursor = false;
@@ -850,7 +849,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // Heartbeat queries (IPC-injected) don't have consumedThroughTimestamp,
     // so committedCursor is never set. This is expected — not a failure.
     // Likewise, if it replied to the user we shouldn't retry.
-    if (heartbeatHandled || outputSentToUser) {
+    // Persistent container warm-up (0 messages) is also not a failure.
+    if (heartbeatHandled || outputSentToUser || missedMessages.length === 0) {
       return true;
     }
     logger.warn(
@@ -1395,6 +1395,46 @@ async function main(): Promise<void> {
 
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
+
+  logger.info('Starting all containers persistently...');
+  for (const jid of Object.keys(registeredGroups)) {
+    // ensure container stays running
+    queue.enqueueMessageCheck(jid);
+  }
+
+  const scheduleDailyRestart = () => {
+    try {
+      const interval = CronExpressionParser.parse('0 4 * * *', {
+        tz: TIMEZONE,
+      });
+      const nextRun = interval.next().toDate();
+      const delayMs = nextRun.getTime() - Date.now();
+      logger.info(
+        { nextRestart: nextRun.toISOString() },
+        'Scheduled daily container restart',
+      );
+      setTimeout(() => {
+        logger.info('Executing daily scheduled container restart');
+        for (const jid of Object.keys(registeredGroups)) {
+          const status = queue.getGroupStatus(jid);
+          // If container is active and NOT idle wait, it is busy processing tasks
+          if (status?.active && !status.idleWaiting) {
+            logger.info(
+              { jid },
+              'Skipping daily restart because container is currently busy',
+            );
+            continue;
+          }
+          queue.closeStdin(jid);
+          setTimeout(() => queue.enqueueMessageCheck(jid), 30000);
+        }
+        scheduleDailyRestart(); // Reschedule next
+      }, delayMs);
+    } catch (err) {
+      logger.error({ err }, 'Failed to schedule daily container restart');
+    }
+  };
+  scheduleDailyRestart();
 
   // EMIT RICH STARTUP PAYLOAD FOR PLUGINS
   GatewayBus.emitAsync('system:startup', {

@@ -840,24 +840,32 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
-        logger.error(
-          {
-            group: group.name,
-            code,
-            duration,
-            stderr,
-            stdout,
-            logFile,
-          },
-          'Container exited with error',
-        );
+        if (code === 143 && hadStreamingOutput) {
+          logger.info(
+            { group: group.name, code, duration, logFile },
+            'Container exited with code 143 after successful output (treating as idle cleanup)',
+          );
+          // Proceed to success handling below instead of early returning an error
+        } else {
+          logger.error(
+            {
+              group: group.name,
+              code,
+              duration,
+              stderr,
+              stdout,
+              logFile,
+            },
+            'Container exited with error',
+          );
 
-        resolve({
-          status: 'error',
-          result: null,
-          error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
-        });
-        return;
+          resolve({
+            status: 'error',
+            result: null,
+            error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
+          });
+          return;
+        }
       }
 
       // Streaming mode: wait for output chain to settle, return completion marker

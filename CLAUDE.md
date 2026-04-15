@@ -37,10 +37,23 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 Run commands directly—don't tell the user to run them.
 
 ```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
+npm run dev          # Run with hot reload (tsx src/index.ts)
+npm run build        # Compile TypeScript to dist/
+npm run typecheck    # tsc --noEmit
+npm test             # vitest run (single pass)
+npm run test:watch   # vitest in watch mode
+npm run format       # prettier --write "src/**/*.ts"
 ./container/build.sh # Rebuild agent container
 ```
+
+Run a single test file or pattern:
+
+```bash
+npx vitest run src/router.test.ts          # one file
+npx vitest run -t "routes trigger word"   # by test name
+```
+
+Tests live alongside source as `src/*.test.ts` (vitest); config in `vitest.config.ts`.
 
 Service management:
 ```bash

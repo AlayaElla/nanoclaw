@@ -159,6 +159,44 @@ export class TelegramChannel implements Channel {
     return envKeys[0] || this.tokenEnvName;
   }
 
+  private async fetchFileBuffer(file: any, baseUrl: string): Promise<Buffer> {
+    const filePath = file.file_path;
+    if (!filePath) throw new Error('File path is empty');
+    
+    logger.debug(
+      { filePath, baseUrl, isAbsolute: path.isAbsolute(filePath) },
+      'fetchFileBuffer: resolving file',
+    );
+    
+    // Telegram local server returns absolute paths — try local file read first
+    if (baseUrl !== 'https://api.telegram.org' && path.isAbsolute(filePath)) {
+      let localPath = filePath;
+      // Map Docker container path to host path
+      const containerPrefix = '/var/lib/telegram-bot-api';
+      const hostPrefix = process.env.TELEGRAM_LOCAL_DIR || path.join(process.cwd(), 'services', 'telegram-bot-api', 'tg-data');
+      if (localPath.startsWith(containerPrefix)) {
+        localPath = localPath.replace(containerPrefix, hostPrefix);
+      }
+      logger.debug({ localPath }, 'fetchFileBuffer: reading local file');
+      try {
+        return await fs.promises.readFile(localPath);
+      } catch (err: any) {
+        // Local read failed (e.g. permission denied) — fall back to HTTP
+        logger.warn(
+          { localPath, err: err.message },
+          'fetchFileBuffer: local read failed, falling back to HTTP',
+        );
+      }
+    }
+    
+    // HTTP download (also works for local server in --local mode)
+    const url = `${baseUrl}/file/bot${this.botToken}/${filePath}`;
+    logger.debug({ url }, 'fetchFileBuffer: HTTP download');
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+    return Buffer.from(await resp.arrayBuffer());
+  }
+
   async connect(): Promise<void> {
     const botConfig = getBotConfig(this.tokenEnvName);
     const apiRoot = botConfig?.api_root || process.env.TELEGRAM_API_ROOT;
@@ -522,10 +560,7 @@ export class TelegramChannel implements Channel {
       try {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const file = await ctx.api.getFile(photo.file_id);
-        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        buffer = Buffer.from(await resp.arrayBuffer());
+        buffer = await this.fetchFileBuffer(file, baseUrl);
       } catch (err) {
         logger.error(
           { chatJid, err, bot: this.tokenEnvName },
@@ -639,10 +674,7 @@ export class TelegramChannel implements Channel {
       let buffer: Buffer;
       try {
         const file = await ctx.api.getFile(video.file_id);
-        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        buffer = Buffer.from(await resp.arrayBuffer());
+        buffer = await this.fetchFileBuffer(file, baseUrl);
       } catch (err) {
         logger.error(
           { chatJid, err, bot: this.tokenEnvName },
@@ -753,10 +785,7 @@ export class TelegramChannel implements Channel {
       let finalContent: string;
       try {
         const file = await ctx.getFile();
-        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
+        const buffer = await this.fetchFileBuffer(file, baseUrl);
 
         // Cache media
         const mediaId = saveToMediaCache(
@@ -821,10 +850,7 @@ export class TelegramChannel implements Channel {
 
       try {
         const file = await ctx.api.getFile(ctx.message.audio.file_id);
-        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
+        const buffer = await this.fetchFileBuffer(file, baseUrl);
         const mediaId = saveToMediaCache(
           resolveAgentName(group.botToken),
           buffer,
@@ -876,10 +902,7 @@ export class TelegramChannel implements Channel {
 
       try {
         const file = await ctx.api.getFile(ctx.message.document.file_id);
-        const url = `${baseUrl}/file/bot${this.botToken}/${file.file_path}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-        const buffer = Buffer.from(await resp.arrayBuffer());
+        const buffer = await this.fetchFileBuffer(file, baseUrl);
         const mediaId = saveToMediaCache(
           resolveAgentName(group.botToken),
           buffer,

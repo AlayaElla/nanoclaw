@@ -340,8 +340,12 @@ function registerAutoCaptureHook(): void {
         const mediaId = match[4].trim();
         allMediaIds.push(mediaId);
 
-        // Immediate direct multimodal isolated storage for Images/Videos
-        if (typeStr === 'Photo' || typeStr === 'Video') {
+        // TODO: Support multimodal isolated storage for Videos.
+        // DashScope API (e.g., qwen3-vl-embedding) explicitly requires public URLs (like OSS links)
+        // for videos (MP4, AVI, MOV) and does NOT support Base64 payloads.
+        // Re-enable `typeStr === 'Video'` here once an automatic OSS upload pipeline is implemented.
+        // Immediate direct multimodal isolated storage for Images
+        if (typeStr === 'Photo') {
           const agentScope = getAgentScope(event.group);
           const filePath = getCachedMediaPath(agentScope, mediaId);
           if (filePath && fs.existsSync(filePath)) {
@@ -350,7 +354,9 @@ function registerAutoCaptureHook(): void {
             if (!fs.existsSync(indexedMarker)) {
               try {
                 const buffer = fs.readFileSync(filePath);
-                const base64Data = `data:image/${filePath.endsWith('.png') ? 'png' : 'jpeg'};base64,${buffer.toString('base64')}`;
+                
+                const ext = filePath.endsWith('.png') ? 'png' : filePath.endsWith('.webp') ? 'webp' : 'jpeg';
+                const base64Data = `data:image/${ext};base64,${buffer.toString('base64')}`;
 
                 const combinedText =
                   `[${typeStr}] ` +

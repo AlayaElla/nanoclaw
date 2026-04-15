@@ -14,6 +14,7 @@ export interface ContainerOutput {
   error?: string;
   consumedThroughTimestamp?: string;
   queryCompleted?: boolean;
+  isIntermediate?: boolean;
 }
 
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';

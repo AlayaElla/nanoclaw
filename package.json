@@ -22,6 +22,7 @@
     "@grammyjs/auto-retry": "^2.0.2",
     "@lancedb/lancedb": "^0.26.2",
     "@larksuiteoapi/node-sdk": "^1.59.0",
+    "ali-oss": "^6.23.0",
     "apache-arrow": "^18.1.0",
     "better-sqlite3": "^11.10.0",
     "cron-parser": "^5.5.0",
@@ -37,6 +38,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/ali-oss": "^6.23.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",

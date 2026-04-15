@@ -22,8 +22,8 @@ import {
   getAgentScope,
 } from './services/memory/index.js';
 import { RegisteredGroup } from './types.js';
-import { resolveGroupFolderPath } from './group-folder.js';
 import { getHostStatus } from './web/data.js';
+import { isOSSEnabled, uploadMediaIfNeeded } from './services/oss.js';
 
 import { getControlCenterHandler } from './control-center.js';
 import { GatewayHooks } from './gateway-bus/index.js';
@@ -724,10 +724,48 @@ export class GatewayServer {
         );
         this.sendJson(res, 500, { error: String(err), results: [] });
         return;
+        return;
       }
     }
 
-    // Fast-paths for synchronous success responses to waitable commands like pause_task etc.
+    if (data.type === 'upload_oss') {
+      if (!isOSSEnabled()) {
+        this.sendJson(res, 400, { error: 'OSS feature is disabled on the host' });
+        return;
+      }
+      const filePath = data.filePath as string;
+      const registeredGroups = this.deps.registeredGroups();
+      const sourceGroupEntry = Object.values(registeredGroups).find((g) => g.folder === sourceGroup);
+      const agentFolder = resolveAgentFolder(sourceGroupEntry?.botToken);
+      const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentFolder);
+      
+      if (!filePath.startsWith('/workspace/group/')) {
+        this.sendJson(res, 400, { error: 'Invalid file path: must be within /workspace/group' });
+        return;
+      }
+      
+      const relPath = filePath.substring('/workspace/group/'.length);
+      const hostFilePath = path.join(agentWorkspaceDir, relPath);
+      
+      if (!fs.existsSync(hostFilePath)) {
+         this.sendJson(res, 404, { error: `File not found: ${filePath}` });
+         return;
+      }
+      
+      try {
+        const mediaId = crypto.createHash('md5').update(filePath + Date.now()).digest('hex');
+        const url = await uploadMediaIfNeeded(mediaId, hostFilePath, 'Document');
+        if (!url) {
+            this.sendJson(res, 500, { error: 'Internal OSS upload error' });
+            return;
+        }
+        this.sendJson(res, 200, { url, success: true });
+        return;
+      } catch (err: any) {
+        this.sendJson(res, 500, { error: String(err) });
+        return;
+      }
+    }
     // They used to write to task_results/, now they return directly if handled inside processTaskIpc.
     // To cleanly achieve this without fully decoupling the logic right now, we can capture the response.
     // For now we will allow processTaskIpc to continue its job.

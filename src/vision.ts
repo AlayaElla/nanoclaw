@@ -1,4 +1,6 @@
 import { readEnvFile } from './env.js';
+import crypto from 'crypto';
+import { isOSSEnabled, uploadMediaIfNeeded } from './services/oss.js';
 
 interface VisionConfig {
   model: string;
@@ -184,19 +186,29 @@ export async function describeVideo(
   console.log(`Describing video: ${videoBuffer.length} bytes`);
 
   try {
-    const base64Video = videoBuffer.toString('base64');
-    const mime = mimeType || 'video/mp4';
-    const dataUri = `data:${mime};base64,${base64Video}`;
+    const userContent: Array<Record<string, unknown>> = [];
+    
+    if (isOSSEnabled()) {
+      const mediaId = crypto.createHash('md5').update(videoBuffer).digest('hex');
+      const ossUrl = await uploadMediaIfNeeded(mediaId, videoBuffer, 'Video');
+      if (ossUrl) {
+         userContent.push({ type: 'video_url', video_url: { url: ossUrl }, fps: 2 });
+      }
+    }
+    
+    if (userContent.length === 0) {
+      const base64Video = videoBuffer.toString('base64');
+      const mime = mimeType || 'video/mp4';
+      const dataUri = `data:${mime};base64,${base64Video}`;
+      userContent.push({ type: 'video_url', video_url: { url: dataUri }, fps: 2 });
+    }
 
-    const userContent: Array<Record<string, unknown>> = [
-      { type: 'video_url', video_url: { url: dataUri }, fps: 2 },
-      {
-        type: 'text',
-        text: caption
-          ? `用户发送了这段视频并说："${caption}"。请根据视频内容回答用户的问题或回应用户的说明。如果用户没有明确提问，请简洁描述视频内容并结合用户的说明。`
-          : '请用简洁的语言描述这段视频的内容。',
-      },
-    ];
+    userContent.push({
+      type: 'text',
+      text: caption
+        ? `用户发送了这段视频并说："${caption}"。请根据视频内容回答用户的问题或回应用户的说明。如果用户没有明确提问，请简洁描述视频内容并结合用户的说明。`
+        : '请用简洁的语言描述这段视频的内容。',
+    });
 
     const description = await callVisionApi(userContent, config, groupFolder);
     return description?.trim() || '[Video - description unavailable]';

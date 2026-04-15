@@ -309,6 +309,44 @@ server.tool(
 );
 
 server.tool(
+  'upload_file_to_oss',
+  `将本地大文件安全转存至阿里云中转站，并返回一条可以在公网直接下载的时效外链。
+【重要】：由于平台 API 性能和展现限制，你应当**永远优先使用 send_media 工具**发图发文件！
+**只有**当你在满足以下任一条件时，才允许使用此工具：
+1. 文件极大（估计超过 100MB），导致 send_media 会抛出 Payload Too Large 等报错。
+2. 用户在指令中极其明确地要求你“把文件传到云盘生成一个链接分享给我”。
+
+上传成功后，你应该像平时聊天一样，把生成的短链接直接回复给用户。
+
+用法示例：
+upload_file_to_oss({ file_path: "/workspace/group/huge-file.zip" })`,
+  {
+    file_path: z.string().describe('需要上传的容器内绝对路径文件（例如 /workspace/group/output.zip）'),
+  },
+  async (args) => {
+    const data = {
+      type: 'upload_oss',
+      filePath: args.file_path,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    const result = await dispatchTask(data);
+
+    if (!result.success) {
+      return {
+        content: [{ type: 'text' as const, text: `Upload failed: ${result.error || result.message}` }],
+        isError: true
+      };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: `Upload successful. The temporary presigned URL is: ${result.url}` }]
+    };
+  },
+);
+
+server.tool(
   'generate_image',
   `使用 AI 生成图片。支持两种模式：
 • 文生图（text-to-image）：根据文字描述生成图片。只需提供 prompt。
@@ -784,34 +822,34 @@ server.tool(
       topK: args.top_k,
       chatJid,
     };
-    
+
     let result;
     try {
       result = await dispatchTask(data);
     } catch (e: any) {
-      return { 
-        content: [{ type: 'text' as const, text: `Memory recall mapping error: ${e.message}` }], 
-        isError: true 
+      return {
+        content: [{ type: 'text' as const, text: `Memory recall mapping error: ${e.message}` }],
+        isError: true
       };
     }
-    
+
     if (!result.success) {
-      return { 
-        content: [{ type: 'text' as const, text: `Memory recall error: ${result.error || result.message}` }], 
-        isError: true 
+      return {
+        content: [{ type: 'text' as const, text: `Memory recall error: ${result.error || result.message}` }],
+        isError: true
       };
     }
-    
+
     if (result.results && result.results.length > 0) {
       const formatted = result.results
         .map((r: any, i: number) => `[记忆 ${i + 1}] (Score: ${r.score.toFixed(2)})\n${r.text}`)
         .join('\n\n');
-        
-      return { 
-        content: [{ type: 'text' as const, text: `找到了相关记忆：\n\n${formatted}` }] 
+
+      return {
+        content: [{ type: 'text' as const, text: `找到了相关记忆：\n\n${formatted}` }]
       };
     }
-    
+
     return { content: [{ type: 'text' as const, text: '没有找到与查询相关的记忆。' }] };
   }
 );

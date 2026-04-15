@@ -58,6 +58,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
+import { initOSS } from './services/oss.js';
 import { startGatewayServer } from './gateway.js';
 import { PendingBatchResult } from './ipc.js';
 import { GatewayBus, GatewayHooks } from './gateway-bus/index.js';
@@ -1242,6 +1243,7 @@ async function main(): Promise<void> {
 
   ensureContainerSystemRunning();
   initDatabase();
+  initOSS();
   logger.info('Database initialized');
   initMemorySystem();
   loadState();

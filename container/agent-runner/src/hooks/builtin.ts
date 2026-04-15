@@ -211,6 +211,7 @@ export function createToolUsageHintHook(): HookCallback {
     'mcp__nanoclaw__send_message': 'send_message({ text: string, sender?: string })\n  例: send_message({ text: "你好" })',
     'mcp__nanoclaw__send_card': 'send_card({ title: string, content: string, color?: string, buttons?: [{text, url}] })\n  例: send_card({ title: "标题", content: "正文内容" })',
     'mcp__nanoclaw__send_media': 'send_media({ file_path?: string, url?: string, media_id?: string, media_type?: "photo"|"video"|"audio"|"document", caption?: string })\n  三选一: file_path / url / media_id',
+    'mcp__nanoclaw__upload_file_to_oss': 'upload_file_to_oss({ file_path: string })\n  例: upload_file_to_oss({ file_path: "/workspace/group/huge-file.zip" })',
     'mcp__nanoclaw__generate_image': 'generate_image({ prompt: string, source_image?: string, model?: string, size?: string, caption?: string })\n  例: generate_image({ prompt: "一只猫" })',
     'mcp__nanoclaw__schedule_task': 'schedule_task({ prompt: string, schedule_type: "cron"|"interval"|"once", schedule_value: string, context_mode?: "group"|"isolated" })',
     'mcp__nanoclaw__register_group': 'register_group({ jid: string, name: string, folder: string, trigger: string })',

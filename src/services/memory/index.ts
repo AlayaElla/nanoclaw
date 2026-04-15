@@ -19,6 +19,7 @@ import { GatewayHooks, GatewayBus } from '../../gateway-bus/index.js';
 import { isLowValueQuery } from './memory-lancedb/noise-filter.js';
 import { getAllRegisteredGroups } from '../../db.js';
 import { resolveAgentName } from '../../agents-config.js';
+import { uploadMediaIfNeeded, isOSSEnabled } from '../oss.js';
 
 /**
  * Resolves a chat JID to a unified Agent Scope (e.g., 'xingmeng')
@@ -340,12 +341,8 @@ function registerAutoCaptureHook(): void {
         const mediaId = match[4].trim();
         allMediaIds.push(mediaId);
 
-        // TODO: Support multimodal isolated storage for Videos.
-        // DashScope API (e.g., qwen3-vl-embedding) explicitly requires public URLs (like OSS links)
-        // for videos (MP4, AVI, MOV) and does NOT support Base64 payloads.
-        // Re-enable `typeStr === 'Video'` here once an automatic OSS upload pipeline is implemented.
-        // Immediate direct multimodal isolated storage for Images
-        if (typeStr === 'Photo') {
+        // Immediate direct multimodal isolated storage for Images and Videos
+        if (typeStr === 'Photo' || typeStr === 'Video') {
           const agentScope = getAgentScope(event.group);
           const filePath = getCachedMediaPath(agentScope, mediaId);
           if (filePath && fs.existsSync(filePath)) {
@@ -353,24 +350,40 @@ function registerAutoCaptureHook(): void {
             const indexedMarker = filePath + '.indexed';
             if (!fs.existsSync(indexedMarker)) {
               try {
-                const buffer = fs.readFileSync(filePath);
+                let multimodalData: any = {};
                 
-                const ext = filePath.endsWith('.png') ? 'png' : filePath.endsWith('.webp') ? 'webp' : 'jpeg';
-                const base64Data = `data:image/${ext};base64,${buffer.toString('base64')}`;
+                if (isOSSEnabled()) {
+                    const url = await uploadMediaIfNeeded(mediaId, filePath, typeStr);
+                    if (url) {
+                        if (typeStr === 'Photo') multimodalData.image = url;
+                        else if (typeStr === 'Video') multimodalData.video = url;
+                    }
+                }
+                
+                // Fallback to base64 for Photos if OSS is not enabled or failed
+                if (!multimodalData.image && !multimodalData.video && typeStr === 'Photo') {
+                    const buffer = fs.readFileSync(filePath);
+                    const ext = filePath.endsWith('.png') ? 'png' : filePath.endsWith('.webp') ? 'webp' : 'jpeg';
+                    multimodalData.image = `data:image/${ext};base64,${buffer.toString('base64')}`;
+                }
 
-                const combinedText =
-                  `[${typeStr}] ` +
-                  (desc || 'A media attachment') +
-                  (userCaption ? ` - User said: ${userCaption}` : '');
+                // If it's a Video but OSS is disabled/failed, we MUST skip it because Dashscope doesn't support Base64 Video
+                if (Object.keys(multimodalData).length === 0) {
+                    logger.debug({ mediaId, typeStr }, 'Skipped multimodal indexing due to requirement capability limits');
+                } else {
+                    const combinedText =
+                      `[${typeStr}] ` +
+                      (desc || 'A media attachment') +
+                      (userCaption ? ` - User said: ${userCaption}` : '');
 
-                const meta: IndexMeta = { senderName: 'user', role: 'user' };
-                // We trigger isolated multimodal embedding concurrently
-                if (provider.indexMultimodal) {
-                  provider
-                    .indexMultimodal(
-                      agentScope,
-                      { text: combinedText, image: base64Data },
-                      meta,
+                    const meta: IndexMeta = { senderName: 'user', role: 'user' };
+                    // We trigger isolated multimodal embedding concurrently
+                    if (provider.indexMultimodal) {
+                      provider
+                        .indexMultimodal(
+                          agentScope,
+                          { text: combinedText, ...multimodalData },
+                          meta,
                       mediaId,
                     )
                     .then(() => {
@@ -384,6 +397,7 @@ function registerAutoCaptureHook(): void {
                       ),
                     );
                 }
+              }
               } catch (err) {
                 logger.warn(
                   { err, mediaId },

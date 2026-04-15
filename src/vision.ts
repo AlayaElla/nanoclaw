@@ -139,18 +139,28 @@ export async function describeImage(
   console.log(`Describing image: ${imageBuffer.length} bytes`);
 
   try {
-    const base64Image = imageBuffer.toString('base64');
-    const dataUri = `data:image/jpeg;base64,${base64Image}`;
+    const userContent: Array<Record<string, unknown>> = [];
+    
+    if (isOSSEnabled()) {
+      const mediaId = crypto.createHash('md5').update(imageBuffer).digest('hex');
+      const ossUrl = await uploadMediaIfNeeded(mediaId, imageBuffer, 'Photo');
+      if (ossUrl) {
+         userContent.push({ type: 'image_url', image_url: { url: ossUrl } });
+      }
+    }
+    
+    if (userContent.length === 0) {
+      const base64Image = imageBuffer.toString('base64');
+      const dataUri = `data:image/jpeg;base64,${base64Image}`;
+      userContent.push({ type: 'image_url', image_url: { url: dataUri } });
+    }
 
-    const userContent: Array<Record<string, unknown>> = [
-      { type: 'image_url', image_url: { url: dataUri } },
-      {
-        type: 'text',
-        text: caption
-          ? `用户发送了这张图片并说："${caption}"。请根据图片内容回答用户的问题或回应用户的说明。如果用户没有明确提问，请简洁描述图片内容并结合用户的说明。`
-          : '请用简洁的语言描述这张图片的内容。',
-      },
-    ];
+    userContent.push({
+      type: 'text',
+      text: caption
+        ? `用户发送了这张图片并说："${caption}"。请根据图片内容回答用户的问题或回应用户的说明。如果用户没有明确提问，请简洁描述图片内容并结合用户的说明。`
+        : '请用简洁的语言描述这张图片的内容。',
+    });
 
     const description = await callVisionApi(userContent, config, groupFolder);
     return description?.trim() || '[Photo - description unavailable]';

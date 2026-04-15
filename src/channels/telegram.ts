@@ -28,6 +28,17 @@ import { GroupQueue } from '../group-queue.js';
 import telegramify from 'telegramify-markdown';
 
 /**
+ * Renders markdown for Telegram and patches a bug in telegramify-markdown
+ * where it double encodes URLs (e.g., turning %3D into %253D) which breaks OSS signed URLs.
+ */
+function renderTelegramText(text: string): string {
+  let tgText = telegramify(text, 'escape');
+  return tgText.replace(/\]\(([^)]+)\)/g, (match, url) => {
+    return `](${url.replace(/%25/g, '%')})`;
+  });
+}
+
+/**
  * Send a message with Telegram Markdown parse mode, falling back to plain text.
  * Claude's output naturally matches Telegram's Markdown v1 format:
  *   *bold*, _italic_, `code`, ```code blocks```, [links](url)
@@ -37,7 +48,7 @@ async function sendTelegramMessage(
   chatId: string | number,
   text: string,
 ): Promise<ReturnType<Bot['api']['sendMessage']>> {
-  const tgText = telegramify(text, 'escape');
+  const tgText = renderTelegramText(text);
 
   try {
     return await api.sendMessage(chatId, tgText, { parse_mode: 'MarkdownV2' });
@@ -258,7 +269,7 @@ export class TelegramChannel implements Channel {
           groupQueue: this.opts.groupQueue,
           reply: async (text: string) => {
             try {
-              await ctx.reply(telegramify(text, 'escape'), {
+              await ctx.reply(renderTelegramText(text), {
                 parse_mode: 'MarkdownV2',
               });
             } catch (err: any) {
@@ -1282,7 +1293,7 @@ export class TelegramChannel implements Channel {
         await this.bot!.api.editMessageText(
           numericId,
           messageId,
-          telegramify(text, 'escape'),
+          renderTelegramText(text),
           {
             parse_mode: 'MarkdownV2',
           },

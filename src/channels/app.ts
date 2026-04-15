@@ -96,14 +96,7 @@ export class AppChannel implements Channel {
     return Date.now();
   }
 
-  async editStatusMessage(
-    jid: string,
-    messageId: number,
-    text: string,
-  ): Promise<void> {
-    // App doesn't currently support editing inline, but we can emit a status update
-    this.sendStatusMessage(jid, text);
-  }
+
 
   async deleteMessage(jid: string, messageId: number): Promise<void> {
     // Delete status message mapping when done
@@ -216,8 +209,9 @@ export class AppChannel implements Channel {
 
       // If an agentName is provided, automatically bind the device to the agent
       if (agentName && this.opts.registerGroup) {
+        const baseName = userName || `User ${deviceId}`;
         this.opts.registerGroup(jid, {
-          name: userName || `User ${deviceId}`,
+          name: `${baseName} - ${agentName}`,
           folder: agentName,
           trigger: '.*',
           added_at: new Date().toISOString(),

@@ -18,6 +18,13 @@
 **替代方案：**
 - 使用 `mcp__context-mode__ctx_fetch_and_index(url, source)` 获取网页，然后使用 `mcp__context-mode__ctx_search(queries)` 查询你需要的核心内容。
 
+### 严禁阻塞式执行长耗时/构建任务 (防止框架卡死)
+任何预期耗时**超过 60 秒**的任务（例如 Android Gradle 编译、大型应用构建、巨型文件下载等），**绝对不能**在 `mcp__context-mode__ctx_execute` 内部使用 `execSync`、`setTimeout` 或 `sleep` 强行死等。由于网关与大模型 API 网络层的木桶效应，工具单次调用的等待时间**必须严格控制在 60 秒以内**。
+如果你在此类工具中设定了一个庞大的超时限制（例如 `timeout: 600000` 死等十分钟），只会导致底层 HTTP 网络连接因为长时间无响应而被系统强行切断，从而让当前对话由于无法接收返回数据而**永久卡死崩溃**。
+**替代方案：**
+- **通过后台分离执行**：让长耗时命令在后台运行并重定向输出（如在工具中以 shell 语言执行：`./gradlew assembleDebug > /tmp/build.log 2>&1 &`），让本次工具调用的生命周期在一两秒内立刻结束。
+- 在后续的独立思考回合落脚点，再通过其他轻量级工具去短平快地查看日志文件尾部情况（tail），通过状态机或者轮询来追溯结果，任何时刻均不要试图用把进程阻塞睡死的方法来等待。
+
 ### 网页交互：agent-browser 与 Context-Mode 的配合
 你还拥有一个分布式的 `agent-browser` 命令行工具可以用来控制无头 Chromium 浏览器。
 - **使用 `mcp__context-mode__ctx_fetch_and_index`**：当你只需要**纯阅读**静态长文、API 文档时。它会自动进行分块索引，节约大量 Token。

@@ -463,6 +463,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastStatusText: string | null = null;
   let intermediateMessageId: number | null = null;
   let intermediateTextBuffer: string = '';
+  let intermediateCount = 0;  // Track how many intermediate messages received; only show 💭 after 2nd
   let activeHeartbeatSkipQuery = false;
   let heartbeatHandled = false;
 
@@ -685,36 +686,51 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
           if (result.isIntermediate) {
             await channel.setTyping?.(chatJid, true);
-            if (intermediateTextBuffer.length > 0) intermediateTextBuffer += '\n\n';
-            intermediateTextBuffer += text;
-            
+            intermediateTextBuffer = text;
+            intermediateCount++;
+
             if (intermediateTextBuffer.length > 3500) {
-              intermediateTextBuffer = "..." + intermediateTextBuffer.substring(intermediateTextBuffer.length - 3500);
+              intermediateTextBuffer = intermediateTextBuffer.substring(0, 3500) + "...";
             }
-            const bubbleText = `💭 _${intermediateTextBuffer}_`;
-            
-            if (intermediateMessageId && channel.editStatusMessage) {
-              try {
-                await channel.editStatusMessage(chatJid, intermediateMessageId, bubbleText);
-              } catch (e) {
-                intermediateMessageId = await channel.sendStatusMessage?.(chatJid, bubbleText) || null;
+
+            // Deferred bubble: only show 💭 starting from 2nd intermediate message.
+            // The 1st message is just buffered — if it turns out to be the only one,
+            // queryCompleted will send it directly without any 💭 flash.
+            if (intermediateCount >= 2) {
+              const bubbleText = `💭 ${intermediateTextBuffer}`;
+
+              if (intermediateMessageId && channel.editStatusMessage) {
+                try {
+                  await channel.editStatusMessage(chatJid, intermediateMessageId, bubbleText);
+                } catch (e) {
+                  intermediateMessageId = await channel.sendStatusMessage?.(chatJid, bubbleText) || null;
+                }
+              } else if (channel.sendStatusMessage) {
+                intermediateMessageId = await channel.sendStatusMessage(chatJid, bubbleText);
+              } else {
+                await channel.sendMessage(chatJid, bubbleText);
               }
-            } else if (channel.sendStatusMessage) {
-              intermediateMessageId = await channel.sendStatusMessage(chatJid, bubbleText);
-            } else {
-              await channel.sendMessage(chatJid, bubbleText);
             }
           } else {
             // Stop typing indicator before sending — user should see the reply, not "typing..."
             await channel.setTyping?.(chatJid, false);
             
             if (intermediateMessageId) {
-              await channel.deleteMessage?.(chatJid, intermediateMessageId);
+              if (channel.editStatusMessage) {
+                await channel.editStatusMessage(chatJid, intermediateMessageId, text).catch(() => {});
+              } else {
+                if (channel.deleteMessage) {
+                  await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => {});
+                }
+                await channel.sendMessage(chatJid, text);
+              }
               intermediateMessageId = null;
               intermediateTextBuffer = '';
+              intermediateCount = 0;
+            } else {
+              await channel.sendMessage(chatJid, text);
             }
 
-            await channel.sendMessage(chatJid, text);
             outputSentToUser = true;
             currentQueryHadDirectOutput = true;
           }
@@ -754,14 +770,28 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
 
       if (result.queryCompleted && result.status === 'success') {
-        if (intermediateMessageId && channel.editStatusMessage) {
-          try {
-            await channel.editStatusMessage(chatJid, intermediateMessageId, intermediateTextBuffer);
-          } catch (e) {
-            // ignore
+        if (intermediateMessageId) {
+          // 💭 bubble was actually shown — edit it to the final clean text
+          if (channel.editStatusMessage) {
+            await channel.editStatusMessage(chatJid, intermediateMessageId, intermediateTextBuffer).catch(() => {});
+          } else {
+            if (channel.deleteMessage) {
+              await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => {});
+            }
+            if (intermediateTextBuffer && channel.sendMessage) {
+              await channel.sendMessage(chatJid, intermediateTextBuffer);
+            }
           }
           intermediateMessageId = null;
           intermediateTextBuffer = '';
+          intermediateCount = 0;
+        } else if (intermediateTextBuffer && intermediateCount === 1) {
+          // Only 1 intermediate message was received and it was just buffered (no 💭 shown).
+          // Send it directly as a normal message — no flash.
+          await channel.setTyping?.(chatJid, false);
+          await channel.sendMessage(chatJid, intermediateTextBuffer);
+          intermediateTextBuffer = '';
+          intermediateCount = 0;
         }
 
         queue.notifyIdle(chatJid);
@@ -954,12 +984,12 @@ async function runAgent(
     // Wrap onOutput to track session ID from streamed results
     const wrappedOnOutput = onOutput
       ? async (output: ContainerOutput) => {
-          if (output.newSessionId) {
-            sessions[group.folder] = output.newSessionId;
-            setSession(group.folder, output.newSessionId);
-          }
-          await onOutput(output);
+        if (output.newSessionId) {
+          sessions[group.folder] = output.newSessionId;
+          setSession(group.folder, output.newSessionId);
         }
+        await onOutput(output);
+      }
       : undefined;
 
     try {
@@ -1251,7 +1281,7 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    GatewayBus.emitAsync('system:shutdown', {}).catch(() => {});
+    GatewayBus.emitAsync('system:shutdown', {}).catch(() => { });
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -1511,7 +1541,7 @@ async function main(): Promise<void> {
 const isDirectRun =
   process.argv[1] &&
   new URL(import.meta.url).pathname ===
-    new URL(`file://${process.argv[1]}`).pathname;
+  new URL(`file://${process.argv[1]}`).pathname;
 
 if (isDirectRun) {
   main().catch((err) => {

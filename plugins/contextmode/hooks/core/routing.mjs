@@ -304,6 +304,15 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform) {
     (toolName.includes("context-mode") && /(?:__|\/)(ctx_)?execute$/.test(toolName)) ||
     /^MCP:(ctx_)?execute$/.test(toolName)
   ) {
+    // Stage 1: Reject exceptionally long timeouts to prevent framework hang
+    const reqTimeout = parseInt(toolInput.timeout, 10);
+    if (!isNaN(reqTimeout) && reqTimeout > 60000) {
+      return {
+        action: "deny",
+        reason: `context-mode: Execution blocked. You requested a timeout of ${reqTimeout}ms, but the maximum allowed is 60000ms (60s) to prevent system deadlocks. Do NOT retry with a shorter timeout if the underlying task is slow. Instead, submit your workload to the background (e.g., using '&', nohup, or detached processes with redirected output) and exit your script immediately, then check on the results in a later turn.`
+      };
+    }
+
     if (security && toolInput.language === "shell") {
       const code = toolInput.code ?? "";
       const policies = security.readBashPolicies(projectDir);
@@ -326,6 +335,15 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform) {
     (toolName.includes("context-mode") && /(?:__|\/)(ctx_)?execute_file$/.test(toolName)) ||
     /^MCP:(ctx_)?execute_file$/.test(toolName)
   ) {
+    // Stage 1: Reject exceptionally long timeouts
+    const reqTimeout = parseInt(toolInput.timeout, 10);
+    if (!isNaN(reqTimeout) && reqTimeout > 60000) {
+      return {
+        action: "deny",
+        reason: `context-mode: Execution blocked. You requested a timeout of ${reqTimeout}ms, but the maximum allowed is 60000ms (60s). Submit your workload to the background to prevent deadlocks.`
+      };
+    }
+
     if (security) {
       // Check file path against Read deny patterns
       const filePath = toolInput.path ?? "";

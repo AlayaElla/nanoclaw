@@ -533,6 +533,7 @@ async function runQuery(
                 result: thisTurnText,
                 newSessionId,
                 consumedThroughTimestamp,
+                isIntermediate: true,
               });
             }
           }

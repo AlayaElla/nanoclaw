@@ -457,13 +457,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let currentQueryHadDirectOutput = false;
   let currentQueryVisibleBaseline = getVisibleOutputSeq(group.folder);
 
-  // Track tool status message for send → edit → delete pattern
-  // Typing stays active until the first tool event arrives
   let statusMessageId: number | null = null;
   let lastToolName: string | null = null;
   let lastStatusText: string | null = null;
+  let intermediateMessageId: number | null = null;
+  let intermediateTextBuffer: string = '';
   let activeHeartbeatSkipQuery = false;
-  let heartbeatHandled = false; // Set when a heartbeat query completes (skip or work done)
+  let heartbeatHandled = false;
 
   const TOOL_DISPLAY_NAMES: Record<string, string> = {
     Bash: '执行命令行',
@@ -682,11 +682,41 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await GatewayHooks.execute('agent:end_message', writeEvent);
           text = writeEvent.text; // allow hook to modify the text directly before it gets sent
 
-          // Stop typing indicator before sending — user should see the reply, not "typing..."
-          await channel.setTyping?.(chatJid, false);
-          await channel.sendMessage(chatJid, text);
-          outputSentToUser = true;
-          currentQueryHadDirectOutput = true;
+          if (result.isIntermediate) {
+            await channel.setTyping?.(chatJid, true);
+            if (intermediateTextBuffer.length > 0) intermediateTextBuffer += '\n\n';
+            intermediateTextBuffer += text;
+            
+            if (intermediateTextBuffer.length > 3500) {
+              intermediateTextBuffer = "..." + intermediateTextBuffer.substring(intermediateTextBuffer.length - 3500);
+            }
+            const bubbleText = `💭 _${intermediateTextBuffer}_`;
+            
+            if (intermediateMessageId && channel.editStatusMessage) {
+              try {
+                await channel.editStatusMessage(chatJid, intermediateMessageId, bubbleText);
+              } catch (e) {
+                intermediateMessageId = await channel.sendStatusMessage?.(chatJid, bubbleText) || null;
+              }
+            } else if (channel.sendStatusMessage) {
+              intermediateMessageId = await channel.sendStatusMessage(chatJid, bubbleText);
+            } else {
+              await channel.sendMessage(chatJid, bubbleText);
+            }
+          } else {
+            // Stop typing indicator before sending — user should see the reply, not "typing..."
+            await channel.setTyping?.(chatJid, false);
+            
+            if (intermediateMessageId) {
+              await channel.deleteMessage?.(chatJid, intermediateMessageId);
+              intermediateMessageId = null;
+              intermediateTextBuffer = '';
+            }
+
+            await channel.sendMessage(chatJid, text);
+            outputSentToUser = true;
+            currentQueryHadDirectOutput = true;
+          }
 
           // Note: We deliberately do NOT re-enable typing here just because statusMessageId exists.
           // If a tool actually starts running again, onIpcStatus will re-enable it.
@@ -723,6 +753,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
 
       if (result.queryCompleted && result.status === 'success') {
+        if (intermediateMessageId && channel.editStatusMessage) {
+          try {
+            await channel.editStatusMessage(chatJid, intermediateMessageId, intermediateTextBuffer);
+          } catch (e) {
+            // ignore
+          }
+          intermediateMessageId = null;
+          intermediateTextBuffer = '';
+        }
+
         queue.notifyIdle(chatJid);
         // Check before clearing — markHeartbeatProcessed clears the in-flight flag
         const wasHeartbeat = getHeartbeat().isHeartbeatInFlight(group.folder);

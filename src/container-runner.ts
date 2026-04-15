@@ -71,6 +71,7 @@ export interface ContainerOutput {
   error?: string;
   consumedThroughTimestamp?: string;
   queryCompleted?: boolean;
+  isIntermediate?: boolean;
 }
 
 export interface ToolStatusEvent {

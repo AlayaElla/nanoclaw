@@ -73,14 +73,14 @@ export function cleanupOrphans(): void {
       .trim()
       .split('\n')
       .filter((name) => name && name !== 'nanoclaw-litellm-proxy');
-    for (const name of orphans) {
-      try {
-        execSync(stopContainer(name), { stdio: 'pipe' });
-      } catch {
-        /* already stopped */
-      }
-    }
     if (orphans.length > 0) {
+      try {
+        execSync(`${CONTAINER_RUNTIME_BIN} stop ${orphans.join(' ')}`, {
+          stdio: 'pipe',
+        });
+      } catch {
+        /* some already stopped */
+      }
       logger.info(
         { count: orphans.length, names: orphans },
         'Stopped orphaned containers',

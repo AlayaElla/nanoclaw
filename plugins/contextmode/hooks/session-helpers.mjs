@@ -194,3 +194,4 @@ export function getClearStatsFlagPath(opts = CLAUDE_OPTS) {
   mkdirSync(dir, { recursive: true });
   return join(dir, `${hash}${getWorktreeSuffix()}.clear-stats`);
 }
+

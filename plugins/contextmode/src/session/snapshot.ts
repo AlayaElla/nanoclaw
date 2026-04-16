@@ -370,14 +370,14 @@ function buildSkillsSection(skillEvents: StoredEvent[], searchTool: string): str
   return lines.join("\n");
 }
 
-function truncateString(str: string, maxLen: number): string {
-  return str.length > maxLen ? str.slice(0, maxLen) + '...' : str;
-}
-
 function buildIntentSection(intentEvents: StoredEvent[]): string {
   if (intentEvents.length === 0) return "";
   const lastIntent = intentEvents[intentEvents.length - 1];
   return `  <intent mode="${escapeXML(lastIntent.data)}"/>`;
+}
+
+function truncateString(str: string, maxLen: number): string {
+  return str.length > maxLen ? str.slice(0, maxLen) + '...' : str;
 }
 
 export function renderRoles(roleEvents: StoredEvent[]): string {

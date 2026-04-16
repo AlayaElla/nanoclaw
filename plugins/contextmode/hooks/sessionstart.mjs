@@ -44,6 +44,12 @@ try {
     const { SessionDB } = await loadSessionDB();
     const dbPath = getSessionDBPath();
     const db = new SessionDB({ dbPath });
+    const sessionId = getSessionId(input);
+    const resume = db.getResume(sessionId);
+
+    if (resume && !resume.consumed) {
+      db.markResumeConsumed(sessionId);
+    }
 
     const events = getLatestSessionEvents(db);
     if (events.length > 0) {

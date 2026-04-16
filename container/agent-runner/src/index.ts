@@ -114,6 +114,7 @@ async function runQuery(
   let resultCount = 0;
   let hadError = false;
   let emittedTexts = new Set<string>();
+  let toolUsedDuringQuery = false;
 
   // Inject global rules and group-specific rules
   let additionalContext = '';
@@ -313,11 +314,10 @@ async function runQuery(
 
     if (pendingAvailableDuringQuery) {
       const batch = await fetchPendingBatch(containerInput.gatewayUrl, containerInput.gatewayToken, updatedConsumedThroughTimestamp || consumedThroughTimestamp);
-      // Don't reset pendingAvailableDuringQuery — leave it true so the
-      // query loop re-fetches these messages as a proper persistent prompt
-      // after the current query ends.  The additionalContext injection below
-      // gives the model immediate visibility, but hook-injected context is
-      // NOT persisted in the SDK transcript.  Re-fetching ensures persistence.
+      // The additionalContext injection below gives the model immediate visibility.
+      // We advance the timestamp directly here since `recordPromptToContextModeStoreAsync`
+      // already ensures the message is safely logged to the context-mode database.
+      // This prevents the SDK from redundantly re-executing identical messages on the next turn.
 
       if (batch.success && batch.pending && batch.prompt) {
         let msg = typeof batch.prompt === 'string' ? batch.prompt : JSON.stringify(batch.prompt);
@@ -326,12 +326,12 @@ async function runQuery(
         if (batch.systemContext) {
           injectedMessages.push(batch.systemContext);
         }
-        // NOTE: intentionally NOT advancing updatedConsumedThroughTimestamp
-        // so the same messages are re-fetched as the next query's formal prompt
+        updatedConsumedThroughTimestamp = batch.consumedThroughTimestamp;
       }
       if (legacyMessagesBuffer.length > 0) {
-        // Inject a copy but keep originals in buffer for the query loop
+        // Inject a copy and fully consume the original buffer
         injectedMessages.push(...legacyMessagesBuffer);
+        legacyMessagesBuffer.length = 0;
       }
     }
 
@@ -359,6 +359,7 @@ async function runQuery(
       prompt: stream,
       options: {
         canUseTool: async (toolName, toolInput) => {
+          toolUsedDuringQuery = true;
           if (toolName === 'AskUserQuestion') {
             const question_id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             globalQuestionLocks.add(question_id);
@@ -578,6 +579,11 @@ async function runQuery(
 
         const finalOutputText = textResult || lastAssistantEmitText;
 
+        if (!toolUsedDuringQuery && isHeartbeat && finalOutputText?.trim() === 'HEARTBEAT_SKIP') {
+          log('Agent emitted HEARTBEAT_SKIP without tools, reverting session ID to prevent transcript pollution');
+          newSessionId = sessionId;
+        }
+
         log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
         writeOutput({
           status: hadError ? 'error' : 'success',
@@ -736,7 +742,7 @@ async function main(): Promise<void> {
 
     // Enter standby: wait for real messages via IPC
     log('Hooks warmed up, entering standby mode...');
-    
+
     // Emit an idle marker so the host knows we've finished startup and are ready
     writeOutput({
       status: 'success',
@@ -775,7 +781,7 @@ async function main(): Promise<void> {
     queryLoop: while (true) {
       // Detect if this prompt is a heartbeat query
       const promptStr = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
-      const isHeartbeatQuery = promptStr.includes('[HEARTBEAT]');
+      const isHeartbeatQuery = promptStr.includes('[HEARTBEAT]') || promptStr.includes('HEARTBEAT_SKIP');
       if (isHeartbeatQuery) {
         log('Heartbeat query detected, will use persistSession:false');
       }

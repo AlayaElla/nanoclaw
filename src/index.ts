@@ -450,6 +450,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Only show typing indicator when there are actual messages to process
   if (missedMessages.length > 0) {
     await channel.setTyping?.(chatJid, true);
+
+    // Reset heartbeat skip count if there are actual human messages
+    const hasUserMessage = missedMessages.some(
+      (m) => m.sender !== 'system' && !m.is_from_me && !m.is_bot_message
+    );
+    if (hasUserMessage) {
+      getHeartbeat().resetSkipCount(group.folder);
+    }
   }
   let hadError = false;
   let outputSentToUser = false;
@@ -671,6 +679,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             'Silently discarding background heartbeat response',
           );
           text = '';
+          getHeartbeat().incrementSkipCount(group.folder);
         }
         logger.debug(
           { group: group.name },

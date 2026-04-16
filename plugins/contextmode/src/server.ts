@@ -35,7 +35,7 @@ const VERSION: string = (() => {
   for (const rel of ["../package.json", "./package.json"]) {
     const p = resolve(__pkg_dir, rel);
     if (existsSync(p)) {
-      try { return JSON.parse(readFileSync(p, "utf8")).version; } catch { }
+      try { return JSON.parse(readFileSync(p, "utf8")).version; } catch {}
     }
   }
   return "unknown";
@@ -1710,7 +1710,7 @@ server.registerTool(
 
       const output = [
         `Executed ${commands.length} commands (${totalLines} lines, ${(totalBytes / 1024).toFixed(1)}KB). ` +
-        `Indexed ${indexed.totalChunks} sections. Searched ${queries.length} queries.`,
+          `Indexed ${indexed.totalChunks} sections. Searched ${queries.length} queries.`,
         "",
         ...inventory,
         "",

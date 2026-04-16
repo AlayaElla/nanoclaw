@@ -6,6 +6,7 @@ import { getGroupTodos } from '../web/data.js';
 
 interface GroupState {
   lastHeartbeatTime: number;
+  skipCount: number;
 }
 
 export class HeartbeatService {
@@ -87,9 +88,18 @@ export class HeartbeatService {
       const hasUnfinishedTodos = todos.some((t) => t.status !== 'completed');
 
       if (hasUnfinishedTodos) {
+        if (state.skipCount >= 15) {
+          state.lastHeartbeatTime = now;
+          logger.debug(
+            { groupFolder: group.folder },
+            'Heartbeat throttled: skip count reached 15. Waiting for user message.',
+          );
+          continue;
+        }
+
         state.lastHeartbeatTime = now;
         logger.debug(
-          { groupFolder: group.folder, unfinishedTodos: todos.length },
+          { groupFolder: group.folder, unfinishedTodos: todos.length, skipCount: state.skipCount },
           'Injecting background heartbeat prompt',
         );
         this.processingGroups.add(group.folder);
@@ -101,7 +111,19 @@ export class HeartbeatService {
 
         queue.sendMessage(
           jid,
-          `<system-reminder>\n[HEARTBEAT] 环境唤醒。\n当前你拥有的未完成任务列表如下：\n${tasksList}\n\n请检查当前状态与最近对话，思考是否需要继续处理这些任务。如果需要处理请立刻使用工具处理或者提醒用户。如果任务已全部完成或无事可做，请直接取消后续操作并仅回复唯一关键词 HEARTBEAT_SKIP ，绝不要带有任何其他字符或者前言后语。\n</system-reminder>`,
+          `<system-reminder>
+[HEARTBEAT] 环境唤醒。
+当前你拥有的未完成任务列表如下：
+${tasksList}
+
+请严格遵守以下逻辑处理本次唤醒：
+1. 如果你当前正在等待用户批准 Plan（计划）或者正在等待用户回复/确认某个问题，请不要自动往下执行，应直接回复唯一关键词 HEARTBEAT_SKIP。
+2. 如果有未完成的 TodoList 任务，请判断当前是否继续执行：
+   - 如果适合继续执行，请立刻使用工具往下处理。
+   - 如果你确定该任务应该被关闭或已失效，请使用相应工具关闭该任务。
+   - 如果你不确定目前是否应该继续，请向用户询问是否需要停止该任务。
+3. 如果所有任务都已完成或确实完全无事可做，请仅回复唯一关键词 HEARTBEAT_SKIP，绝不要带有任何其他附加字符或说明。
+</system-reminder>`,
         );
       }
     }
@@ -126,10 +148,24 @@ export class HeartbeatService {
   private getOrCreateState(folder: string): GroupState {
     let state = this.groupStates.get(folder);
     if (!state) {
-      state = { lastHeartbeatTime: 0 };
+      state = { lastHeartbeatTime: 0, skipCount: 0 };
       this.groupStates.set(folder, state);
     }
     return state;
+  }
+
+  incrementSkipCount(folder: string): void {
+    const state = this.getOrCreateState(folder);
+    state.skipCount++;
+    logger.debug({ groupFolder: folder, skipCount: state.skipCount }, 'Incremented heartbeat skip count');
+  }
+
+  resetSkipCount(folder: string): void {
+    const state = this.getOrCreateState(folder);
+    if (state.skipCount > 0) {
+      state.skipCount = 0;
+      logger.debug({ groupFolder: folder }, 'Reset heartbeat skip count');
+    }
   }
 
   resetGroup(folder: string): void {

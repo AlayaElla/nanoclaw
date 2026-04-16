@@ -148,9 +148,15 @@ export class TelegramChannel implements Channel {
    */
   ownsJid(jid: string): boolean {
     if (!jid.startsWith('tg:')) return false;
+
+    // If the JID explicitly includes the bot ID, use that for strict matching
+    if (jid.includes('@')) {
+      return jid.endsWith(`@${this.botId}`);
+    }
+
     const group = this.opts.registeredGroups()[jid];
     if (!group) {
-      // Unregistered JID — let the first bot handle it for /chatid etc.
+      // Unregistered legacy JID — let the first bot handle it for /chatid etc.
       return this.tokenEnvName === this._getFirstTokenEnvName();
     }
     // If group has a botToken, only match if it equals ours

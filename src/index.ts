@@ -532,9 +532,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     x_trends: '查询热搜',
     // MCP: media tools
     mcp__nanoclaw__mcp__media__get_cached_media: '获取媒体',
-    describe_cached_image: '分析图片',
-    describe_cached_video: '分析视频',
-    transcribe_cached_audio: '转录语音',
+    describe_image: '分析图片',
+    describe_video: '分析视频',
+    transcribe_audio: '转录语音',
+    mcp__nanoclaw__describe_image: '分析图片',
+    mcp__nanoclaw__describe_video: '分析视频',
+    mcp__nanoclaw__transcribe_audio: '转录语音',
     // MCP: context-mode tools
     'mcp__context-mode__ctx_read': '读取上下文',
     'mcp__context-mode__ctx_search': '搜索上下文',
@@ -909,6 +912,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   if (output === 'error' || hadError) {
+    const status = queue.getGroupStatus(chatJid);
+    if (status?.isAborted) {
+      logger.info(
+        { group: group.name },
+        'Agent was intentionally aborted; skipping retry queue',
+      );
+      return true;
+    }
+
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (committedCursor || outputSentToUser) {
@@ -1062,6 +1074,15 @@ async function runAgent(
       }
 
       if (output.status === 'error') {
+        const groupStatus = queue.getGroupStatus(chatJid);
+        if (groupStatus?.isAborted) {
+          logger.info({ group: group.name }, 'Container was intentionally stopped by command, skipping crash recovery');
+          // Clear corrupted session so next user retry starts fresh
+          delete sessions[group.folder];
+          deleteSession(group.folder);
+          return 'error';
+        }
+
         const errObj = output.error || 'Container crash';
         logger.error(
           { group: group.name, error: errObj },

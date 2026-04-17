@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+// @ts-ignore
 import { HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { log, writeIpcStatus } from '../utils/index.js';
 import { parseTranscript, formatTranscriptMarkdown, getSessionSummary, sanitizeFilename, generateFallbackName } from '../utils/index.js';
@@ -9,7 +10,7 @@ import { fetchSyncHook } from '../utils/ipc.js';
  * Archive the full transcript to conversations/ before compaction.
  */
 export function createPreCompactHook(assistantName?: string): HookCallback {
-  return async (input, _toolUseId, _context) => {
+  return async (input: any, _toolUseId: any, _context: any) => {
     const preCompact = input as PreCompactHookInput;
     const transcriptPath = preCompact.transcript_path;
     const sessionId = preCompact.session_id;
@@ -56,7 +57,7 @@ export function createPreCompactHook(assistantName?: string): HookCallback {
 const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
 export function createSanitizeBashHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
+  return async (input: any, _toolUseId: any, _context: any) => {
     const preInput = input as PreToolUseHookInput;
     const command = (preInput.tool_input as { command?: string })?.command;
     if (!command) return {};
@@ -75,7 +76,7 @@ export function createSanitizeBashHook(): HookCallback {
 }
 
 export function createPreToolUseHook(gatewayUrl?: string, gatewayToken?: string): HookCallback {
-  return async (input, _toolUseId, _context) => {
+  return async (input: any, _toolUseId: any, _context: any) => {
     const preInput = input as PreToolUseHookInput;
     if (preInput.tool_name) {
       const toolInput = preInput.tool_input as Record<string, unknown> | undefined;
@@ -130,7 +131,7 @@ let lastToolName = '';
 let toolNameCount = 0;
 
 export function createPostToolUseHook(gatewayUrl?: string, gatewayToken?: string): HookCallback {
-  return async (input) => {
+  return async (input: any) => {
     const postInput = input as any;
     const toolName = postInput.tool_name || '';
     const toolInputStr = postInput.tool_input ? JSON.stringify(postInput.tool_input) : '';
@@ -226,15 +227,15 @@ export function createToolUsageHintHook(): HookCallback {
     'mcp__nanoclaw__x_quote': 'x_quote({ tweet_url: string, comment: string })',
     'mcp__nanoclaw__x_trends': 'x_trends({ count?: number })',
     'mcp__nanoclaw__get_cached_media': 'get_cached_media({ mediaId: string })',
-    'mcp__nanoclaw__describe_cached_image': 'describe_cached_image({ mediaId: string, prompt: string })',
-    'mcp__nanoclaw__describe_cached_video': 'describe_cached_video({ mediaId: string, prompt: string })',
-    'mcp__nanoclaw__transcribe_cached_audio': 'transcribe_cached_audio({ mediaId: string })',
+    'mcp__nanoclaw__describe_image': 'describe_image({ mediaId?: string, url?: string, prompt: string })\n  mediaId 和 url 二选一',
+    'mcp__nanoclaw__describe_video': 'describe_video({ mediaId?: string, url?: string, prompt: string })\n  mediaId 和 url 二选一',
+    'mcp__nanoclaw__transcribe_audio': 'transcribe_audio({ mediaId?: string, url?: string })\n  mediaId 和 url 二选一',
     'mcp__nanoclaw__search_memory': 'search_memory({ query: string, top_k?: number })',
     'TeamCreate': 'TeamCreate({ team_name: string, description?: string, agent_type?: string })',
     'SendMessage': 'SendMessage({ to: string, content: string })',
   };
 
-  return async (input) => {
+  return async (input: any) => {
     const postInput = input as any;
     const toolName: string = postInput.tool_name || '';
     const toolOutput = postInput.tool_response || postInput.error;

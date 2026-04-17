@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+// @ts-ignore
 import { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { log } from '../utils/index.js';
 
@@ -37,7 +38,7 @@ function getContextModeRoot(): string {
  * without risking AsyncLocalStorage leakages across module boundaries.
  */
 export function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | 'posttoolusefailure' | 'precompact' | 'sessionstart' | 'userpromptsubmit'): HookCallback {
-  return async (input, _toolUseId, _context) => {
+  return async (input: any, _toolUseId: any, _context: any) => {
     try {
       const cmRoot = getContextModeRoot();
 

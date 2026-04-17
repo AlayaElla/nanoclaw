@@ -4,7 +4,9 @@
  * Reads context from environment variables, writes IPC files for the host.
  */
 
+// @ts-ignore
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+// @ts-ignore
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import fs from 'fs';
@@ -73,7 +75,7 @@ server.tool(
     text: z.string().describe('要发送的消息文本'),
     sender: z.string().optional().describe('你的角色/身份名称（例如 "研究员"）。设置后，消息将以专用 bot 身份在 Telegram 中显示。'),
   },
-  async (args) => {
+  async (args: any) => {
     const data: Record<string, string | undefined> = {
       type: 'message',
       chatJid,
@@ -117,7 +119,7 @@ if (chatJid.endsWith('@feishu')) {
         url: z.string().describe('按钮链接'),
       })).optional().describe('可选的底部按钮列表（例如 [{"text": "查看任务", "url": "https://..."}]）'),
     },
-    async (args) => {
+    async (args: any) => {
       // Build card JSON
       const elements: any[] = [
         {
@@ -130,7 +132,7 @@ if (chatJid.endsWith('@feishu')) {
       if (args.buttons && args.buttons.length > 0) {
         elements.push({
           tag: 'action',
-          actions: args.buttons.map((btn) => ({
+          actions: args.buttons.map((btn: any) => ({
             tag: 'button',
             text: {
               tag: 'plain_text',
@@ -188,7 +190,7 @@ server.tool(
     media_type: z.enum(['photo', 'video', 'audio', 'document']).optional().describe('媒体类型。省略时根据扩展名自动检测'),
     caption: z.string().optional().describe('媒体附带的文字说明'),
   },
-  async (args) => {
+  async (args: any) => {
     const MEDIA_CACHE = path.join('/workspace/group/.claude/media_cache');
     fs.mkdirSync(MEDIA_CACHE, { recursive: true });
 
@@ -323,7 +325,7 @@ upload_file_to_oss({ file_path: "/workspace/group/huge-file.zip" })`,
   {
     file_path: z.string().describe('需要上传的容器内绝对路径文件（例如 /workspace/group/output.zip）'),
   },
-  async (args) => {
+  async (args: any) => {
     const data = {
       type: 'upload_oss',
       filePath: args.file_path,
@@ -359,7 +361,7 @@ server.tool(
     size: z.enum(['1024x1024', '1024x1536', '1536x1024']).optional().default('1024x1024').describe('图片尺寸'),
     caption: z.string().optional().describe('发送时附带的文字说明'),
   },
-  async (args) => {
+  async (args: any) => {
     const apiKey = process.env.WHATAI_API_KEY;
     if (!apiKey) {
       return { content: [{ type: 'text' as const, text: 'WHATAI_API_KEY not configured. Cannot generate images.' }], isError: true };
@@ -541,7 +543,7 @@ server.tool(
     context_mode: z.enum(['group', 'isolated']).default('group').describe('上下文运行模式。默认并强烈建议使用 group（携带上下文），除非用户主动明确要求独立后台沙盒才使用 isolated'),
     target_group_jid: z.string().optional().describe('（仅主群组）要为其安排任务的群组 JID。默认为当前群组。'),
   },
-  async (args) => {
+  async (args: any) => {
     // Validate schedule_value before writing IPC
     if (args.schedule_type === 'cron') {
       try {
@@ -647,7 +649,7 @@ server.tool(
   'pause_task',
   '暂停一个定时任务。在恢复之前不会运行。',
   { task_id: z.string().describe('要暂停的任务 ID') },
-  async (args) => {
+  async (args: any) => {
     const requestId = `pause-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'pause_task',
@@ -671,7 +673,7 @@ server.tool(
   'resume_task',
   '恢复一个已暂停的任务。',
   { task_id: z.string().describe('要恢复的任务 ID') },
-  async (args) => {
+  async (args: any) => {
     const requestId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'resume_task',
@@ -695,7 +697,7 @@ server.tool(
   'cancel_task',
   '删除一个定时任务。可以删除任何状态的任务（active/paused/completed）。用于清理不再需要的任务或已完成的一次性任务。',
   { task_id: z.string().describe('要删除的任务 ID') },
-  async (args) => {
+  async (args: any) => {
     const requestId = `cancel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
       type: 'cancel_task',
@@ -730,7 +732,7 @@ server.tool(
     requires_trigger: z.boolean().optional().describe('是否需要触发词才能响应消息（默认 true，一对一私聊或某些群可以设为 false）'),
     container_config: z.any().optional().describe('为该群组额外挂载的容器配置对象，包含 additionalMounts 数组'),
   },
-  async (args) => {
+  async (args: any) => {
     if (!isMain) {
       return {
         content: [{ type: 'text' as const, text: 'Only the main group can register new groups.' }],
@@ -763,42 +765,42 @@ server.tool(
 
 // --- X Integration Tools (main group only) ---
 // if (isMain) {
-//   server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args) => {
+//   server.tool('x_post', '发推文到 X (Twitter)。仅主群组可用。', { content: z.string().max(280).describe('推文内容（最多280字符）') }, async (args: any) => {
 //     const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
 //     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
 //   });
 
-//   server.tool('x_like', '点赞 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
+//   server.tool('x_like', '点赞 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args: any) => {
 //     const requestId = `xlike-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
 //     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
 //   });
 
-//   server.tool('x_reply', '回复 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), content: z.string().max(280).describe('回复内容') }, async (args) => {
+//   server.tool('x_reply', '回复 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), content: z.string().max(280).describe('回复内容') }, async (args: any) => {
 //     const requestId = `xreply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
 //     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
 //   });
 
-//   server.tool('x_retweet', '转推 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args) => {
+//   server.tool('x_retweet', '转推 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL') }, async (args: any) => {
 //     const requestId = `xretweet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
 //     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
 //   });
 
-//   server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args) => {
+//   server.tool('x_quote', '引用 X (Twitter) 推文。', { tweet_url: z.string().describe('推文URL'), comment: z.string().max(280).describe('引用评论') }, async (args: any) => {
 //     const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
 //     return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
 //   });
 
-//   server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args) => {
+//   server.tool('x_trends', '获取 X (Twitter) 全球热门推文。返回当前最热门的推文列表，包含作者、内容和发布时间。', { count: z.number().optional().default(10).describe('要获取的热门推文数量（默认10，最多20）') }, async (args: any) => {
 //     const requestId = `xtrends-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 //     const data = { type: 'x_trends', requestId, count: args.count || 10, groupFolder, timestamp: new Date().toISOString() };
 //     const result = await dispatchTask(data);
@@ -815,7 +817,7 @@ server.tool(
     query: z.string().describe('搜索记忆使用的搜索词或自然语言描述（例如："用户喜欢的编程语言"）'),
     top_k: z.number().optional().default(5).describe('要检索的记忆条数（默认 5）'),
   },
-  async (args) => {
+  async (args: any) => {
     const data = {
       type: 'recall_memory',
       query: args.query,
@@ -864,11 +866,90 @@ function getCachedMediaPath(mediaId: string): string | null {
   return fs.existsSync(filePath) ? filePath : null;
 }
 
+async function resolveMediaUrlViaIPC(mediaId: string, mediaType: string): Promise<string | null> {
+  const result = await dispatchTask({
+    type: 'resolve_media_url',
+    mediaId,
+    mediaType
+  });
+  if (result && result.success && result.url) {
+    return result.url;
+  }
+  return null;
+}
+
+/**
+ * Resolve image_url content for the Vision API.
+ * - If url is provided, pass it directly (DashScope natively supports URL).
+ * - If mediaId is provided, attempt to get cached OSS URL via IPC, fallback to read from cache and convert to base64 data URI.
+ */
+async function resolveImageUrl(args: { mediaId?: string; url?: string }): Promise<{ imageUrl: string } | { content: { type: 'text'; text: string }[]; isError: true }> {
+  if (args.url) {
+    return { imageUrl: args.url };
+  }
+  if (args.mediaId) {
+    const ossUrl = await resolveMediaUrlViaIPC(args.mediaId, 'Photo');
+    if (ossUrl) return { imageUrl: ossUrl };
+
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const buffer = fs.readFileSync(filePath);
+    return { imageUrl: `data:image/jpeg;base64,${buffer.toString('base64')}` };
+  }
+  return { content: [{ type: 'text' as const, text: 'Must provide either mediaId or url.' }], isError: true };
+}
+
+/**
+ * Resolve video_url content for the Vision API.
+ */
+async function resolveVideoUrl(args: { mediaId?: string; url?: string }): Promise<{ videoUrl: string } | { content: { type: 'text'; text: string }[]; isError: true }> {
+  if (args.url) {
+    return { videoUrl: args.url };
+  }
+  if (args.mediaId) {
+    const ossUrl = await resolveMediaUrlViaIPC(args.mediaId, 'Video');
+    if (ossUrl) return { videoUrl: ossUrl };
+
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = ext === '.mov' ? 'video/quicktime' : (ext === '.webm' ? 'video/webm' : 'video/mp4');
+    return { videoUrl: `data:${mime};base64,${buffer.toString('base64')}` };
+  }
+  return { content: [{ type: 'text' as const, text: 'Must provide either mediaId or url.' }], isError: true };
+}
+
+/**
+ * Resolve audio content for the ASR API.
+ */
+async function resolveAudioUrl(args: { mediaId?: string; url?: string }): Promise<{ audioUrl: string } | { content: { type: 'text'; text: string }[]; isError: true }> {
+  if (args.url) {
+    return { audioUrl: args.url };
+  }
+  if (args.mediaId) {
+    const ossUrl = await resolveMediaUrlViaIPC(args.mediaId, 'Audio');
+    if (ossUrl) return { audioUrl: ossUrl };
+
+    const filePath = getCachedMediaPath(args.mediaId);
+    if (!filePath) {
+      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
+    }
+    const buffer = fs.readFileSync(filePath);
+    return { audioUrl: `data:audio/ogg;base64,${buffer.toString('base64')}` };
+  }
+  return { content: [{ type: 'text' as const, text: 'Must provide either mediaId or url.' }], isError: true };
+}
+
 server.tool(
   'get_cached_media',
   '获取本地持久化缓存的历史图片、视频或语音的绝对物理路径。你可以使用任何本机 CLI 或 Python 脚本、图像处理工具对获得的绝对路径文件进行处理。',
   { mediaId: z.string().describe('历史消息中带有的 MediaID (例如 img_171000.._.jpg)') },
-  async (args) => {
+  async (args: any) => {
     const filePath = getCachedMediaPath(args.mediaId);
     if (!filePath) {
       return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache. It may have expired.` }], isError: true };
@@ -878,26 +959,27 @@ server.tool(
 );
 
 server.tool(
-  'describe_cached_image',
-  '重新使用云端大视觉模型分析缓存的历史图片。如果原图描述不满足你的需求，可以用这个工具指定特定的 prompt 重新问图片细节。',
+  'describe_image',
+  `使用云端大视觉模型分析图片。支持两种输入方式（二选一）：
+• mediaId：分析缓存的历史图片（来自聊天消息中的 MediaID）
+• url：分析任意网络图片（直接传入图片的公网 URL，API 原生支持，无需下载）
+可以指定特定的 prompt 来问图片细节。`,
   {
-    mediaId: z.string().describe('图片的 MediaID (例如 xxx.jpg)'),
-    prompt: z.string().describe('特定的分析指令，例如"仔细看看右下角有什么字"')
+    mediaId: z.string().optional().describe('图片的 MediaID (例如 xxx.jpg)，与 url 二选一'),
+    url: z.string().optional().describe('图片的公网 URL (例如 https://example.com/photo.jpg)，与 mediaId 二选一'),
+    prompt: z.string().describe('分析指令，例如"仔细看看右下角有什么字"')
   },
-  async (args) => {
-    const filePath = getCachedMediaPath(args.mediaId);
-    if (!filePath) {
-      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
-    }
+  async (args: any) => {
+    const resolved = await resolveImageUrl(args);
+    if ('isError' in resolved) return resolved;
+
     const apiKey = process.env.VISION_API_KEY;
     if (!apiKey) return { content: [{ type: 'text' as const, text: 'VISION_API_KEY not configured.' }], isError: true };
 
     try {
-      const buffer = fs.readFileSync(filePath);
-      const dataUri = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-      const url = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
+      const apiUrl = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
 
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -905,7 +987,7 @@ server.tool(
         },
         body: JSON.stringify({
           model: process.env.VISION_MODEL || 'qwen3.5-plus',
-          messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUri } }, { type: 'text', text: args.prompt }] }],
+          messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: resolved.imageUrl } }, { type: 'text', text: args.prompt }] }],
           stream: false,
         }),
       });
@@ -923,28 +1005,26 @@ server.tool(
 );
 
 server.tool(
-  'describe_cached_video',
-  '重新分析缓存的历史视频。',
+  'describe_video',
+  `使用云端大视觉模型分析视频。支持两种输入方式（二选一）：
+• mediaId：分析缓存的历史视频（来自聊天消息中的 MediaID）
+• url：分析任意网络视频（直接传入视频的公网 URL，API 原生支持，无需下载）`,
   {
-    mediaId: z.string().describe('视频的 MediaID (例如 xxx.mp4)'),
+    mediaId: z.string().optional().describe('视频的 MediaID (例如 xxx.mp4)，与 url 二选一'),
+    url: z.string().optional().describe('视频的公网 URL (例如 https://example.com/video.mp4)，与 mediaId 二选一'),
     prompt: z.string().describe('让模型重点关注的视频分析提示词')
   },
-  async (args) => {
-    const filePath = getCachedMediaPath(args.mediaId);
-    if (!filePath) {
-      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
-    }
+  async (args: any) => {
+    const resolved = await resolveVideoUrl(args);
+    if ('isError' in resolved) return resolved;
+
     const apiKey = process.env.VISION_API_KEY;
     if (!apiKey) return { content: [{ type: 'text' as const, text: 'VISION_API_KEY not configured.' }], isError: true };
 
     try {
-      const buffer = fs.readFileSync(filePath);
-      const ext = path.extname(filePath).toLowerCase();
-      const mime = ext === '.mov' ? 'video/quicktime' : (ext === '.webm' ? 'video/webm' : 'video/mp4');
-      const dataUri = `data:${mime};base64,${buffer.toString('base64')}`;
-      const url = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
+      const apiUrl = `${process.env.VISION_BASE_URL?.replace(/\/$/, '') || 'https://coding.dashscope.aliyuncs.com/v1'}/chat/completions`;
 
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -952,7 +1032,7 @@ server.tool(
         },
         body: JSON.stringify({
           model: process.env.VISION_MODEL || 'qwen3.5-plus',
-          messages: [{ role: 'user', content: [{ type: 'video_url', video_url: { url: dataUri }, fps: 2 }, { type: 'text', text: args.prompt }] }],
+          messages: [{ role: 'user', content: [{ type: 'video_url', video_url: { url: resolved.videoUrl }, fps: 2 }, { type: 'text', text: args.prompt }] }],
           stream: false,
         }),
       });
@@ -970,21 +1050,22 @@ server.tool(
 );
 
 server.tool(
-  'transcribe_cached_audio',
-  '重新提取缓存历史语音的文本。可以用于语音遗漏或者听不清的场景。',
-  { mediaId: z.string().describe('语音的 MediaID (例如 xxx.ogg)') },
-  async (args) => {
-    const filePath = getCachedMediaPath(args.mediaId);
-    if (!filePath) {
-      return { content: [{ type: 'text' as const, text: `Error: MediaID ${args.mediaId} not found in cache.` }], isError: true };
-    }
+  'transcribe_audio',
+  `提取语音/音频的文本内容。支持两种输入方式（二选一）：
+• mediaId：转录缓存的历史语音（来自聊天消息中的 MediaID）
+• url：转录任意网络音频（直接传入音频的公网 URL，API 原生支持，无需下载）`,
+  {
+    mediaId: z.string().optional().describe('语音的 MediaID (例如 xxx.ogg)，与 url 二选一'),
+    url: z.string().optional().describe('音频的公网 URL (例如 https://example.com/audio.mp3)，与 mediaId 二选一'),
+  },
+  async (args: any) => {
+    const resolved = await resolveAudioUrl(args);
+    if ('isError' in resolved) return resolved;
+
     const apiKey = process.env.EMBEDDING_API_KEY;
     if (!apiKey) return { content: [{ type: 'text' as const, text: 'EMBEDDING_API_KEY not configured.' }], isError: true };
 
     try {
-      const buffer = fs.readFileSync(filePath);
-      const dataUri = `data:audio/ogg;base64,${buffer.toString('base64')}`;
-
       const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -995,7 +1076,7 @@ server.tool(
           model: 'qwen3-asr-flash',
           messages: [
             { role: 'system', content: [{ text: '' }] },
-            { role: 'user', content: [{ audio: dataUri }] }
+            { role: 'user', content: [{ audio: resolved.audioUrl }] }
           ],
           stream: false,
           asr_options: { enable_lid: true, enable_itn: false },

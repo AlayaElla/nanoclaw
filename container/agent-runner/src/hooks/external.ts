@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
+// @ts-ignore
 import { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { log } from '../utils/index.js';
 

@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+// @ts-ignore
 import { query, HookCallback } from '@anthropic-ai/claude-agent-sdk';
 
 import { log, writeIpcStatus, IpcStatusEvent, MessageStream, drainIpcInput, fetchPendingBatch, IPC_POLL_MS, shouldClose, globalQuestionAnswers, globalQuestionLocks, readStdin, writeOutput, appendPromptText, ContainerOutput, IPC_INPUT_DIR, IPC_INPUT_CLOSE_SENTINEL, waitForIpcSignal } from './utils/index.js';
@@ -225,7 +226,7 @@ async function runQuery(
         { hook_event_name: 'UserPromptSubmit', prompt: rawText, message: rawText, session_id: sessionId } as any,
         undefined,
         { signal: new AbortController().signal } as any
-      ).catch(err => log(`Async context-mode database write failed: ${err instanceof Error ? err.message : String(err)}`));
+      ).catch((err: any) => log(`Async context-mode database write failed: ${err instanceof Error ? err.message : String(err)}`));
     } catch (err) {
       log(`Context-mode database sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -358,7 +359,7 @@ async function runQuery(
     for await (const message of query({
       prompt: stream,
       options: {
-        canUseTool: async (toolName, toolInput) => {
+        canUseTool: async (toolName: any, toolInput: any) => {
           toolUsedDuringQuery = true;
           if (toolName === 'AskUserQuestion') {
             const question_id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;

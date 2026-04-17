@@ -27,6 +27,7 @@ interface GroupState {
   groupFolder: string | null;
   startedAt: string | null;
   retryCount: number;
+  isAborted?: boolean;
 }
 
 export class GroupQueue {
@@ -52,6 +53,7 @@ export class GroupQueue {
         groupFolder: null,
         startedAt: null,
         retryCount: 0,
+        isAborted: false,
       };
       this.groups.set(groupJid, state);
     }
@@ -228,6 +230,8 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.containerName) return;
 
+    state.isAborted = true;
+
     return new Promise((resolve) => {
       logger.info(
         { groupJid, containerName: state.containerName },
@@ -258,6 +262,7 @@ export class GroupQueue {
     runningTaskId: string | null;
     containerName: string | null;
     startedAt: string | null;
+    isAborted?: boolean;
   } | null {
     const state = this.groups.get(groupJid);
     if (!state) return null;
@@ -267,6 +272,7 @@ export class GroupQueue {
       runningTaskId: state.runningTaskId,
       containerName: state.containerName,
       startedAt: state.startedAt,
+      isAborted: state.isAborted,
     };
   }
 
@@ -305,6 +311,7 @@ export class GroupQueue {
       state.containerName = null;
       state.groupFolder = null;
       state.startedAt = null;
+      state.isAborted = false;
       this.activeCount--;
       this.drainGroup(groupJid);
     }
@@ -336,6 +343,7 @@ export class GroupQueue {
       state.containerName = null;
       state.groupFolder = null;
       state.startedAt = null;
+      state.isAborted = false;
       this.activeCount--;
       this.drainGroup(groupJid);
     }

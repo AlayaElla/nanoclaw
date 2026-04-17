@@ -766,6 +766,40 @@ export class GatewayServer {
         return;
       }
     }
+
+    if (data.type === 'resolve_media_url') {
+      if (!isOSSEnabled()) {
+        this.sendJson(res, 400, { error: 'OSS feature is disabled on the host', no_oss: true });
+        return;
+      }
+      const mediaId = data.mediaId as string;
+      const mediaType = (data.mediaType as string) || 'Document';
+      
+      const safeId = path.basename(mediaId);
+      const registeredGroups = this.deps.registeredGroups();
+      const sourceGroupEntry = Object.values(registeredGroups).find((g) => g.folder === sourceGroup);
+      const agentFolder = resolveAgentFolder(sourceGroupEntry?.botToken);
+      const agentWorkspaceDir = path.join(WORKSPACE_DIR, agentFolder);
+      const hostFilePath = path.join(agentWorkspaceDir, '.claude', 'media_cache', safeId);
+      
+      if (!fs.existsSync(hostFilePath)) {
+         this.sendJson(res, 404, { error: `Media file not found: ${safeId}` });
+         return;
+      }
+      
+      try {
+        const url = await uploadMediaIfNeeded(safeId, hostFilePath, mediaType);
+        if (!url) {
+            this.sendJson(res, 500, { error: 'Internal OSS upload error' });
+            return;
+        }
+        this.sendJson(res, 200, { url, success: true });
+        return;
+      } catch (err: any) {
+        this.sendJson(res, 500, { error: String(err) });
+        return;
+      }
+    }
     // They used to write to task_results/, now they return directly if handled inside processTaskIpc.
     // To cleanly achieve this without fully decoupling the logic right now, we can capture the response.
     // For now we will allow processTaskIpc to continue its job.

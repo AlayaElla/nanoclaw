@@ -20,7 +20,9 @@ export function readonlyMountArgs(
 
 /** Returns the shell command to stop a container by name. */
 export function stopContainer(name: string): string {
-  return `${CONTAINER_RUNTIME_BIN} stop ${name}`;
+  // Use -t 2 to forcefully kill within 2 seconds.
+  // NanoClaw explicitly calls stopContainer when it expects an abrupt exit.
+  return `${CONTAINER_RUNTIME_BIN} stop -t 2 ${name}`;
 }
 
 /** Ensure the container runtime is running, starting it if needed. */

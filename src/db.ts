@@ -322,6 +322,10 @@ export function storeMessage(msg: NewMessage): void {
   // Serialize MultiPartContent[] to JSON string for SQLite storage
   const content =
     typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+
+  // Ensure the parent chats row exists to prevent FOREIGN KEY constraint failures
+  storeChatMetadata(msg.chat_jid, msg.timestamp);
+
   db.prepare(
     `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, is_reply_to_bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -350,6 +354,9 @@ export function storeMessageDirect(msg: {
   is_from_me: boolean;
   is_bot_message?: boolean;
 }): void {
+  // Ensure the parent chats row exists to prevent FOREIGN KEY constraint failures
+  storeChatMetadata(msg.chat_jid, msg.timestamp);
+
   db.prepare(
     `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(

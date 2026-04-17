@@ -2,7 +2,7 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -506,6 +506,21 @@ export async function runContainerAgent(
   // Logs stored per-group under sessions dir (not in shared workspace)
   const logsDir = path.join(DATA_DIR, 'sessions', group.folder, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
+
+  // Remove any stale stopped container with the same name.
+  // Normally --rm handles cleanup, but after abnormal termination (SIGKILL,
+  // exit_code=null) Docker may not have finished removing the old container
+  // before the next spawn attempt, causing a name conflict.
+  // Using `rm` (without -f) so only stopped/dead containers are removed;
+  // a running container would not be affected.
+  try {
+    execSync(`${CONTAINER_RUNTIME_BIN} rm ${containerName}`, {
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+  } catch {
+    /* container does not exist or is still running — both are fine */
+  }
 
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {

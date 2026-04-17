@@ -10,6 +10,7 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'HEARTBEAT_INTERVAL',
+  'MAX_CONCURRENT_CONTAINERS',
 ]);
 
 export const ASSISTANT_HAS_OWN_NUMBER =
@@ -87,7 +88,7 @@ export const HEARTBEAT_INTERVAL = parseInt(
 ); // default 5 min, override via .env
 export const MAX_CONCURRENT_CONTAINERS = Math.max(
   1,
-  parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
+  parseInt(process.env.MAX_CONCURRENT_CONTAINERS || envConfig.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
 );
 
 export function escapeRegex(str: string): string {

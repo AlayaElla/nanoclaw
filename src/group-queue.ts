@@ -84,6 +84,7 @@ export class GroupQueue {
         { groupJid, activeCount: this.activeCount },
         'At concurrency limit, message queued',
       );
+      this.preemptIdleContainer();
       return;
     }
 
@@ -125,6 +126,7 @@ export class GroupQueue {
         { groupJid, taskId, activeCount: this.activeCount },
         'At concurrency limit, task queued',
       );
+      this.preemptIdleContainer();
       return;
     }
 
@@ -154,6 +156,9 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.idleWaiting = true;
     if (state.pendingTasks.length > 0) {
+      this.closeStdin(groupJid);
+    } else if (this.waitingGroups.length > 0) {
+      logger.debug({ groupJid }, 'Preempting newly idle container for waiting groups');
       this.closeStdin(groupJid);
     }
   }
@@ -250,6 +255,25 @@ export class GroupQueue {
         resolve();
       });
     });
+  }
+
+  private preemptIdleContainer(): void {
+    if (this.shuttingDown) return;
+    for (const [jid, state] of this.groups) {
+      if (
+        state.active &&
+        state.idleWaiting &&
+        !state.pendingMessages &&
+        state.pendingTasks.length === 0
+      ) {
+        logger.info(
+          { preemptedJid: jid },
+          'Preempting idle container to free up capacity for waiting group',
+        );
+        this.closeStdin(jid);
+        return; // Only need to preempt one to free up a slot
+      }
+    }
   }
 
   /**

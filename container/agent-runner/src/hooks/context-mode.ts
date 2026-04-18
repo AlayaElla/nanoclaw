@@ -64,7 +64,7 @@ export function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | '
         });
 
         let stdoutData = '';
-        child.stdout.on('data', (chunk) => {
+        child.stdout!.on('data', (chunk) => {
           stdoutData += chunk;
         });
 
@@ -77,8 +77,8 @@ export function createContextModeHook(hookName: 'pretooluse' | 'posttooluse' | '
           }
         });
 
-        child.stdin.write(inputBuffer);
-        child.stdin.end();
+        child.stdin!.write(inputBuffer);
+        child.stdin!.end();
       });
 
       if (!capturedOutput.trim()) return {};

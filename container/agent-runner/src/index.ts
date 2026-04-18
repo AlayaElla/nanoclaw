@@ -116,6 +116,10 @@ async function runQuery(
   let hadError = false;
   let emittedTexts = new Set<string>();
   let toolUsedDuringQuery = false;
+  // Tracks which content-block index is a text block (vs tool_use/thinking/etc).
+  // Cleared on message_start; populated on content_block_start; consulted on
+  // content_block_delta so we only forward text deltas (not tool-input JSON).
+  const streamBlockTypes = new Map<number, string>();
 
   // Inject global rules and group-specific rules
   let additionalContext = '';
@@ -157,7 +161,7 @@ async function runQuery(
 
     log(`Resolved ${sessionStartHooks.length} SessionStart hooks for execution`);
 
-    for (const hook of sessionStartHooks) {
+    const results = await Promise.allSettled(sessionStartHooks.map(async (hook) => {
       try {
         let sessionSource = (containerInput as any).sessionId ? 'resume' : 'startup';
         const stringifiedPrompt = typeof containerInput.prompt === 'string'
@@ -167,12 +171,20 @@ async function runQuery(
           sessionSource = 'compact';
         }
 
-        const result = await hook({
+        return await hook({
           hook_event_name: 'SessionStart',
           source: sessionSource,
           sessionId: (containerInput as any).sessionId || 'pending'
         } as any, undefined, { signal: new AbortController().signal } as any);
-        const output = result as any;
+      } catch (err) {
+        log(`SessionStart hook error: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    }));
+
+    for (const res of results) {
+      if (res.status === 'fulfilled' && res.value) {
+        const output = res.value as any;
         if (output && output.hookSpecificOutput) {
           const injectedContext = output.hookSpecificOutput.additionalContext || output.hookSpecificOutput.additionalSystemContext;
           if (injectedContext) {
@@ -180,8 +192,6 @@ async function runQuery(
             log('Injected context from SessionStart hook');
           }
         }
-      } catch (err) {
-        log(`SessionStart hook error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -354,6 +364,8 @@ async function runQuery(
     return {};
   };
   let lastAssistantEmitText = '';
+  let deltaBuffer = '';
+  let lastDeltaEmit = Date.now();
 
   try {
     for await (const message of query({
@@ -495,7 +507,51 @@ async function runQuery(
       const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
       log(`[msg #${messageCount}] type=${msgType}`);
 
+      if ((message as { type?: string }).type === 'stream_event') {
+        const sm = message as { parent_tool_use_id?: string | null; event?: any };
+        // Ignore sub-agent (Task tool) tokens — they would spam the user channel.
+        if (sm.parent_tool_use_id != null) continue;
+        const ev = sm.event;
+        if (!ev || typeof ev !== 'object') continue;
+        if (ev.type === 'message_start') {
+          streamBlockTypes.clear();
+        } else if (ev.type === 'content_block_start') {
+          streamBlockTypes.set(ev.index, ev.content_block?.type ?? 'unknown');
+        } else if (
+          ev.type === 'content_block_delta' &&
+          ev.delta?.type === 'text_delta' &&
+          streamBlockTypes.get(ev.index) === 'text'
+        ) {
+          // Deltas are purely transient UI — never carry newSessionId here.
+          // The session id is persisted via the normal assistant / queryCompleted
+          // events; including it on every token would trigger a sqlite write
+          // per token on the host and starve other agents' DB operations.
+          deltaBuffer += ev.delta.text;
+          const now = Date.now();
+          if (now - lastDeltaEmit > 100) {
+            writeOutput({
+              status: 'success',
+              result: null,
+              isDelta: true,
+              deltaText: deltaBuffer,
+            });
+            deltaBuffer = '';
+            lastDeltaEmit = now;
+          }
+        }
+        continue;
+      }
+
       if (message.type === 'assistant') {
+        if (deltaBuffer) {
+          writeOutput({
+            status: 'success',
+            result: null,
+            isDelta: true,
+            deltaText: deltaBuffer,
+          });
+          deltaBuffer = '';
+        }
         if ('uuid' in message) {
           lastAssistantUuid = (message as { uuid: string }).uuid;
         }
@@ -719,14 +775,22 @@ async function main(): Promise<void> {
         ...extHooks.filter(h => h.event === 'SessionStart').map(h => h.caller)
       ];
       log(`Pre-warming ${sessionStartHooks.length} SessionStart hooks...`);
-      for (const hook of sessionStartHooks) {
+      const results = await Promise.allSettled(sessionStartHooks.map(async (hook) => {
         try {
-          const result = await hook(
+          return await hook(
             { hook_event_name: 'SessionStart', source: 'startup', sessionId: 'pending' } as any,
             undefined,
             { signal: new AbortController().signal } as any,
           );
-          const output = result as any;
+        } catch (err) {
+          log(`SessionStart hook pre-warm error: ${err instanceof Error ? err.message : String(err)}`);
+          throw err;
+        }
+      }));
+
+      for (const res of results) {
+        if (res.status === 'fulfilled' && res.value) {
+          const output = res.value as any;
           if (output && output.hookSpecificOutput) {
             const injectedContext = output.hookSpecificOutput.additionalContext || output.hookSpecificOutput.additionalSystemContext;
             if (injectedContext) {
@@ -734,8 +798,6 @@ async function main(): Promise<void> {
               log('Pre-warmed context from SessionStart hook');
             }
           }
-        } catch (err) {
-          log(`SessionStart hook pre-warm error: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       log('SessionStart hooks pre-warmed');

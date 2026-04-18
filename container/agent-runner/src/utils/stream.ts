@@ -15,6 +15,11 @@ export interface ContainerOutput {
   consumedThroughTimestamp?: string;
   queryCompleted?: boolean;
   isIntermediate?: boolean;
+  // Token-level streaming: emitted per content_block_delta of type text_delta.
+  // Channels that expose sendDelta() get these live; others see only the
+  // existing isIntermediate/queryCompleted events.
+  isDelta?: boolean;
+  deltaText?: string;
 }
 
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';

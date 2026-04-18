@@ -661,6 +661,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         currentQueryHadDirectOutput = false;
       }
 
+      // Token-level streaming: forward each text delta to channels that
+      // opt in via sendDelta(). Skip DB/hooks — the full turn text still
+      // arrives as an 'assistant' message (isIntermediate) and is persisted
+      // there. Channels without sendDelta see only the intermediate bubble.
+      if (result.isDelta && typeof result.deltaText === 'string') {
+        if (channel.sendDelta) {
+          await channel.sendDelta(chatJid, result.deltaText);
+        }
+        return;
+      }
+
       if (result.result) {
         const raw =
           typeof result.result === 'string'
@@ -708,7 +719,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             // Deferred bubble: only show 💭 starting from 2nd intermediate message.
             // The 1st message is just buffered — if it turns out to be the only one,
             // queryCompleted will send it directly without any 💭 flash.
-            if (intermediateCount >= 2) {
+            // Streaming channels got this text token-by-token via sendDelta;
+            // skip the bubble to avoid double-rendering the same content.
+            if (intermediateCount >= 2 && !channel.sendDelta) {
               const bubbleText = `💭 ${intermediateTextBuffer}`;
 
               if (intermediateMessageId && channel.editStatusMessage) {
@@ -1002,10 +1015,14 @@ async function runAgent(
       new Set(Object.keys(registeredGroups)),
     );
 
-    // Wrap onOutput to track session ID from streamed results
+    // Wrap onOutput to track session ID from streamed results.
+    // Skip DB writes for delta events — the sessionId doesn't change mid-turn
+    // and setSession() is a synchronous sqlite write that would otherwise run
+    // once per streamed text token, holding the global DB lock and starving
+    // other agents' DB operations.
     const wrappedOnOutput = onOutput
       ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
+        if (output.newSessionId && !output.isDelta) {
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
         }

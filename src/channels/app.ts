@@ -69,6 +69,14 @@ export class AppChannel implements Channel {
     }
   }
 
+  async sendDelta(jid: string, text: string): Promise<void> {
+    if (!text) return;
+    const ws = this.connections.get(jid);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'delta', content: text }));
+    }
+  }
+
   async setTyping(jid: string, typing: boolean): Promise<void> {
     const ws = this.connections.get(jid);
     if (ws && ws.readyState === WebSocket.OPEN) {

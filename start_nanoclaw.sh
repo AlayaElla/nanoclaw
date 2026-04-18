@@ -35,6 +35,8 @@ fi
 # === 编译 + 启动 ===
 echo -e "${CYAN}正在编译项目...${RESET}"
 npm run build 2>&1 | tail -1
+echo -e "${CYAN}正在编译容器代理端...${RESET}"
+npm run build --prefix container/agent-runner 2>&1 | tail -1
 echo -e "${GREEN}编译完成${RESET}"
 echo ""
 

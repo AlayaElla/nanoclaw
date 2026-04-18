@@ -152,6 +152,11 @@ export interface Channel {
   disconnect(): Promise<void>;
   // Optional: typing indicator. Channels that support it implement it.
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
+  // Optional: forward a single token/chunk of the current assistant turn.
+  // Channels that implement this opt into live token streaming; the host will
+  // then suppress the intermediate bubble UI (the final sendMessage still
+  // fires to commit canonical text).
+  sendDelta?(jid: string, text: string): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
   // Optional: tool status messages (send → edit → delete pattern)

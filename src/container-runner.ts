@@ -72,6 +72,9 @@ export interface ContainerOutput {
   consumedThroughTimestamp?: string;
   queryCompleted?: boolean;
   isIntermediate?: boolean;
+  // Token-level streaming — mirrors container/agent-runner/src/utils/stream.ts
+  isDelta?: boolean;
+  deltaText?: string;
 }
 
 export interface ToolStatusEvent {
@@ -303,32 +306,37 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Sync agent-runner source into a per-group writable location so agents
-  // can customize it (add tools, change behavior) without affecting other
-  // groups. Recompiled on container startup via entrypoint.sh.
-  // Always sync upstream files so gateway refactoring and other changes
-  // propagate to all groups. Group-local customizations in files that don't
-  // exist in upstream are preserved.
-  const agentRunnerSrc = path.join(
+  // Bind-mount an isolated copy of the host's compiled agent-runner/dist directory.
+  // We copy the global dist to a group-specific folder to prevent multiple
+  // concurrent agents from conflicting on local state/lock files (e.g. from context-mode).
+  const globalDistDir = path.join(
     projectRoot,
     'container',
     'agent-runner',
-    'src',
+    'dist',
   );
-  const groupAgentRunnerDir = path.join(
-    DATA_DIR,
-    'sessions',
-    group.folder,
-    'agent-runner-src',
-  );
-  if (fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  if (fs.existsSync(globalDistDir)) {
+    const isolatedDistDir = path.join(
+      DATA_DIR,
+      'sessions',
+      group.folder,
+      'agent-runner',
+      'dist',
+    );
+    fs.mkdirSync(isolatedDistDir, { recursive: true });
+    // Recursive copy using force: true to ensure we always have the latest compiled code from the host
+    fs.cpSync(globalDistDir, isolatedDistDir, {
+      recursive: true,
+      force: true,
+      dereference: true,
+    });
+
+    mounts.push({
+      hostPath: isolatedDistDir,
+      containerPath: '/app/dist',
+      readonly: false, // Allow agent-runner to write local state/cache if needed
+    });
   }
-  mounts.push({
-    hostPath: groupAgentRunnerDir,
-    containerPath: '/app/src',
-    readonly: false,
-  });
 
   // Mount host SSH keys (read-only) so the container agent can use git over SSH
   const sshDir = path.join(process.env.HOME || '/home/node', '.ssh');
@@ -507,14 +515,12 @@ export async function runContainerAgent(
   const logsDir = path.join(DATA_DIR, 'sessions', group.folder, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
-  // Remove any stale stopped container with the same name.
+  // Remove any stale container with the same name (force).
   // Normally --rm handles cleanup, but after abnormal termination (SIGKILL,
   // exit_code=null) Docker may not have finished removing the old container
   // before the next spawn attempt, causing a name conflict.
-  // Using `rm` (without -f) so only stopped/dead containers are removed;
-  // a running container would not be affected.
   try {
-    execSync(`${CONTAINER_RUNTIME_BIN} rm ${containerName}`, {
+    execSync(`${CONTAINER_RUNTIME_BIN} rm -f ${containerName}`, {
       stdio: 'pipe',
       timeout: 5000,
     });
@@ -672,7 +678,15 @@ export async function runContainerAgent(
             resetTimeout();
             // Call onOutput for all markers (including null results)
             // so idle timers start even for "silent" query completions.
-            outputChain = outputChain.then(() => onOutput(parsed));
+            // CRITICAL: .catch() prevents a single failed callback from
+            // breaking the entire chain — which would cause runContainerAgent
+            // to never resolve and permanently lock the agent.
+            outputChain = outputChain.then(() => onOutput(parsed)).catch((err) => {
+              logger.warn(
+                { group: group.name, err },
+                'Error in output processing chain (recovered)',
+              );
+            });
           } catch (err) {
             logger.warn(
               { group: group.name, error: err },
@@ -775,13 +789,27 @@ export async function runContainerAgent(
             { group: group.name, containerName, duration, code },
             'Container timed out after output (idle cleanup)',
           );
-          outputChain.then(() => {
-            resolve({
-              status: 'success',
-              result: null,
-              newSessionId,
+          outputChain
+            .then(() => {
+              resolve({
+                status: 'success',
+                result: null,
+                newSessionId,
+              });
+            })
+            .catch(() => {
+              // Chain was rejected — still resolve so runContainerAgent
+              // returns and the group's active slot is freed.
+              logger.warn(
+                { group: group.name },
+                'Output chain rejected on idle-cleanup close, resolving anyway',
+              );
+              resolve({
+                status: 'success',
+                result: null,
+                newSessionId,
+              });
             });
-          });
           return;
         }
 
@@ -888,17 +916,31 @@ export async function runContainerAgent(
 
       // Streaming mode: wait for output chain to settle, return completion marker
       if (onOutput) {
-        outputChain.then(() => {
-          logger.info(
-            { group: group.name, duration, newSessionId },
-            'Container completed (streaming mode)',
-          );
-          resolve({
-            status: 'success',
-            result: null,
-            newSessionId,
+        outputChain
+          .then(() => {
+            logger.info(
+              { group: group.name, duration, newSessionId },
+              'Container completed (streaming mode)',
+            );
+            resolve({
+              status: 'success',
+              result: null,
+              newSessionId,
+            });
+          })
+          .catch((err) => {
+            // Chain was rejected — still resolve so runContainerAgent
+            // returns and the group's active slot is freed.
+            logger.warn(
+              { group: group.name, err },
+              'Output chain rejected on container close, resolving anyway',
+            );
+            resolve({
+              status: 'success',
+              result: null,
+              newSessionId,
+            });
           });
-        });
         return;
       }
 

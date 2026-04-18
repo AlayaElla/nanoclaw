@@ -229,13 +229,14 @@ async function runTask(
   const TASK_CLOSE_DELAY_MS = 10000;
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const workerJid = `isolated_${task.id.replace(/-/g, '_')}`;
+  // An isolated pseudo-folder prevents clashes with main IPC directories and serves as the Queue key
+  const workerFolder = `worker_${task.id.replace(/-/g, '_')}`;
 
   const scheduleClose = () => {
     if (closeTimer) return; // already scheduled
     closeTimer = setTimeout(() => {
       logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(workerJid);
+      deps.queue.closeStdin(workerFolder);
     }, TASK_CLOSE_DELAY_MS);
   };
 
@@ -243,8 +244,7 @@ async function runTask(
     const isGroup =
       getChatIsGroup(task.chat_jid) ?? group.requiresTrigger !== false;
 
-    // Use an isolated pseudo-folder so it doesn't clash with the main IPC input/status directories
-    const workerFolder = `worker_${task.id.replace(/-/g, '_')}`;
+
     const workerGroup = { ...group, folder: workerFolder };
 
     const output = await runContainerAgent(
@@ -261,7 +261,7 @@ async function runTask(
         assistantName: group.assistantName,
       },
       (proc, containerName) =>
-        deps.onProcess(workerJid, proc, containerName, workerFolder),
+        deps.onProcess(workerFolder, proc, containerName, workerFolder),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
@@ -269,7 +269,7 @@ async function runTask(
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(workerJid);
+          deps.queue.notifyIdle(workerFolder);
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
@@ -405,9 +405,9 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
             ),
           );
         } else {
-          // Isolated tasks use a synthetic JID to avoid stopping the main container
-          const workerJid = `isolated_${currentTask.id.replace(/-/g, '_')}`;
-          deps.queue.enqueueTask(workerJid, currentTask.id, () =>
+          // Isolated tasks use their worker folder as the concurrency key
+          const workerFolder = `worker_${currentTask.id.replace(/-/g, '_')}`;
+          deps.queue.enqueueTask(workerFolder, currentTask.id, () =>
             runTask(currentTask, deps),
           );
         }

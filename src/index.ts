@@ -830,7 +830,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           intermediateCount = 0;
         }
 
-        queue.notifyIdle(chatJid);
+        queue.notifyIdle(group.folder);
         // Check before clearing — markHeartbeatProcessed clears the in-flight flag
         const wasHeartbeat = getHeartbeat().isHeartbeatInFlight(group.folder);
         // Release heartbeat processing lock on any query completion
@@ -936,7 +936,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   if (output === 'error' || hadError) {
-    const status = queue.getGroupStatus(chatJid);
+    const status = queue.getGroupStatus(group.folder);
     if (status?.isAborted) {
       logger.info(
         { group: group.name },
@@ -1084,7 +1084,7 @@ async function runAgent(
           pullPendingOnStart: options?.pullPendingOnStart,
         },
         (proc, containerName) => {
-          queue.registerProcess(chatJid, proc, containerName, group.folder);
+          queue.registerProcess(group.folder, proc, containerName, group.folder);
           GatewayBus.emitAsync('agent:container_start', {
             group: chatJid,
             containerName,
@@ -1102,7 +1102,7 @@ async function runAgent(
       }
 
       if (output.status === 'error') {
-        const groupStatus = queue.getGroupStatus(chatJid);
+        const groupStatus = queue.getGroupStatus(group.folder);
         if (groupStatus?.isAborted) {
           logger.info({ group: group.name }, 'Container was intentionally stopped by command, skipping crash recovery');
           // Clear corrupted session so next user retry starts fresh
@@ -1250,9 +1250,11 @@ async function startMessageLoop(): Promise<void> {
           // Show typing indicator immediately for instant UX feedback
           await channel.setTyping?.(chatJid, true);
 
-          if (queue.stopQueryAndRequeue(chatJid)) {
+          const folderKey = group.folder;
+
+          if (queue.stopQueryAndRequeue(folderKey)) {
             logger.debug(
-              { chatJid, count: groupMessages.length },
+              { chatJid, folderKey, count: groupMessages.length },
               'Stopped current query; new messages will be processed in fresh cycle',
             );
           } else {
@@ -1261,7 +1263,7 @@ async function startMessageLoop(): Promise<void> {
               'No active container, enqueuing for new check',
             );
             // No active container — enqueue for a new one
-            queue.enqueueMessageCheck(chatJid);
+            queue.enqueueMessageCheck(folderKey);
           }
         }
       }
@@ -1314,7 +1316,7 @@ function recoverPendingMessages(): void {
         { group: group.name, pendingCount: pending.length },
         'Recovery: found unprocessed messages',
       );
-      queue.enqueueMessageCheck(chatJid);
+      queue.enqueueMessageCheck(group.folder);
     }
   }
 }
@@ -1471,7 +1473,7 @@ async function main(): Promise<void> {
     getSessions: () => sessions,
     queue,
     onProcess: (groupJid, proc, containerName, groupFolder) =>
-      queue.registerProcess(groupJid, proc, containerName, groupFolder),
+      queue.registerProcess(groupFolder, proc, containerName, groupFolder),
     sendMessage: async (jid, rawText) => {
       const channel = findChannel(channels, jid);
       if (!channel) {
@@ -1521,13 +1523,29 @@ async function main(): Promise<void> {
 
   startGatewayServer(ipcDeps);
 
-  queue.setProcessMessagesFn(processGroupMessages);
+async function processFolderMessages(folderKey: string): Promise<boolean> {
+  const jids = Object.keys(registeredGroups).filter(jid => registeredGroups[jid].folder === folderKey);
+  let overallSuccess = true;
+  for (const jid of jids) {
+    const sinceTimestamp = lastAgentTimestamp[jid] || '';
+    const missedMessages = getMessagesSince(jid, sinceTimestamp);
+    if (missedMessages.length > 0) {
+      const success = await processGroupMessages(jid);
+      if (!success) overallSuccess = false;
+    }
+  }
+  return overallSuccess;
+}
+
+  queue.setProcessMessagesFn(processFolderMessages);
   recoverPendingMessages();
 
+  const uniqueFolders = new Set(Object.values(registeredGroups).map(g => g.folder));
+
   logger.info('Starting all containers persistently...');
-  for (const jid of Object.keys(registeredGroups)) {
+  for (const folder of uniqueFolders) {
     // ensure container stays running
-    queue.enqueueMessageCheck(jid);
+    queue.enqueueMessageCheck(folder);
   }
 
   const scheduleDailyRestart = () => {
@@ -1543,18 +1561,18 @@ async function main(): Promise<void> {
       );
       setTimeout(() => {
         logger.info('Executing daily scheduled container restart');
-        for (const jid of Object.keys(registeredGroups)) {
-          const status = queue.getGroupStatus(jid);
+        for (const folder of uniqueFolders) {
+          const status = queue.getGroupStatus(folder);
           // If container is active and NOT idle wait, it is busy processing tasks
           if (status?.active && !status.idleWaiting) {
             logger.info(
-              { jid },
+              { folder },
               'Skipping daily restart because container is currently busy',
             );
             continue;
           }
-          queue.closeStdin(jid);
-          setTimeout(() => queue.enqueueMessageCheck(jid), 30000);
+          queue.closeStdin(folder);
+          setTimeout(() => queue.enqueueMessageCheck(folder), 30000);
         }
         scheduleDailyRestart(); // Reschedule next
       }, delayMs);

@@ -5,6 +5,7 @@ import { log } from './logger.js';
 export const IPC_STATUS_DIR = '/workspace/ipc/status';
 export const IPC_INPUT_DIR = '/workspace/ipc/input';
 export const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
+export const IPC_INPUT_INTERRUPT_SENTINEL = path.join(IPC_INPUT_DIR, '_interrupt');
 export const IPC_POLL_MS = 500;
 
 export type IpcStatusEvent =
@@ -54,6 +55,19 @@ export function writeIpcStatus(status: IpcStatusEvent): void {
 export function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check for _interrupt sentinel.
+ * Unlike _close, _interrupt only aborts the current query but keeps the
+ * container alive so it can process the next message in the query loop.
+ */
+export function shouldInterrupt(): boolean {
+  if (fs.existsSync(IPC_INPUT_INTERRUPT_SENTINEL)) {
+    try { fs.unlinkSync(IPC_INPUT_INTERRUPT_SENTINEL); } catch { /* ignore */ }
     return true;
   }
   return false;
@@ -137,6 +151,13 @@ export function waitForIpcSignal(): Promise<IpcDrainResult | null> {
     const poll = () => {
       if (shouldClose()) {
         resolve(null);
+        return;
+      }
+
+      if (shouldInterrupt()) {
+        // We were sleeping, but received an interrupt. This means new messages
+        // are queued. Wake up and tell the loop to fetch pending batch.
+        resolve({ pendingAvailable: true, legacyMessages: [] });
         return;
       }
 

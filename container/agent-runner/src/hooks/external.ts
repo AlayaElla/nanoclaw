@@ -166,8 +166,18 @@ export function loadExternalHooks(): { hooks: Array<{ event: string; matcher: st
                 child.on('close', () => resolve({ stdout: outData, stderr: errData }));
 
                 if (child.stdin) {
-                  child.stdin.write(inputBuffer);
-                  child.stdin.end();
+                  child.stdin.on('error', (err: any) => {
+                    // 忽略 EPIPE 错误（当子进程过快退出且未读取 stdin 时会触发）
+                    if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+                      log(`[${def.name}] Stdin warning: ${err.message}`);
+                    }
+                  });
+                  try {
+                    child.stdin.write(inputBuffer);
+                    child.stdin.end();
+                  } catch (e) {
+                    // 同步写入错误也忽略
+                  }
                 }
               });
 

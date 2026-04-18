@@ -317,9 +317,7 @@ registerCommand('/stop', '中断当前正在执行的任务', async (ctx) => {
   }
 
   try {
-    ctx.groupQueue.closeStdin(ctx.chatJid);
-    await new Promise((r) => setTimeout(r, 1000));
-    await ctx.groupQueue.killContainer(ctx.chatJid);
+    ctx.groupQueue.interruptCurrentQuery(ctx.chatJid);
 
     const detail = status.runningTaskId
       ? `定时任务 (${status.runningTaskId})`

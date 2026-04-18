@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 // @ts-ignore
 import { query, HookCallback } from '@anthropic-ai/claude-agent-sdk';
 
-import { log, writeIpcStatus, IpcStatusEvent, MessageStream, drainIpcInput, fetchPendingBatch, IPC_POLL_MS, shouldClose, globalQuestionAnswers, globalQuestionLocks, readStdin, writeOutput, appendPromptText, ContainerOutput, IPC_INPUT_DIR, IPC_INPUT_CLOSE_SENTINEL, waitForIpcSignal } from './utils/index.js';
+import { log, writeIpcStatus, IpcStatusEvent, MessageStream, drainIpcInput, fetchPendingBatch, IPC_POLL_MS, shouldClose, shouldInterrupt, globalQuestionAnswers, globalQuestionLocks, readStdin, writeOutput, appendPromptText, ContainerOutput, IPC_INPUT_DIR, IPC_INPUT_CLOSE_SENTINEL, IPC_INPUT_INTERRUPT_SENTINEL, waitForIpcSignal } from './utils/index.js';
 import { loadExternalHooks, createExternalBootHook, createPreCompactHook, createSanitizeBashHook, createPreToolUseHook, createPostToolUseHook, createToolUsageHintHook, createContextModeHook } from './hooks/index.js';
 
 const { hooks: extHooks, bootLog: extBootLog } = loadExternalHooks();
@@ -72,6 +72,7 @@ async function runQuery(
   newSessionId?: string;
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
+  interruptedDuringQuery: boolean;
   hadError: boolean;
   pendingAvailableDuringQuery: boolean;
   updatedConsumedThroughTimestamp?: string;
@@ -82,16 +83,30 @@ async function runQuery(
   let updatedConsumedThroughTimestamp = consumedThroughTimestamp;
   let legacyMessagesBuffer: string[] = [];
 
-  // Poll IPC for control signals and _close sentinel during the query
+  const abortController = new AbortController();
+
+  // Poll IPC for control signals, _interrupt and _close sentinels during the query
   let ipcPolling = true;
   let closedDuringQuery = false;
+  let interruptedDuringQuery = false;
   let pendingAvailableDuringQuery = false;
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
+    // _interrupt: abort current query but keep container alive for next message
+    if (shouldInterrupt()) {
+      log('Interrupt sentinel detected during query, aborting current query (container stays alive)');
+      interruptedDuringQuery = true;
+      stream.end();
+      abortController.abort();
+      ipcPolling = false;
+      return;
+    }
+    // _close: abort current query AND exit container
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
       stream.end();
+      abortController.abort();
       ipcPolling = false;
       return;
     }
@@ -371,6 +386,7 @@ async function runQuery(
     for await (const message of query({
       prompt: stream,
       options: {
+        abortController,
         canUseTool: async (toolName: any, toolInput: any) => {
           toolUsedDuringQuery = true;
           if (toolName === 'AskUserQuestion') {
@@ -658,17 +674,25 @@ async function runQuery(
         break;
       }
     }
+  } catch (err: any) {
+    if (err.name === 'AbortError' || (err.message && err.message.toLowerCase().includes('abort'))) {
+      log('Query aborted via AbortController as requested by signal.');
+    } else {
+      log(`Error during query inner loop: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
   } finally {
     ipcPolling = false;
     stream.end();
   }
 
   ipcPolling = false;
-  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, hadError: ${hadError}`);
+  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, interruptedDuringQuery: ${interruptedDuringQuery}, hadError: ${hadError}`);
   return {
     newSessionId,
     lastAssistantUuid,
     closedDuringQuery,
+    interruptedDuringQuery,
     hadError,
     pendingAvailableDuringQuery,
     updatedConsumedThroughTimestamp,
@@ -709,6 +733,7 @@ async function main(): Promise<void> {
 
   // Clean up stale _close sentinel from previous container runs
   try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+  try { fs.unlinkSync(IPC_INPUT_INTERRUPT_SENTINEL); } catch { /* ignore */ }
 
   // Build the initial prompt.
   let prompt: string | any[] = containerInput.prompt;
@@ -855,6 +880,7 @@ async function main(): Promise<void> {
         newSessionId?: string;
         lastAssistantUuid?: string;
         closedDuringQuery: boolean;
+        interruptedDuringQuery: boolean;
         hadError: boolean;
         pendingAvailableDuringQuery: boolean;
         updatedConsumedThroughTimestamp?: string;
@@ -912,12 +938,21 @@ async function main(): Promise<void> {
         break;
       }
 
-      // Heartbeat queries used persistSession:false, so the session
-      // transcript is untouched. Skip the session-update marker to avoid
-      // resetting the host's idle timer. Fall through to the IPC wait
-      // section so the container properly waits for the next signal
-      // (instead of re-running the same heartbeat prompt in a loop).
-      if (!isHeartbeatQuery) {
+      // If _interrupt was consumed during the query, the stream was aborted.
+      // We want to fetch the pending batch and do another turn with the new messages,
+      // without exiting the container.
+      if (queryResult.interruptedDuringQuery) {
+        log('Interrupt sentinel consumed during query; looping to fetch new messages');
+        pendingRequested = true;
+        prompt = ''; // Clear prompt so we rely on pending batch
+        // We skip writing a success output marker here because the query was aborted
+        // and didn't result in a true clean completion, although it's not a crash error.
+      } else if (!isHeartbeatQuery) {
+        // Heartbeat queries used persistSession:false, so the session
+        // transcript is untouched. Skip the session-update marker to avoid
+        // resetting the host's idle timer. Fall through to the IPC wait
+        // section so the container properly waits for the next signal
+        // (instead of re-running the same heartbeat prompt in a loop).
         // Emit session update so host can track it
         writeOutput({ status: 'success', result: null, newSessionId: sessionId });
       } else {

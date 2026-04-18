@@ -212,6 +212,43 @@ export class GroupQueue {
   }
 
   /**
+   * Stop the current query gracefully and requeue messages for a fresh cycle.
+   * Instead of injecting messages into the running session (notifyPendingMessages),
+   * this writes an _interrupt sentinel so the agent aborts its current turn but stays alive
+   * to process the queued messages in the next query loop.
+   * Task containers (scheduled tasks) are NOT interrupted — messages just queue up.
+   */
+  stopQueryAndRequeue(groupJid: string): boolean {
+    const state = this.getGroup(groupJid);
+    if (!state.active || !state.groupFolder) return false;
+
+    if (state.isTaskContainer) {
+      // Don't interrupt scheduled tasks — just queue messages for later
+      state.pendingMessages = true;
+      return true;
+    }
+
+    state.pendingMessages = true;
+    this.interruptCurrentQuery(groupJid); // Agent aborts current turn but stays alive to fetch pending
+    return true;
+  }
+
+  /**
+   * Signal the active container to abort its current query by writing an interrupt sentinel.
+   */
+  interruptCurrentQuery(groupJid: string): void {
+    const state = this.getGroup(groupJid);
+    if (!state.groupFolder || !state.active) return;
+    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    try {
+      fs.mkdirSync(inputDir, { recursive: true });
+      fs.writeFileSync(path.join(inputDir, '_interrupt'), '');
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  /**
    * Signal the active container to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {

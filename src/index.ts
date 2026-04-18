@@ -1247,20 +1247,18 @@ async function startMessageLoop(): Promise<void> {
             }
           }
 
-          if (queue.notifyPendingMessages(chatJid)) {
+          // Show typing indicator immediately for instant UX feedback
+          await channel.setTyping?.(chatJid, true);
+
+          if (queue.stopQueryAndRequeue(chatJid)) {
             logger.debug(
               { chatJid, count: groupMessages.length },
-              'Notified active container about pending messages',
+              'Stopped current query; new messages will be processed in fresh cycle',
             );
-            channel
-              .setTyping?.(chatJid, true)
-              ?.catch((err) =>
-                logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-              );
           } else {
             logger.debug(
               { chatJid },
-              'No active container found or busy, enqueuing for new check',
+              'No active container, enqueuing for new check',
             );
             // No active container — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);

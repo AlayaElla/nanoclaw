@@ -108,6 +108,24 @@ export class TelegramChannel implements Channel {
   /** How long to wait for a follow-up text after receiving media (ms) */
   private static readonly MEDIA_MERGE_WINDOW = 1000;
 
+  // ── sendMessageDraft streaming state ────────────────────────────────
+  /** Per-JID draft streaming state for sendMessageDraft */
+  private draftStates = new Map<
+    string,
+    {
+      draftId: number;
+      accumulatedText: string;
+      lastSendTime: number;
+      pendingTimer: ReturnType<typeof setTimeout> | null;
+    }
+  >();
+  /** Monotonic counter for generating unique draft IDs */
+  private draftCounter = 0;
+  /** Minimum interval between sendMessageDraft calls (ms) */
+  private static readonly DRAFT_THROTTLE_MS = 500;
+  /** If no delta arrives for this long, treat the draft as stale and start fresh */
+  private static readonly DRAFT_STALE_MS = 3000;
+
   private pendingQuestions = new Map<
     string,
     {
@@ -1027,6 +1045,9 @@ export class TelegramChannel implements Channel {
     try {
       const numericId = TelegramChannel.extractChatId(jid);
 
+      // Finalize any active draft streaming for this JID
+      this.finalizeDraft(jid);
+
       // Clear typing indicator before sending
       await this.setTyping(jid, false);
 
@@ -1052,6 +1073,117 @@ export class TelegramChannel implements Channel {
         { jid, err, bot: this.tokenEnvName },
         'Failed to send Telegram message',
       );
+    }
+  }
+
+  // ── sendMessageDraft streaming ──────────────────────────────────────
+
+  /**
+   * Stream a text delta to the user using Telegram's native sendMessageDraft.
+   * Only works for private chats (group chats don't support drafts).
+   * Tokens are accumulated and throttled to avoid rate limits.
+   */
+  async sendDelta(jid: string, text: string): Promise<void> {
+    if (!text || !this.bot) return;
+
+    // sendMessageDraft only works in private chats.
+    // Group chat IDs are negative (start with '-'), skip for those.
+    const chatIdStr = TelegramChannel.extractChatId(jid);
+    if (chatIdStr.startsWith('-')) return;
+
+    let state = this.draftStates.get(jid);
+
+    // Detect stale drafts: if no delta arrived for DRAFT_STALE_MS,
+    // a new turn/tool-gap has started — begin a fresh draft.
+    if (
+      state &&
+      state.lastSendTime > 0 &&
+      Date.now() - state.lastSendTime > TelegramChannel.DRAFT_STALE_MS
+    ) {
+      if (state.pendingTimer) clearTimeout(state.pendingTimer);
+      state = undefined;
+    }
+
+    if (!state) {
+      this.draftCounter++;
+      state = {
+        draftId: this.draftCounter,
+        accumulatedText: '',
+        lastSendTime: 0,
+        pendingTimer: null,
+      };
+      this.draftStates.set(jid, state);
+    }
+
+    state.accumulatedText += text;
+
+    const now = Date.now();
+    const elapsed = now - state.lastSendTime;
+
+    if (elapsed >= TelegramChannel.DRAFT_THROTTLE_MS) {
+      // Enough time has passed — send immediately
+      if (state.pendingTimer) {
+        clearTimeout(state.pendingTimer);
+        state.pendingTimer = null;
+      }
+      await this.flushDraft(jid, state);
+    } else if (!state.pendingTimer) {
+      // Schedule a deferred flush for the remaining throttle window
+      const delay = TelegramChannel.DRAFT_THROTTLE_MS - elapsed;
+      state.pendingTimer = setTimeout(() => {
+        const s = this.draftStates.get(jid);
+        if (s) {
+          s.pendingTimer = null;
+          this.flushDraft(jid, s).catch((err) => {
+            logger.debug(
+              { jid, err, bot: this.tokenEnvName },
+              'Deferred draft flush failed',
+            );
+          });
+        }
+      }, delay);
+    }
+    // else: a timer is already pending, it will pick up the new text
+  }
+
+  /**
+   * Actually call sendMessageDraft with the accumulated text.
+   */
+  private async flushDraft(
+    jid: string,
+    state: { draftId: number; accumulatedText: string; lastSendTime: number; pendingTimer: ReturnType<typeof setTimeout> | null },
+  ): Promise<void> {
+    if (!this.bot || !state.accumulatedText) return;
+
+    const chatId = Number(TelegramChannel.extractChatId(jid));
+    // Always use plain text for drafts — MarkdownV2 with incomplete/unclosed
+    // tags (e.g. mid-stream "**bold" without closing) would fail on every
+    // other flush, causing visual flicker between rendered and plain states.
+    // The final sendMessage() uses MarkdownV2 properly.
+    const draftText = state.accumulatedText;
+    state.lastSendTime = Date.now();
+
+    try {
+      await this.bot.api.sendMessageDraft(chatId, state.draftId, draftText);
+    } catch (err) {
+      logger.debug(
+        { jid, err, bot: this.tokenEnvName },
+        'sendMessageDraft failed',
+      );
+    }
+  }
+
+  /**
+   * Clean up draft state for a JID. Called before sendMessage commits
+   * the final canonical text (which replaces the draft in the UI).
+   */
+  private finalizeDraft(jid: string): void {
+    const state = this.draftStates.get(jid);
+    if (state) {
+      if (state.pendingTimer) {
+        clearTimeout(state.pendingTimer);
+      }
+      this.draftStates.delete(jid);
     }
   }
 
@@ -1162,6 +1294,11 @@ export class TelegramChannel implements Channel {
       clearTimeout(entry.timer);
     }
     this.pendingMedia.clear();
+    // Clear all draft streaming state
+    for (const state of this.draftStates.values()) {
+      if (state.pendingTimer) clearTimeout(state.pendingTimer);
+    }
+    this.draftStates.clear();
     if (this.bot) {
       this.bot.stop();
       this.bot = null;
@@ -1274,6 +1411,10 @@ export class TelegramChannel implements Channel {
 
   async sendStatusMessage(jid: string, text: string): Promise<number | null> {
     if (!(await this.ensureConnected())) return null;
+    // Finalize any active draft before sending a status message —
+    // Telegram clears the draft bubble when a regular message arrives,
+    // so clean up state to prevent stale draft contamination.
+    this.finalizeDraft(jid);
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       const msg = await sendTelegramMessage(this.bot!.api, numericId, text);

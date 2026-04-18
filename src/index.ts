@@ -640,9 +640,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       // Agent finished — delete status message and stop typing indicator
       await channel.setTyping?.(chatJid, false);
       if (statusMessageId) {
-        await channel.deleteMessage?.(chatJid, statusMessageId);
+        const msgToDelete = statusMessageId;
         statusMessageId = null;
         lastToolName = null;
+        lastStatusText = null;
+        await channel.deleteMessage?.(chatJid, msgToDelete);
       }
     }
   };
@@ -813,6 +815,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         } else if (intermediateTextBuffer && intermediateCount === 1) {
           // Only 1 intermediate message was received and it was just buffered (no 💭 shown).
           // Send it directly as a normal message — no flash.
+          await channel.setTyping?.(chatJid, false);
+          await channel.sendMessage(chatJid, intermediateTextBuffer);
+          intermediateTextBuffer = '';
+          intermediateCount = 0;
+        } else if (intermediateTextBuffer && channel.sendDelta) {
+          // Streaming channels (sendDelta) never show the 💭 bubble, so the
+          // intermediate text was only streamed via draft. Commit it as a
+          // permanent message — this also triggers finalizeDraft() to prevent
+          // the draft state from leaking into the next turn.
           await channel.setTyping?.(chatJid, false);
           await channel.sendMessage(chatJid, intermediateTextBuffer);
           intermediateTextBuffer = '';

@@ -29,6 +29,9 @@ git rebase upstream/main
 - **Session 隔离与挂载**：必须保留我们自定义的 `process.env.CONTEXT_MODE_HOME` 基础路径逻辑。这不仅为了让数据可以持久化保存到宿主机的 `workspace/group` 中，更能确保多个不同群组间的独立会话不交叉。
 - **中文与提取正则**：上游对于英文的匹配规则如果发生变动可以接纳，但请务必保留或合并我们针对含有 `Roles`、中文人名提取以及正则表达式适配的部分。
 - **MCP 工具参数限定**：由于底层存储引擎 (SQLite FTS5) 对中文分词的支持极差，我们在 `src/server.ts` 文件中对 `ctx_search`、`ctx_batch_execute`、`ctx_index` 等相关工具的 `source` 和 `queries` 字段明确追加了 `MUST USE ENGLISH ONLY, NO CHINESE.`。在应对 `src/server.ts` 的合并冲突时，请务必保证该强制英文说明不被抹除。
+- **动态防死锁与 Subagent 保留 (`hooks/core/routing.mjs`)**：
+  1. 代码里强加了针对长时任务假死的防御：在拦截判断中拒绝超过 `30000` 毫秒的同步等待请求，必须保留 `timeout > 30000 && !hasBackground` 的阻断提示，让用户强制使用 `background: true`。
+  2. 我们的体系中调用浏览器沙盒的 `Task` 工具也需要在系统级判别：因此在 Agent 匹配处，除了包含 `canonical === "Agent"` 之外，**绝不能丢弃** `|| canonical === "Task"` 这一额外逻辑支持。
 - **MCP 服务环境注入陷阱**：在维护 `agent-runner/src/index.ts` 中 `context-mode` 的 `env` 环境变量注入块时，请牢记两点血泪教训：
   1. **必须显式展开 `...process.env`**：在向子进程传递 `env` 覆盖对象时，如果没有显式展开宿主底层环境，容器内的 `PATH` 会被瞬间抹除，进而导致 MCP 服务因找不到 `node` 进程而上报致命的 `error_during_execution` 且直接崩溃退出。
   2. **警惕 `process.env.HOME` 伪装兜底**：在尝试将 `HOME` 重定向到持久化的 `/workspace/group` 时，切忌使用类似 `HOME: process.env.CONTEXT_MODE_HOME || process.env.HOME || '/workspace/group'` 这样的伪退路逻辑。因为 Docker 容器自身会为主体注入不可改变的 `HOME=/home/node`，这个值永远为真，使得最后真正安全的 `/workspace/group` 兜底彻底失效，最终导致高频查询索引数据库偷偷写入沙盒临时内存中然后在容器重启时集体暴毙。应当强制使用只认专属值或绑定路径的逻辑：`HOME: process.env.CONTEXT_MODE_HOME || '/workspace/group'`。

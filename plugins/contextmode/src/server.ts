@@ -582,7 +582,7 @@ server.registerTool(
           "Source code to execute. Use console.log (JS/TS), print (Python/Ruby/Perl/R), echo (Shell), echo (PHP), fmt.Println (Go), or IO.puts (Elixir) to output a summary to context.",
         ),
       timeout: z
-        .number()
+        .coerce.number()
         .optional()
         .default(30000)
         .describe("Max execution time in ms"),
@@ -916,7 +916,7 @@ server.registerTool(
           "Code to process FILE_CONTENT (file_content in Elixir). Print summary via console.log/print/echo/IO.puts.",
         ),
       timeout: z
-        .number()
+        .coerce.number()
         .optional()
         .default(30000)
         .describe("Max execution time in ms"),
@@ -1169,7 +1169,7 @@ server.registerTool(
         .optional()
         .describe("Array of search queries. Batch ALL questions in one call. MUST USE ENGLISH ONLY, NO CHINESE.")),
       limit: z
-        .number()
+        .coerce.number()
         .optional()
         .default(3)
         .describe("Results per query (default: 3)"),
@@ -1592,7 +1592,7 @@ server.registerTool(
           "This is your ONLY chance — put ALL your questions here. No follow-up calls needed. MUST USE ENGLISH ONLY, NO CHINESE.",
         )),
       timeout: z
-        .number()
+        .coerce.number()
         .optional()
         .default(60000)
         .describe("Max execution time in ms (default: 60s)"),
@@ -2085,11 +2085,16 @@ async function main() {
     console.error(`Cleaned up ${cleaned} stale DB file(s) from previous sessions`);
   }
 
+  // MCP readiness sentinel path (#230)
+  const mcpSentinel = join(tmpdir(), `context-mode-mcp-ready-${process.ppid}`);
+
   // Clean up own DB + backgrounded processes + preload script on shutdown
   const shutdown = () => {
     executor.cleanupBackgrounded();
     if (_store) _store.close(); // persist DB for --continue sessions
     try { unlinkSync(CM_FS_PRELOAD); } catch { /* best effort */ }
+    // Remove MCP readiness sentinel (#230)
+    try { unlinkSync(mcpSentinel); } catch { /* best effort */ }
   };
   const gracefulShutdown = async () => {
     shutdown();
@@ -2104,6 +2109,9 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Write MCP readiness sentinel (#230)
+  try { writeFileSync(mcpSentinel, String(process.pid)); } catch { /* best effort */ }
 
   // Detect platform adapter — stored for platform-aware session paths
   try {

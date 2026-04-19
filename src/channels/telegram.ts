@@ -117,6 +117,7 @@ export class TelegramChannel implements Channel {
       accumulatedText: string;
       lastSendTime: number;
       pendingTimer: ReturnType<typeof setTimeout> | null;
+      keepaliveTimer: ReturnType<typeof setInterval> | null;
     }
   >();
   /** Monotonic counter for generating unique draft IDs */
@@ -125,6 +126,8 @@ export class TelegramChannel implements Channel {
   private static readonly DRAFT_THROTTLE_MS = 500;
   /** If no delta arrives for this long, treat the draft as stale and start fresh */
   private static readonly DRAFT_STALE_MS = 3000;
+  /** Interval for re-sending draft to prevent Telegram from expiring it */
+  private static readonly DRAFT_KEEPALIVE_MS = 7000;
 
   private pendingQuestions = new Map<
     string,
@@ -1101,6 +1104,7 @@ export class TelegramChannel implements Channel {
       Date.now() - state.lastSendTime > TelegramChannel.DRAFT_STALE_MS
     ) {
       if (state.pendingTimer) clearTimeout(state.pendingTimer);
+      if (state.keepaliveTimer) clearInterval(state.keepaliveTimer);
       state = undefined;
     }
 
@@ -1111,6 +1115,7 @@ export class TelegramChannel implements Channel {
         accumulatedText: '',
         lastSendTime: 0,
         pendingTimer: null,
+        keepaliveTimer: null,
       };
       this.draftStates.set(jid, state);
     }
@@ -1151,7 +1156,7 @@ export class TelegramChannel implements Channel {
    */
   private async flushDraft(
     jid: string,
-    state: { draftId: number; accumulatedText: string; lastSendTime: number; pendingTimer: ReturnType<typeof setTimeout> | null },
+    state: { draftId: number; accumulatedText: string; lastSendTime: number; pendingTimer: ReturnType<typeof setTimeout> | null; keepaliveTimer: ReturnType<typeof setInterval> | null },
   ): Promise<void> {
     if (!this.bot || !state.accumulatedText) return;
 
@@ -1171,6 +1176,22 @@ export class TelegramChannel implements Channel {
         'sendMessageDraft failed',
       );
     }
+
+    // Start/reset keepalive — re-send draft periodically to prevent
+    // Telegram's client from expiring the draft bubble (~10s timeout).
+    if (state.keepaliveTimer) clearInterval(state.keepaliveTimer);
+    const capturedDraftId = state.draftId;
+    state.keepaliveTimer = setInterval(() => {
+      const s = this.draftStates.get(jid);
+      if (s && s.draftId === capturedDraftId && this.bot && s.accumulatedText) {
+        const cid = Number(TelegramChannel.extractChatId(jid));
+        this.bot.api.sendMessageDraft(cid, s.draftId, s.accumulatedText)
+          .catch(() => {});
+      } else if (s?.keepaliveTimer) {
+        clearInterval(s.keepaliveTimer);
+        s.keepaliveTimer = null;
+      }
+    }, TelegramChannel.DRAFT_KEEPALIVE_MS);
   }
 
   /**
@@ -1180,9 +1201,8 @@ export class TelegramChannel implements Channel {
   private finalizeDraft(jid: string): void {
     const state = this.draftStates.get(jid);
     if (state) {
-      if (state.pendingTimer) {
-        clearTimeout(state.pendingTimer);
-      }
+      if (state.pendingTimer) clearTimeout(state.pendingTimer);
+      if (state.keepaliveTimer) clearInterval(state.keepaliveTimer);
       this.draftStates.delete(jid);
     }
   }

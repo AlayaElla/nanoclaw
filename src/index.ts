@@ -610,6 +610,29 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // (agent:tool_use hook execution moved to synchronous /ipc/hook/sync endpoint)
 
     if (event.status === 'running' && event.tool) {
+      // Commit any pending streamed text before tool status message.
+      // Telegram draft bubbles are ephemeral — sending a regular message
+      // (tool status) causes the draft to disappear. Commit streamed text
+      // as a permanent message first so the user doesn't lose the content.
+      if (intermediateTextBuffer && channel.sendDelta) {
+        await channel.sendMessage(chatJid, intermediateTextBuffer);
+        storeMessage({
+          id: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          chat_jid: chatJid,
+          sender: 'assistant',
+          sender_name: group.assistantName!,
+          content: intermediateTextBuffer,
+          timestamp: new Date().toISOString(),
+          is_bot_message: true,
+          is_from_me: true,
+        });
+        crossPostToSiblingAgents(chatJid, intermediateTextBuffer, group.assistantName!);
+        intermediateTextBuffer = '';
+        intermediateCount = 0;
+        outputSentToUser = true;
+        currentQueryHadDirectOutput = true;
+      }
+
       let displayName = event.description;
       if (!displayName) {
         if (event.tool === lastToolName) {

@@ -306,10 +306,11 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform) {
   ) {
     // Stage 1: Reject exceptionally long timeouts to prevent framework hang
     const reqTimeout = parseInt(toolInput.timeout, 10);
-    if (!isNaN(reqTimeout) && reqTimeout > 60000) {
+    const hasBackground = toolInput.background === true || toolInput.background === "true";
+    if (!isNaN(reqTimeout) && reqTimeout > 30000 && !hasBackground) {
       return {
         action: "deny",
-        reason: `context-mode: Execution blocked. You requested a timeout of ${reqTimeout}ms, but the maximum allowed is 60000ms (60s) to prevent system deadlocks. Do NOT retry with a shorter timeout if the underlying task is slow. Instead, submit your workload to the background (e.g., using '&', nohup, or detached processes with redirected output) and exit your script immediately, then check on the results in a later turn.`
+        reason: `context-mode: 执行已被拦截。您请求的超时时间为 ${reqTimeout} 毫秒，但为了防止系统假死，允许的最大阻塞时间为 30000 毫秒（30秒）。请不要尝试使用更短的超时时间死等长任务的完成。正确的做法是：在调用 ${t("ctx_execute")} 工具时直接传入参数 'background: true' 让任务在后台安全运行。执行脱离后，请在接下来的对话回合中，通过后续的命令主动读取日志文件来跟踪任务状态。`
       };
     }
 
@@ -337,10 +338,11 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform) {
   ) {
     // Stage 1: Reject exceptionally long timeouts
     const reqTimeout = parseInt(toolInput.timeout, 10);
-    if (!isNaN(reqTimeout) && reqTimeout > 60000) {
+    const hasBackground = toolInput.background === true || toolInput.background === "true";
+    if (!isNaN(reqTimeout) && reqTimeout > 30000 && !hasBackground) {
       return {
         action: "deny",
-        reason: `context-mode: Execution blocked. You requested a timeout of ${reqTimeout}ms, but the maximum allowed is 60000ms (60s). Submit your workload to the background to prevent deadlocks.`
+        reason: `context-mode: 执行已被拦截。您请求的超时时间为 ${reqTimeout} 毫秒，但为了防止系统假死，允许的最大阻塞时间为 30000 毫秒（30秒）。正确的做法是：在调用 ${t("ctx_execute_file")} 工具时直接传入参数 'background: true' 让脚本在后台安全运行。脚本脱离后，请在接下来的对话回合中，通过后续的命令主动读取相关输出来跟踪任务状态。`
       };
     }
 

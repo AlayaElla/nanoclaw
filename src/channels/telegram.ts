@@ -200,12 +200,12 @@ export class TelegramChannel implements Channel {
   private async fetchFileBuffer(file: any, baseUrl: string): Promise<Buffer> {
     const filePath = file.file_path;
     if (!filePath) throw new Error('File path is empty');
-    
+
     logger.debug(
       { filePath, baseUrl, isAbsolute: path.isAbsolute(filePath) },
       'fetchFileBuffer: resolving file',
     );
-    
+
     // Telegram local server returns absolute paths — try local file read first
     if (baseUrl !== 'https://api.telegram.org' && path.isAbsolute(filePath)) {
       let localPath = filePath;
@@ -226,7 +226,7 @@ export class TelegramChannel implements Channel {
         );
       }
     }
-    
+
     // HTTP download (also works for local server in --local mode)
     const url = `${baseUrl}/file/bot${this.botToken}/${filePath}`;
     logger.debug({ url }, 'fetchFileBuffer: HTTP download');
@@ -359,7 +359,7 @@ export class TelegramChannel implements Channel {
                 `❓ ${question.question}\n✅ 你选择了: **${selectedLabels.join(', ')}**`,
                 { parse_mode: 'Markdown' },
               )
-              .catch(() => {});
+              .catch(() => { });
 
             if (Object.keys(qData.answers).length === qData.questions.length) {
               const chatJid = this.makeJid(chatId);
@@ -397,7 +397,7 @@ export class TelegramChannel implements Channel {
 
             await ctx
               .editMessageReplyMarkup({ reply_markup: keyboard })
-              .catch(() => {});
+              .catch(() => { });
           } else {
             // Single select
             if (qData.answers[question.question]) {
@@ -414,7 +414,7 @@ export class TelegramChannel implements Channel {
                   `❓ ${question.question}\n✅ 你选择了: **${option.label}**`,
                   { parse_mode: 'Markdown' },
                 )
-                .catch(() => {});
+                .catch(() => { });
 
               if (
                 Object.keys(qData.answers).length === qData.questions.length
@@ -630,7 +630,7 @@ export class TelegramChannel implements Channel {
           sender,
           msgId,
           mediaType: 'photo' as const,
-          timer: setTimeout(() => {}, 0),
+          timer: setTimeout(() => { }, 0),
         };
         await this.processAndStoreMedia(pending, caption);
         await this.setTyping(chatJid, false);
@@ -659,7 +659,7 @@ export class TelegramChannel implements Channel {
                   { chatJid, err, bot: this.tokenEnvName },
                   'Deferred photo processing failed',
                 );
-                this.setTyping(chatJid, false).catch(() => {});
+                this.setTyping(chatJid, false).catch(() => { });
               });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
@@ -744,7 +744,7 @@ export class TelegramChannel implements Channel {
           msgId,
           mediaType: 'video' as const,
           mimeType,
-          timer: setTimeout(() => {}, 0),
+          timer: setTimeout(() => { }, 0),
         };
         await this.processAndStoreMedia(pending, caption);
         await this.setTyping(chatJid, false);
@@ -770,7 +770,7 @@ export class TelegramChannel implements Channel {
                   { chatJid, err, bot: this.tokenEnvName },
                   'Deferred video processing failed',
                 );
-                this.setTyping(chatJid, false).catch(() => {});
+                this.setTyping(chatJid, false).catch(() => { });
               });
           }
         }, TelegramChannel.MEDIA_MERGE_WINDOW);
@@ -1096,18 +1096,6 @@ export class TelegramChannel implements Channel {
 
     let state = this.draftStates.get(jid);
 
-    // Detect stale drafts: if no delta arrived for DRAFT_STALE_MS,
-    // a new turn/tool-gap has started — begin a fresh draft.
-    if (
-      state &&
-      state.lastSendTime > 0 &&
-      Date.now() - state.lastSendTime > TelegramChannel.DRAFT_STALE_MS
-    ) {
-      if (state.pendingTimer) clearTimeout(state.pendingTimer);
-      if (state.keepaliveTimer) clearInterval(state.keepaliveTimer);
-      state = undefined;
-    }
-
     if (!state) {
       this.draftCounter++;
       state = {
@@ -1186,7 +1174,7 @@ export class TelegramChannel implements Channel {
       if (s && s.draftId === capturedDraftId && this.bot && s.accumulatedText) {
         const cid = Number(TelegramChannel.extractChatId(jid));
         this.bot.api.sendMessageDraft(cid, s.draftId, s.accumulatedText)
-          .catch(() => {});
+          .catch(() => { });
       } else if (s?.keepaliveTimer) {
         clearInterval(s.keepaliveTimer);
         s.keepaliveTimer = null;
@@ -1203,6 +1191,10 @@ export class TelegramChannel implements Channel {
     if (state) {
       if (state.pendingTimer) clearTimeout(state.pendingTimer);
       if (state.keepaliveTimer) clearInterval(state.keepaliveTimer);
+      if (this.bot) {
+        const chatId = Number(TelegramChannel.extractChatId(jid));
+        this.bot.api.sendMessageDraft(chatId, state.draftId, '').catch(() => { });
+      }
       this.draftStates.delete(jid);
     }
   }
@@ -1244,7 +1236,7 @@ export class TelegramChannel implements Channel {
     if (this.bot) {
       try {
         this.bot.stop();
-      } catch {}
+      } catch { }
       this.bot = null;
     }
     this.pollingActive = false;
@@ -1298,7 +1290,7 @@ export class TelegramChannel implements Channel {
     );
     setTimeout(() => {
       if (this.shutdownRequested) return;
-      this.ensureConnected().catch(() => {});
+      this.ensureConnected().catch(() => { });
     }, delay);
   }
 
@@ -1431,13 +1423,25 @@ export class TelegramChannel implements Channel {
 
   async sendStatusMessage(jid: string, text: string): Promise<number | null> {
     if (!(await this.ensureConnected())) return null;
-    // Finalize any active draft before sending a status message —
-    // Telegram clears the draft bubble when a regular message arrives,
-    // so clean up state to prevent stale draft contamination.
-    this.finalizeDraft(jid);
+    // Do NOT finalize the draft here.
+    // Telegram natively clears the draft bubble from the UI when this status
+    // message arrives, but we WANT to keep our local `accumulatedText` and
+    // `draftId` intact! This allows the draft to seamlessly reconstruct itself
+    // on the next streaming token!
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       const msg = await sendTelegramMessage(this.bot!.api, numericId, text);
+      
+      // The new regular message washed away the streaming draft natively in Telegram.
+      // We immediately create a NEW draft bubble with the retained text so there is no
+      // noticeable visual gap for the user.
+      const state = this.draftStates.get(jid);
+      if (state && state.accumulatedText) {
+        this.draftCounter++;
+        state.draftId = this.draftCounter;
+        this.bot?.api.sendMessageDraft(Number(numericId), state.draftId, state.accumulatedText).catch(() => {});
+      }
+      
       return msg.message_id;
     } catch (err) {
       logger.debug(
@@ -1454,6 +1458,7 @@ export class TelegramChannel implements Channel {
     text: string,
   ): Promise<void> {
     if (!(await this.ensureConnected())) return;
+    this.finalizeDraft(jid);
     try {
       const numericId = TelegramChannel.extractChatId(jid);
       try {

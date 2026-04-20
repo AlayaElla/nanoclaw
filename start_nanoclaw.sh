@@ -3,7 +3,7 @@
 # 请确保 LiteLLM 代理已经在运行 (通常在端口 4000)
 
 set -e
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 # === 确保带上 messagebus(gid=101) 组 ===
 # 本地 telegram-bot-api 容器以 uid:gid=101:101 写下载文件，

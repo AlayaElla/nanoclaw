@@ -764,13 +764,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           } else {
             // Stop typing indicator before sending — user should see the reply, not "typing..."
             await channel.setTyping?.(chatJid, false);
-            
+
             if (intermediateMessageId) {
               if (channel.editStatusMessage) {
-                await channel.editStatusMessage(chatJid, intermediateMessageId, text).catch(() => {});
+                await channel.editStatusMessage(chatJid, intermediateMessageId, text).catch(() => { });
               } else {
                 if (channel.deleteMessage) {
-                  await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => {});
+                  await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => { });
                 }
                 await channel.sendMessage(chatJid, text);
               }
@@ -823,10 +823,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (intermediateMessageId) {
           // 💭 bubble was actually shown — edit it to the final clean text
           if (channel.editStatusMessage) {
-            await channel.editStatusMessage(chatJid, intermediateMessageId, intermediateTextBuffer).catch(() => {});
+            await channel.editStatusMessage(chatJid, intermediateMessageId, intermediateTextBuffer).catch(() => { });
           } else {
             if (channel.deleteMessage) {
-              await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => {});
+              await channel.deleteMessage(chatJid, intermediateMessageId).catch(() => { });
             }
             if (intermediateTextBuffer && channel.sendMessage) {
               await channel.sendMessage(chatJid, intermediateTextBuffer);
@@ -1470,11 +1470,11 @@ async function main(): Promise<void> {
     // Support factories that return multiple channel instances (e.g., multi-bot Telegram)
     const instances = Array.isArray(result) ? result : [result];
     for (const channel of instances) {
+      channels.push(channel);
       try {
         await channel.connect();
-        channels.push(channel);
-      } catch (err) {
-        // Silently skip if a bot fails to connect
+      } catch (err: any) {
+        logger.warn({ channel: (channel as any).name, err: err.message }, 'Channel initial connect timeout/failed, registered for background retry.');
       }
     }
   }
@@ -1546,19 +1546,19 @@ async function main(): Promise<void> {
 
   startGatewayServer(ipcDeps);
 
-async function processFolderMessages(folderKey: string): Promise<boolean> {
-  const jids = Object.keys(registeredGroups).filter(jid => registeredGroups[jid].folder === folderKey);
-  let overallSuccess = true;
-  for (const jid of jids) {
-    const sinceTimestamp = lastAgentTimestamp[jid] || '';
-    const missedMessages = getMessagesSince(jid, sinceTimestamp);
-    if (missedMessages.length > 0) {
-      const success = await processGroupMessages(jid);
-      if (!success) overallSuccess = false;
+  async function processFolderMessages(folderKey: string): Promise<boolean> {
+    const jids = Object.keys(registeredGroups).filter(jid => registeredGroups[jid].folder === folderKey);
+    let overallSuccess = true;
+    for (const jid of jids) {
+      const sinceTimestamp = lastAgentTimestamp[jid] || '';
+      const missedMessages = getMessagesSince(jid, sinceTimestamp);
+      if (missedMessages.length > 0) {
+        const success = await processGroupMessages(jid);
+        if (!success) overallSuccess = false;
+      }
     }
+    return overallSuccess;
   }
-  return overallSuccess;
-}
 
   queue.setProcessMessagesFn(processFolderMessages);
   recoverPendingMessages();
